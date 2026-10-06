@@ -19,7 +19,7 @@ const VALID_ROUTES: Route[] = [
 ];
 
 function parseHash(hash: string): Route {
-  const clean = hash.replace(/^#\/?/, '');
+  const clean = hash.replace(/^#\/?/, '').split('?')[0];
   return (VALID_ROUTES as string[]).includes(clean)
     ? (clean as Route)
     : DEFAULT_ROUTE;

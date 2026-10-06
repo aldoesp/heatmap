@@ -1,6 +1,10 @@
-// server.js
-import app from "./app.js";
+import 'dotenv/config';
+import app from './app.js';
 
-app.listen(3001, "127.0.0.1", () => {
-  console.log("Backend actif sur http://127.0.0.1:3001");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(
+    `API sur http://localhost:${PORT}/api/v1 — mode : ${process.env.SCAN_MODE === 'test' ? 'test' : 'live'}`
+  );
 });

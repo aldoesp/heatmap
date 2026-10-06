@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlanStore } from '../../hooks/usePlanStore';
 import type { LoadError } from '../../hooks/usePlanStore';
 import { Dropzone } from './Dropzone';
@@ -33,7 +33,33 @@ export function UploadPage() {
   } = usePlanStore();
 
   const [nameError, setNameError] = useState<string | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!window.location.hash.includes('?test=1')) return;
+
+    const loadTestData = async () => {
+      setTestLoading(true);
+      try {
+        const response = await fetch('/api/v1/scan/test-data');
+        if (!response.ok) {
+          throw new Error(`La requête a échoué (${response.status}).`);
+        }
+        setTestResult(JSON.stringify(await response.json(), null, 2));
+      } catch (error) {
+        setTestError(
+          error instanceof Error ? error.message : 'Impossible de charger les données de test.'
+        );
+      } finally {
+        setTestLoading(false);
+      }
+    };
+
+    void loadTestData();
+  }, []);
 
   const duplicateNames = useMemo(() => {
     const seen = new Set<string>();
@@ -86,6 +112,31 @@ export function UploadPage() {
           Importe une photo ou une capture de ton plan.
         </p>
       </div>
+
+      {(testLoading || testResult !== null || testError !== null) && (
+        <section className="mb-6" aria-labelledby="test-result-title">
+          <h2 id="test-result-title" className="text-sm font-medium mb-2">
+            Résultat du test (JSON)
+          </h2>
+          {testLoading ? (
+            <p role="status" className="text-sm text-text-dim">
+              Chargement des données de test…
+            </p>
+          ) : testError ? (
+            <p role="alert" className="text-sm text-danger">
+              Impossible de charger le résultat du test : {testError}
+            </p>
+          ) : (
+            <textarea
+              aria-label="Résultat du test au format JSON"
+              readOnly
+              value={testResult ?? ''}
+              rows={12}
+              className="w-full rounded-[14px] border border-glass-border-soft bg-glass-bg-soft p-3 font-mono text-xs text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+          )}
+        </section>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 lg:gap-6 lg:items-start">
         {/* Colonne principale */}

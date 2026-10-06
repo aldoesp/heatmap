@@ -92,7 +92,7 @@ export function ScanPage() {
   }, [scanPoints.length]);
 
   const handleImport = useCallback(() => {
-    location.hash = '#/upload';
+    location.hash = '#/upload?test=1';
   }, []);
 
   const handleSurveys = useCallback(() => {
