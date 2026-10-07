@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, ImageOverlay, CircleMarker, Tooltip, useMap } from 'react-leaflet';
+import { LocateFixed } from 'lucide-react';
 import L from 'leaflet';
 import { usePlanImage } from '../../hooks/usePlanImage';
 import { getHeatmap, getHeatmapSpeed, getNetworks } from '../../lib/api';
@@ -27,13 +28,39 @@ function speedColor(mbps: number): string {
   return '#ef4444';
 }
 
-function FitBounds({ width, height }: { width: number; height: number }) {
+function FitBounds({
+  width,
+  height,
+  registerFit,
+}: {
+  width: number;
+  height: number;
+  registerFit: (fn: () => void) => void;
+}) {
   const map = useMap();
   useEffect(() => {
     const bounds = L.latLngBounds([0, 0], [height, width]);
-    map.invalidateSize();
-    map.fitBounds(bounds, { padding: [24, 24] });
-  }, [map, width, height]);
+    const fit = () => {
+      map.invalidateSize();
+      map.fitBounds(bounds, { padding: [24, 24] });
+    };
+    fit();
+    registerFit(fit);
+
+    // Sur resize (barre d'URL Android, rotation...), on ne refait QUE
+    // invalidateSize : le zoom de l'utilisateur est conservé.
+    // Le recadrage reste un geste volontaire (bouton Recentrer).
+    let timer: number | null = null;
+    const onResize = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => map.invalidateSize(), 200);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [map, width, height, registerFit]);
   return null;
 }
 
@@ -60,6 +87,15 @@ export function HeatmapPage() {
   const [selectedRadius, setSelectedRadius] = useState<number | null>(
     () => getHeatmapRadius()
   );
+  const fitRef = useRef<(() => void) | null>(null);
+
+  const registerFit = useCallback((fn: () => void) => {
+    fitRef.current = fn;
+  }, []);
+
+  const handleRecenter = useCallback(() => {
+    fitRef.current?.();
+  }, []);
 
   // Liste des réseaux pour les filtres
   useEffect(() => {
@@ -326,14 +362,23 @@ export function HeatmapPage() {
         </div>
       ) : (
         <>
-          <div className="rounded-2xl overflow-hidden border border-glass-border-soft">
+          <div className="relative rounded-2xl overflow-hidden border border-glass-border-soft">
+            <button
+              type="button"
+              aria-label="Recentrer la carte sur le plan"
+              title="Recentrer la carte sur le plan"
+              onClick={handleRecenter}
+              className="absolute top-3 right-3 z-10 inline-flex items-center justify-center h-11 w-11 rounded-xl text-text bg-[#0d1319]/90 border border-white/10 hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              <LocateFixed size={18} strokeWidth={1.75} aria-hidden />
+            </button>
             <MapContainer
               bounds={bounds}
               crs={L.CRS.Simple}
               attributionControl={false}
               className="w-full h-[60vh] z-0"
             >
-              <FitBounds width={plan.width} height={plan.height} />
+              <FitBounds width={plan.width} height={plan.height} registerFit={registerFit} />
               <ImageOverlay url={imageUrl} bounds={bounds} />
               {!showingSpeed && rows.map((r) => (
                 <CircleMarker
