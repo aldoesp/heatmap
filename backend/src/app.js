@@ -2,6 +2,7 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import { rateLimit } from 'express-rate-limit';
+import { UPLOADS_DIRECTORY } from './services/plans.service.js';
 import api from './api/index.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
@@ -11,6 +12,7 @@ const app = express();
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json());
+app.use('/uploads', express.static(UPLOADS_DIRECTORY, { fallthrough: false }));
 app.use(requestLogger);
 
 // Le scan Wi-Fi est coûteux : limite globale sur l'API

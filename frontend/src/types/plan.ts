@@ -7,12 +7,14 @@ export interface AccessPoint {
 }
 
 export interface PlanData {
+  /** Identifiant serveur du plan (renvoyé par POST /api/v1/plans) */
+  id: string;
   name: string;
   fileName: string;
   width: number;
   height: number;
   sizeBytes: number;
-  image: Blob;
+  /** URL absolue ou relative servie par le backend */
   imageUrl: string;
 }
 
@@ -23,7 +25,11 @@ export interface PlanState {
   placing: boolean;
 }
 
+/**
+ * Forme persistée localement : uniquement les métadonnées + l'URL/id serveur.
+ * Le fichier image lui-même n'est plus stocké côté client.
+ */
 export interface PersistedPlan {
-  plan: Omit<PlanData, 'image' | 'imageUrl'>;
+  plan: PlanData;
   accessPoints: AccessPoint[];
 }

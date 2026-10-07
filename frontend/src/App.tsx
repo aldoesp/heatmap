@@ -2,10 +2,17 @@ import { lazy, Suspense } from "react"
 import Particles from "./components/ui/Particles"
 import { Navbar } from "./components/layout/Navbar"
 import { UploadPage } from "./components/upload/UploadPage"
+import { PlaceholderPage } from "./components/common/PlaceholderPage"
 import { useHashRoute } from "./hooks/useHashRoutes"
 
 const ScanPage = lazy(() =>
   import("./components/scan/ScanPage").then(({ ScanPage }) => ({ default: ScanPage }))
+)
+const SurveysPage = lazy(() =>
+  import("./components/surveys/SurveysPage").then(({ SurveysPage }) => ({ default: SurveysPage }))
+)
+const HeatmapPage = lazy(() =>
+  import("./components/heatmap/HeatmapPage").then(({ HeatmapPage }) => ({ default: HeatmapPage }))
 )
 
 function App() {
@@ -30,8 +37,12 @@ function App() {
       <div className="relative z-10">
         <Suspense fallback={<div className="fixed inset-0 bg-bg" />}>
           {route === 'scan' && <ScanPage />}
+          {route === 'surveys' && <SurveysPage />}
+          {route === 'heatmap' && <HeatmapPage />}
         </Suspense>
         {route === 'upload' && <UploadPage />}
+        {route === 'analyse' && <PlaceholderPage title="Analyse" />}
+        {route === 'settings' && <PlaceholderPage title="Paramètres" />}
       </div>
     </main>
   )

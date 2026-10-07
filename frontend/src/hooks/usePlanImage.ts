@@ -1,64 +1,75 @@
 import { useEffect, useState } from 'react';
-import type { PlanMeta } from '../types/project';
-import { getPlanBlob, loadProject } from '../lib/storage';
+import type { PlanData } from '../types/plan';
+import { getActivePlanId } from '../lib/storage';
+import { getPlan, listPlans } from '../lib/api';
+import { ApiError } from '../types/api';
 
 interface PlanImageResult {
-  plan: PlanMeta | null;
+  plan: PlanData | null;
   imageUrl: string | null;
   loading: boolean;
+  /** L'image référencée en DB est introuvable sur le serveur */
+  imageMissing: boolean;
+  error: string | null;
 }
 
+/**
+ * Plan actif depuis le backend (source de vérité).
+ * Vérifie aussi que le fichier image existe encore : si la ligne SQLite
+ * référence une image manquante, on l'indique sans effacer de données.
+ */
 export function usePlanImage(): PlanImageResult {
-  const [plan, setPlan] = useState<PlanMeta | null>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [plan, setPlan] = useState<PlanData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [imageMissing, setImageMissing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let revokedUrl: string | null = null;
-    let cancelled = false;
-
+    let alive = true;
     (async () => {
-      const project = loadProject();
-      const blob = await getPlanBlob();
-      if (cancelled) return;
-
-      if (!blob) {
-        setLoading(false);
-        return;
+      try {
+        const id = getActivePlanId();
+        const p = id ? await getPlan(id) : (await listPlans())[0] ?? null;
+        if (!p) {
+          if (alive) setLoading(false);
+          return;
+        }
+        if (alive) {
+          setPlan({
+            id: p.id,
+            name: p.name,
+            fileName: p.fileName,
+            width: p.width,
+            height: p.height,
+            sizeBytes: p.sizeBytes,
+            imageUrl: p.imageUrl,
+          });
+        }
+        // L'image existe-t-elle encore sur le serveur ?
+        try {
+          const head = await fetch(p.imageUrl, { method: 'HEAD' });
+          if (alive) setImageMissing(!head.ok);
+        } catch {
+          if (alive) setImageMissing(true);
+        }
+      } catch (err) {
+        if (!alive) return;
+        const apiErr = err instanceof ApiError ? err : null;
+        setError(apiErr?.message ?? 'Impossible de charger le plan.');
+      } finally {
+        if (alive) setLoading(false);
       }
-
-      const url = URL.createObjectURL(blob);
-      revokedUrl = url;
-
-      const img = new Image();
-      img.onload = () => {
-        if (cancelled) return;
-        setPlan({
-          name:
-            project?.plan?.name ||
-            project?.plan?.fileName?.replace(/\.[^.]+$/, '') ||
-            'Plan',
-          fileName: project?.plan?.fileName || 'plan.png',
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-          sizeBytes: blob.size,
-        });
-        setImageUrl(url);
-        setLoading(false);
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        revokedUrl = null;
-        if (!cancelled) setLoading(false);
-      };
-      img.src = url;
     })();
-
     return () => {
-      cancelled = true;
-      if (revokedUrl) URL.revokeObjectURL(revokedUrl);
+      alive = false;
     };
   }, []);
 
-  return { plan, imageUrl, loading };
+  return {
+    plan,
+    imageUrl: imageMissing ? null : (plan?.imageUrl ?? null),
+    loading,
+    imageMissing,
+    error,
+  };
 }

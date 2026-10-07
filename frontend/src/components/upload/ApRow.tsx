@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { AccessPoint } from '../../types/plan';
 import { formatApCoords } from '../../lib/format';
@@ -21,6 +22,19 @@ export function ApRow({
   onChangeName,
   onRemove,
 }: ApRowProps) {
+  // Saisie locale : le backend n'est appelé qu'à la sortie du champ.
+  // Resynchronise pendant le rendu quand le serveur confirme un nouveau nom.
+  const [draft, setDraft] = useState(ap.name);
+  const [prevName, setPrevName] = useState(ap.name);
+  if (ap.name !== prevName) {
+    setPrevName(ap.name);
+    setDraft(ap.name);
+  }
+
+  const commit = () => {
+    if (draft !== ap.name) onChangeName(ap.id, draft);
+  };
+
   return (
     <div
       onClick={() => onSelect(ap.id)}
@@ -38,11 +52,16 @@ export function ApRow({
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
         <input
           type="text"
-          value={ap.name}
+          value={draft}
           aria-label={`Nom de l'AP ${index}`}
+          data-ap-input={ap.id}
           onClick={(e) => e.stopPropagation()}
           onFocus={() => onSelect(ap.id)}
-          onChange={(e) => onChangeName(ap.id, e.target.value)}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
           className={[
             'h-8 w-full px-2 rounded-lg text-[13px] text-text outline-none bg-[rgba(255,255,255,0.03)] border transition-colors duration-ui ease-ui',
             hasDuplicateName

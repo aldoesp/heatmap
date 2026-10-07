@@ -1,5 +1,8 @@
 import 'dotenv/config';
+import { getDb } from './database/db.js';
 import app from './app.js';
+
+getDb(); // crée data/heatmap.db + tables si besoin
 
 const PORT = process.env.PORT || 3000;
 

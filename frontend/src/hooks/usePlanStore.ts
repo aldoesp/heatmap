@@ -1,151 +1,325 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AccessPoint, PlanData } from '../types/plan';
-import { savePlan, loadPlan, clearPlan } from '../lib/storage';
+import {
+  getActivePlanId,
+  setActivePlanId,
+  readLegacyPlanId,
+} from '../lib/storage';
+import {
+  uploadPlanImage,
+  listPlans,
+  getPlan,
+  renamePlan as renamePlanApi,
+  deletePlan as deletePlanApi,
+  listAccessPoints,
+  createAccessPoint,
+  updateAccessPoint,
+  deleteAccessPoint,
+} from '../lib/api';
+import { ApiError } from '../types/api';
 import { stripExtension } from '../lib/format';
 
 const MAX_BYTES = 10 * 1024 * 1024;
-const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp'];
+const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
 export type LoadError =
   | 'format'
   | 'size'
-  | 'unreadable';
+  | 'unreadable'
+  | 'network'
+  | 'server';
+
+export interface LoadErrorInfo {
+  kind: LoadError;
+  message: string;
+}
+
+function toPlanData(p: {
+  id: string;
+  name: string;
+  imageUrl: string;
+  fileName: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+}): PlanData {
+  return {
+    id: p.id,
+    name: p.name,
+    fileName: p.fileName,
+    width: p.width,
+    height: p.height,
+    sizeBytes: p.sizeBytes,
+    imageUrl: p.imageUrl,
+  };
+}
+
+function toErrorInfo(err: unknown, fallback: string): LoadErrorInfo {
+  const apiErr = err instanceof ApiError ? err : null;
+  const isNetwork = apiErr?.code === 'network' || apiErr?.status === 0;
+  return {
+    kind: isNetwork ? 'network' : 'server',
+    message: apiErr?.message ?? fallback,
+  };
+}
 
 export function usePlanStore() {
   const [plan, setPlan] = useState<PlanData | null>(null);
   const [accessPoints, setAccessPoints] = useState<AccessPoint[]>([]);
   const [selectedApId, setSelectedApId] = useState<string | null>(null);
   const [placing, setPlacing] = useState(false);
-  const [error, setError] = useState<LoadError | null>(null);
+  /** Chargement initial (plan + APs depuis le backend) */
+  const [loading, setLoading] = useState(true);
+  /** Import d'image en cours */
+  const [uploading, setUploading] = useState(false);
+  /** Mutation AP / rename en cours */
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<LoadErrorInfo | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  /* Restauration au montage */
+  const aliveRef = useRef(true);
   useEffect(() => {
-    let revoked: string | null = null;
-    loadPlan().then((saved) => {
-      if (!saved) return;
-      const url = URL.createObjectURL(saved.image);
-      revoked = url;
-      const img = new Image();
-      img.onload = () => {
-        setPlan({
-          ...saved.plan,
-          image: saved.image,
-          imageUrl: url,
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-        });
-        setAccessPoints(saved.accessPoints);
-      };
-      img.src = url;
-    });
+    aliveRef.current = true;
     return () => {
-      if (revoked) URL.revokeObjectURL(revoked);
+      aliveRef.current = false;
     };
   }, []);
 
-  /* Nettoyage de l'URL objet courante */
-  useEffect(() => {
-    const url = plan?.imageUrl;
-    return () => {
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [plan?.imageUrl]);
+  /* ==========================================================================
+     Chargement initial : le backend est la source de vérité.
+     ========================================================================== */
+  const refresh = useCallback(async (planId?: string) => {
+    const id = planId ?? getActivePlanId() ?? readLegacyPlanId();
+    if (!id) {
+      // Aucun plan actif : prendre le plus récent s'il existe
+      try {
+        const plans = await listPlans();
+        if (!aliveRef.current) return;
+        if (plans.length === 0) {
+          setPlan(null);
+          setAccessPoints([]);
+          return;
+        }
+        setActivePlanId(plans[0].id);
+        setPlan(toPlanData(plans[0]));
+        setAccessPoints(await listAccessPoints(plans[0].id));
+      } catch (err) {
+        if (!aliveRef.current) return;
+        setError(toErrorInfo(err, 'Impossible de charger les plans.'));
+      }
+      return;
+    }
+    try {
+      const p = await getPlan(id);
+      if (!aliveRef.current) return;
+      setActivePlanId(p.id);
+      setPlan(toPlanData(p));
+      setAccessPoints(await listAccessPoints(p.id));
+      setError(null);
+    } catch (err) {
+      if (!aliveRef.current) return;
+      const apiErr = err instanceof ApiError ? err : null;
+      if (apiErr?.status === 404) {
+        // Plan local orphelin (supprimé côté serveur) : on l'oublie sans effacer la DB
+        setActivePlanId(null);
+        setPlan(null);
+        setAccessPoints([]);
+        setError({
+          kind: 'server',
+          message: 'Ce plan n’existe plus sur le serveur. Importe un nouveau plan.',
+        });
+      } else {
+        setError(toErrorInfo(err, 'Impossible de charger le plan.'));
+      }
+    }
+  }, []);
 
-  /* Persistance à chaque changement significatif */
   useEffect(() => {
-    if (!plan) return;
-    void savePlan(
-      {
-        name: plan.name,
-        fileName: plan.fileName,
-        width: plan.width,
-        height: plan.height,
-        sizeBytes: plan.sizeBytes,
-      },
-      accessPoints,
-      plan.image
-    );
-  }, [plan, accessPoints]);
+    (async () => {
+      await refresh();
+      if (aliveRef.current) setLoading(false);
+    })();
+  }, [refresh]);
 
-  const loadFile = useCallback((file: File) => {
+  /* ==========================================================================
+     Import : validation locale puis envoi au backend
+     ========================================================================== */
+  const loadFile = useCallback(async (file: File) => {
+    if (uploading) return;
     setError(null);
     setInfo(null);
 
     if (!ACCEPTED.includes(file.type)) {
-      setError('format');
+      setError({
+        kind: 'format',
+        message: "Ce format n'est pas supporté. Utilise un JPG, PNG ou WebP.",
+      });
       return;
     }
+
     if (file.size > MAX_BYTES) {
-      setError('size');
+      setError({
+        kind: 'size',
+        message: 'Cette image dépasse 10 Mo. Choisis-en une plus légère.',
+      });
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const url = URL.createObjectURL(file);
-        setPlan({
-          name: stripExtension(file.name),
-          fileName: file.name,
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-          sizeBytes: file.size,
-          image: file,
-          imageUrl: url,
-        });
-        setAccessPoints([]);
-        setSelectedApId(null);
-        setPlacing(false);
-        setInfo('Plan chargé.');
-      };
-      img.onerror = () => setError('unreadable');
-      img.src = reader.result as string;
-    };
-    reader.onerror = () => setError('unreadable');
-    reader.readAsDataURL(file);
-  }, []);
+    setUploading(true);
+    try {
+      const res = await uploadPlanImage(file);
+      if (!aliveRef.current) return;
+      setActivePlanId(res.id);
+      setPlan({
+        id: res.id,
+        name: res.name || stripExtension(res.fileName),
+        fileName: res.fileName,
+        width: res.width,
+        height: res.height,
+        sizeBytes: res.sizeBytes,
+        imageUrl: res.imageUrl,
+      });
+      setAccessPoints([]);
+      setSelectedApId(null);
+      setPlacing(false);
+      setInfo('Plan importé.');
+    } catch (err) {
+      if (!aliveRef.current) return;
+      const apiErr = err instanceof ApiError ? err : null;
+      const isNetwork = apiErr?.code === 'network' || apiErr?.status === 0;
+      setError({
+        kind: isNetwork ? 'network' : 'server',
+        message:
+          apiErr?.message ??
+          "Impossible d'envoyer l'image. Réessaie dans un instant.",
+      });
+    } finally {
+      if (aliveRef.current) setUploading(false);
+    }
+  }, [uploading]);
 
-  const clear = useCallback(() => {
-    clearPlan();
-    setPlan(null);
-    setAccessPoints([]);
-    setSelectedApId(null);
-    setPlacing(false);
+  /* ==========================================================================
+     Suppression du plan (backend + fichiers) — l'appelant doit confirmer.
+     ========================================================================== */
+  const clear = useCallback(async (): Promise<boolean> => {
+    if (!plan) return true;
+    setBusy(true);
     setError(null);
-    setInfo(null);
-  }, []);
+    try {
+      await deletePlanApi(plan.id);
+      if (!aliveRef.current) return true;
+      setActivePlanId(null);
+      setPlan(null);
+      setAccessPoints([]);
+      setSelectedApId(null);
+      setPlacing(false);
+      setInfo(null);
+      return true;
+    } catch (err) {
+      if (!aliveRef.current) return false;
+      setError(toErrorInfo(err, 'Impossible de supprimer le plan.'));
+      return false;
+    } finally {
+      if (aliveRef.current) setBusy(false);
+    }
+  }, [plan]);
 
-  const renamePlan = useCallback((name: string) => {
-    setPlan((p) => (p ? { ...p, name } : p));
-  }, []);
+  const renamePlan = useCallback(async (name: string): Promise<boolean> => {
+    if (!plan) return false;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === plan.name) return true;
+    setBusy(true);
+    try {
+      const updated = await renamePlanApi(plan.id, trimmed);
+      if (!aliveRef.current) return true;
+      setPlan((p) => (p ? { ...p, name: updated.name } : p));
+      return true;
+    } catch (err) {
+      if (!aliveRef.current) return false;
+      setError(toErrorInfo(err, 'Impossible de renommer le plan.'));
+      return false;
+    } finally {
+      if (aliveRef.current) setBusy(false);
+    }
+  }, [plan]);
 
-  const addAp = useCallback(
-    (x: number, y: number): AccessPoint => {
-      const index = accessPoints.length + 1;
-      const ap: AccessPoint = {
-        id: `ap-${Date.now()}`,
-        name: `AP-${String(index).padStart(2, '0')}`,
+  /* ==========================================================================
+     Points d'accès : persistés via l'API, confirmés après succès backend.
+     ========================================================================== */
+  const addAp = useCallback(async (x: number, y: number): Promise<AccessPoint | null> => {
+    if (!plan) return null;
+    const taken = new Set(accessPoints.map((a) => a.name.trim()));
+    let index = accessPoints.length + 1;
+    let name = `AP-${String(index).padStart(2, '0')}`;
+    while (taken.has(name)) {
+      index += 1;
+      name = `AP-${String(index).padStart(2, '0')}`;
+    }
+    setBusy(true);
+    try {
+      const ap = await createAccessPoint(plan.id, {
+        name,
         x: Math.max(0, Math.min(1, x)),
         y: Math.max(0, Math.min(1, y)),
-      };
+      });
+      if (!aliveRef.current) return ap;
       setAccessPoints((prev) => [...prev, ap]);
       setSelectedApId(ap.id);
       return ap;
-    },
-    [accessPoints.length]
-  );
+    } catch (err) {
+      if (!aliveRef.current) return null;
+      setError(toErrorInfo(err, "Impossible d'ajouter ce point d’accès."));
+      return null;
+    } finally {
+      if (aliveRef.current) setBusy(false);
+    }
+  }, [plan, accessPoints]);
 
-  const updateAp = useCallback((id: string, patch: Partial<AccessPoint>) => {
-    setAccessPoints((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, ...patch } : a))
-    );
+  const updateAp = useCallback(async (
+    id: string,
+    patch: Partial<AccessPoint>
+  ): Promise<boolean> => {
+    const clean: Partial<Pick<AccessPoint, 'name' | 'x' | 'y'>> = {};
+    if (patch.name !== undefined) {
+      const name = patch.name.trim();
+      if (!name) {
+        setError({ kind: 'server', message: 'Le nom du point d’accès est vide.' });
+        return false;
+      }
+      clean.name = patch.name;
+    }
+    if (patch.x !== undefined) clean.x = Math.max(0, Math.min(1, patch.x));
+    if (patch.y !== undefined) clean.y = Math.max(0, Math.min(1, patch.y));
+    setBusy(true);
+    try {
+      const updated = await updateAccessPoint(id, clean);
+      if (!aliveRef.current) return true;
+      setAccessPoints((prev) => prev.map((a) => (a.id === id ? updated : a)));
+      return true;
+    } catch (err) {
+      if (!aliveRef.current) return false;
+      setError(toErrorInfo(err, 'Impossible de mettre à jour ce point d’accès.'));
+      return false;
+    } finally {
+      if (aliveRef.current) setBusy(false);
+    }
   }, []);
 
-  const removeAp = useCallback((id: string) => {
-    setAccessPoints((prev) => prev.filter((a) => a.id !== id));
-    setSelectedApId((curr) => (curr === id ? null : curr));
+  const removeAp = useCallback(async (id: string): Promise<boolean> => {
+    setBusy(true);
+    try {
+      await deleteAccessPoint(id);
+      if (!aliveRef.current) return true;
+      setAccessPoints((prev) => prev.filter((a) => a.id !== id));
+      setSelectedApId((curr) => (curr === id ? null : curr));
+      return true;
+    } catch (err) {
+      if (!aliveRef.current) return false;
+      setError(toErrorInfo(err, 'Impossible de supprimer ce point d’accès.'));
+      return false;
+    } finally {
+      if (aliveRef.current) setBusy(false);
+    }
   }, []);
 
   const selectAp = useCallback((id: string | null) => setSelectedApId(id), []);
@@ -157,11 +331,19 @@ export function usePlanStore() {
 
   const stopPlacing = useCallback(() => setPlacing(false), []);
 
+  const dismissMessages = useCallback(() => {
+    setError(null);
+    setInfo(null);
+  }, []);
+
   return {
     plan,
     accessPoints,
     selectedApId,
     placing,
+    loading,
+    uploading,
+    busy,
     error,
     info,
     loadFile,
@@ -173,5 +355,7 @@ export function usePlanStore() {
     selectAp,
     togglePlacing,
     stopPlacing,
+    refresh,
+    dismissMessages,
   };
 }

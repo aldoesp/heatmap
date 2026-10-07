@@ -59,6 +59,7 @@ export function PreviewCard({
           .filter(Boolean)
           .join(' ')}
       >
+        {/* L'image est servie par le backend via imageUrl (URL serveur) */}
         <img
           ref={imgRef}
           src={imageUrl}

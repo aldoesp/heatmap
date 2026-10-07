@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import { usePlanImage } from '../../hooks/usePlanImage';
 import { useScanStore } from '../../hooks/useScanStore';
-import { loadProject } from '../../lib/storage';
+import { listAccessPoints } from '../../lib/api';
 import { latlngToData, dataToLatLng, clampCoord } from '../../lib/coords';
 import { formatPercent } from '../../lib/format';
 import { ScanMap } from './ScanMap';
@@ -13,29 +13,39 @@ import { DoneDialog } from './DoneDialog';
 import type { AccessPoint } from '../../types/project';
 
 export function ScanPage() {
-  const { plan, imageUrl, loading } = usePlanImage();
-  const accessPoints = useMemo<AccessPoint[]>(
-    () => loadProject()?.accessPoints ?? [],
-    []
-  );
+  const { plan, imageUrl, loading, imageMissing, error: planError } = usePlanImage();
+  const [accessPoints, setAccessPoints] = useState<AccessPoint[]>([]);
 
-  const { scanPoints, addScan, removeLast } = useScanStore(
-    plan?.name ?? null,
-    plan
-      ? {
-          width: plan.width,
-          height: plan.height,
-          fileName: plan.fileName,
-          sizeBytes: plan.sizeBytes,
-        }
-      : null,
-    accessPoints
-  );
+  const {
+    scanPoints,
+    loading: pointsLoading,
+    scanning,
+    error: scanError,
+    lastResult,
+    addScan,
+    removeLast,
+    dismissError,
+  } = useScanStore(plan?.id ?? null);
 
   const [pendingLatLng, setPendingLatLng] = useState<L.LatLng | null>(null);
   const [scanConfirmed, setScanConfirmed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const fitRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (!plan) return;
+    let alive = true;
+    listAccessPoints(plan.id)
+      .then((aps) => {
+        if (alive) setAccessPoints(aps);
+      })
+      .catch(() => {
+        /* APs indisponibles : la carte reste utilisable sans eux */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [plan]);
 
   const registerFit = useCallback((fn: () => void) => {
     fitRef.current = fn;
@@ -53,34 +63,35 @@ export function ScanPage() {
 
   const handleMapClick = useCallback(
     (latlng: L.LatLng) => {
-      if (!plan) return;
+      if (!plan || scanning) return;
+      dismissError();
       const clamped = clampCoord(latlngToData(latlng, plan.width, plan.height));
       const [lat, lng] = dataToLatLng(clamped.x, clamped.y, plan.width, plan.height);
       setPendingLatLng(L.latLng(lat, lng));
     },
-    [plan]
+    [plan, scanning, dismissError]
   );
 
   const handlePinDragEnd = useCallback(
     (latlng: L.LatLng) => {
-      if (!plan) return;
+      if (!plan || scanning) return;
       const clamped = clampCoord(latlngToData(latlng, plan.width, plan.height));
       const [lat, lng] = dataToLatLng(clamped.x, clamped.y, plan.width, plan.height);
       setPendingLatLng(L.latLng(lat, lng));
     },
-    [plan]
+    [plan, scanning]
   );
 
-  const handleScan = useCallback(() => {
-    if (!plan || !pendingLatLng) return;
+  const handleScan = useCallback(async () => {
+    if (!plan || !pendingLatLng || scanning) return;
     const data = clampCoord(latlngToData(pendingLatLng, plan.width, plan.height));
-    addScan(data.x, data.y);
-    setPendingLatLng(null);
-    if (navigator.vibrate) navigator.vibrate(30);
-
-    setScanConfirmed(true);
-    window.setTimeout(() => setScanConfirmed(false), 600);
-  }, [plan, pendingLatLng, addScan]);
+    const result = await addScan(data.x, data.y);
+    if (result) {
+      setPendingLatLng(null);
+      setScanConfirmed(true);
+      window.setTimeout(() => setScanConfirmed(false), 1200);
+    }
+  }, [plan, pendingLatLng, scanning, addScan]);
 
   const handleUndo = useCallback(() => {
     removeLast();
@@ -101,19 +112,58 @@ export function ScanPage() {
   }, []);
 
   const hint = useMemo(() => {
+    if (scanning) return 'Scan en cours… ne bouge pas.';
+    if (scanError) return scanError;
+    if (lastResult) {
+      return `${lastResult.count} réseau${lastResult.count > 1 ? 'x' : ''} enregistré${lastResult.count > 1 ? 's' : ''} (${lastResult.mode === 'test' ? 'mode test' : 'mesure réelle'}).`;
+    }
     if (!plan) return '';
     if (pendingLatLng) {
       const data = latlngToData(pendingLatLng, plan.width, plan.height);
       return `Position définie · x ${formatPercent(data.x)} · y ${formatPercent(data.y)}`;
     }
     return 'Touche le plan à ton emplacement, puis appuie sur Scan.';
-  }, [plan, pendingLatLng]);
+  }, [plan, pendingLatLng, scanning, scanError, lastResult]);
 
-  if (loading) {
+  if (loading || (plan && pointsLoading)) {
     return <div className="fixed inset-0 bg-bg" />;
   }
 
+  if (planError && !plan) {
+    return (
+      <div className="max-w-150 mx-auto px-4 py-16 text-center">
+        <p className="text-text text-[15px] mb-4">{planError}</p>
+        <button
+          type="button"
+          onClick={handleImport}
+          className="inline-flex items-center h-12 px-5 rounded-[14px] bg-accent text-bg font-medium text-[15px]"
+        >
+          Importer un plan
+        </button>
+      </div>
+    );
+  }
+
   if (!plan || !imageUrl) {
+    if (imageMissing && plan) {
+      return (
+        <div className="max-w-150 mx-auto px-4 py-16 text-center">
+          <p className="text-text text-[15px] mb-2">
+            L’image du plan « {plan.name} » est introuvable sur le serveur.
+          </p>
+          <p className="text-text-dim text-sm mb-4">
+            Les relevés restent conservés. Réimporte le plan ou contacte l’administrateur.
+          </p>
+          <button
+            type="button"
+            onClick={handleImport}
+            className="inline-flex items-center h-12 px-5 rounded-[14px] bg-accent text-bg font-medium text-[15px]"
+          >
+            Importer un plan
+          </button>
+        </div>
+      );
+    }
     return <EmptyPlanState onImport={handleImport} />;
   }
 
@@ -136,9 +186,9 @@ export function ScanPage() {
       <ActionPanel
         hint={hint}
         hasPin={!!pendingLatLng}
-        canScan={!!pendingLatLng}
-        canUndo={scanPoints.length > 0}
-        canDone={scanPoints.length > 0}
+        canScan={!!pendingLatLng && !scanning}
+        canUndo={scanPoints.length > 0 && !scanning}
+        canDone={scanPoints.length > 0 && !scanning}
         scanConfirmed={scanConfirmed}
         onScan={handleScan}
         onUndo={handleUndo}
