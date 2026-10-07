@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { usePlanImage } from '../../hooks/usePlanImage';
-import { getHistory } from '../../lib/api';
+import { getHistory, updateScanPoint, exportCsvUrl } from '../../lib/api';
 import { ApiError, type ScanHistoryEntry } from '../../types/api';
-import { formatPercent } from '../../lib/format';
+import { formatPercent, formatMbps } from '../../lib/format';
 
 function formatDate(iso: string): string {
   try {
@@ -53,6 +53,27 @@ export function SurveysPage() {
     location.hash = '#/scan';
   }, []);
 
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const handleToggle = useCallback(async (point: ScanHistoryEntry) => {
+    if (!plan || togglingId) return;
+    setTogglingId(point.id);
+    setError(null);
+    try {
+      const updated = await updateScanPoint(plan.id, point.id, {
+        is_enabled: point.is_enabled ? 0 : 1,
+      });
+      setHistory((prev) =>
+        prev.map((p) => (p.id === point.id ? { ...p, is_enabled: updated.is_enabled } : p))
+      );
+    } catch (err) {
+      const apiErr = err instanceof ApiError ? err : null;
+      setError(apiErr?.message ?? 'Impossible de modifier ce relevé.');
+    } finally {
+      setTogglingId(null);
+    }
+  }, [plan, togglingId]);
+
   if (planLoading || loading) {
     return <div className="fixed inset-0 bg-bg" />;
   }
@@ -95,13 +116,35 @@ export function SurveysPage() {
 
   return (
     <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
-      <div className="mb-6">
-        <h1 className="text-[22px] font-medium tracking-tight mb-1">Relevés</h1>
-        <p className="text-text-dim text-sm">
-          {plan.name} · {history.length} emplacement{history.length > 1 ? 's' : ''} ·{' '}
-          {totalScans} scan{totalScans > 1 ? 's' : ''}
-          {imageMissing ? ' · image du plan introuvable' : ''}
-        </p>
+      <div className="mb-6 flex items-end justify-between gap-3">
+        <div>
+          <h1 className="text-[22px] font-medium tracking-tight mb-1">Relevés</h1>
+          <p className="text-text-dim text-sm">
+            {plan.name} · {history.length} emplacement{history.length > 1 ? 's' : ''} ·{' '}
+            {totalScans} scan{totalScans > 1 ? 's' : ''}
+            {imageMissing ? ' · image du plan introuvable' : ''}
+          </p>
+        </div>
+        {history.length > 0 && (
+          <div className="shrink-0 flex gap-2">
+            <a
+              href={plan ? exportCsvUrl(plan.id) : '#'}
+              download
+              className="inline-flex items-center h-11 px-4 rounded-[14px] border border-glass-border-soft text-text-dim font-medium text-sm hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Export CSV
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                location.hash = '#/heatmap';
+              }}
+              className="inline-flex items-center h-11 px-4 rounded-[14px] bg-accent text-bg font-medium text-sm hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Voir la heatmap
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -135,7 +178,12 @@ export function SurveysPage() {
             return (
               <div
                 key={point.id}
-                className="glass-fallback bg-glass-bg-soft border border-glass-border-soft rounded-card p-4"
+                className={[
+                  'glass-fallback bg-glass-bg-soft border border-glass-border-soft rounded-card p-4',
+                  !point.is_enabled && 'opacity-55',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
               >
                 <button
                   type="button"
@@ -147,10 +195,11 @@ export function SurveysPage() {
                     <span className="shrink-0 w-7 h-7 rounded-full bg-accent text-[#0b0f14] font-mono text-[12px] font-semibold flex items-center justify-center">
                       {String(i + 1).padStart(2, '0')}
                     </span>
-                    <span>
-                      <span className="block text-sm font-medium">
-                        x {formatPercent(point.x)} · y {formatPercent(point.y)}
-                      </span>
+                      <span>
+                        <span className="block text-sm font-medium">
+                          x {formatPercent(point.x)} · y {formatPercent(point.y)}
+                          {!point.is_enabled ? ' · coupé' : ''}
+                        </span>
                       <span className="block text-[12px] text-text-dim font-mono">
                         {formatDate(point.created_at)} · {point.scans.length} scan
                         {point.scans.length > 1 ? 's' : ''}
@@ -165,6 +214,18 @@ export function SurveysPage() {
 
                 {open && (
                   <div className="mt-3 flex flex-col gap-2">
+                    <button
+                      type="button"
+                      disabled={togglingId === point.id}
+                      onClick={() => handleToggle(point)}
+                      className="self-start inline-flex items-center h-9 px-3 rounded-[10px] text-[13px] font-medium text-text-dim border border-glass-border bg-transparent hover:text-text disabled:opacity-40 disabled:cursor-wait focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                    >
+                      {togglingId === point.id
+                        ? '…'
+                        : point.is_enabled
+                          ? 'Couper (exclure de la heatmap)'
+                          : 'Activer'}
+                    </button>
                     {point.scans.length === 0 && (
                       <p className="text-[13px] text-text-dim">
                         Aucun scan enregistré à cet emplacement.
@@ -178,6 +239,15 @@ export function SurveysPage() {
                         {formatDate(s.scanned_at)} · {s.network_count} réseau
                         {s.network_count > 1 ? 'x' : ''} ·{' '}
                         {s.mode === 'test' ? 'mode test' : 'mesure réelle'}
+                        {s.gateway_rtt_ms !== null
+                          ? ` · ping ${s.gateway_rtt_ms} ms`
+                          : ''}
+                        {s.tcp_down_bps !== null && s.tcp_down_bps !== undefined
+                          ? ` · ↓ ${formatMbps(s.tcp_down_bps)}`
+                          : ''}
+                        {s.tcp_up_bps !== null && s.tcp_up_bps !== undefined
+                          ? ` · ↑ ${formatMbps(s.tcp_up_bps)}`
+                          : ''}
                       </div>
                     ))}
                   </div>

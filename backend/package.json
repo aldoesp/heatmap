@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "nodemon --watch src src/server.js",
     "start": "node src/server.js",
-    "test": "node --test tests/api.test.js",
+    "test": "node --test tests/api.test.js tests/ping.test.js",
     "test:scan": "SCAN_MODE=test nodemon --watch src src/server.js",
     "print": "node tests/print-normalized.js"
   },

@@ -9,7 +9,11 @@ import {
   insertScanWithObservations,
   findScanById,
   listObservationsByScan,
+  insertSpeedTest,
+  findSpeedByScan,
 } from '../repositories/scans.repository.js';
+import { getAllSettings } from '../repositories/settings.repository.js';
+import { runIperf } from '../services/iperf.service.js';
 
 export const getScan = async (req, res) => {
   const result = await getNormalizedScan(req.filters);
@@ -44,14 +48,38 @@ export const saveScanAtPoint = async (req, res, next) => {
       mode: result.mode,
       scanned_at: result.scanned_at,
       rejected_count: result.rejected_count,
+      gateway: result.gateway,
       entries: result.data,
     });
+
+    // Débit iperf3 (optionnel) : seulement si un serveur est configuré.
+    // Best-effort : un échec ne remet jamais en cause le scan Wi-Fi.
+    let speed = null;
+    try {
+      const settings = getAllSettings();
+      if (settings.iperf_server) {
+        const measured = await runIperf(
+          settings.iperf_server,
+          Number(settings.iperf_duration_s) || 5
+        );
+        speed = insertSpeedTest({
+          scan_id: scanId,
+          tcp_down_bps: measured.tcpDownBps,
+          tcp_up_bps: measured.tcpUpBps,
+          duration_s: measured.durationS,
+          error: measured.error,
+        });
+      }
+    } catch {
+      /* mesure de débit optionnelle */
+    }
 
     res.status(201).json({
       scan_id: scanId,
       scan_point_id: point.id,
       plan_id: point.plan_id,
       ...result,
+      speed,
     });
   } catch (err) {
     next(err);
@@ -64,5 +92,6 @@ export const getScanDetail = (req, res, next) => {
   res.json({
     ...scan,
     observations: listObservationsByScan(scan.id, req.filters ?? {}),
+    speed: findSpeedByScan(scan.id),
   });
 };

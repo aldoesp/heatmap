@@ -33,9 +33,39 @@ CREATE TABLE IF NOT EXISTS scan_points (
   plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
   x REAL NOT NULL CHECK(x BETWEEN 0 AND 1),
   y REAL NOT NULL CHECK(y BETWEEN 0 AND 1),
+  note TEXT DEFAULT NULL,
+  is_enabled INTEGER NOT NULL DEFAULT 1 CHECK(is_enabled IN (0,1)),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sp_plan ON scan_points(plan_id);
+
+-- Noms conviviaux des bornes (BSSID -> nom), par plan (cf. ApMapping upstream)
+CREATE TABLE IF NOT EXISTS ap_mappings (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  bssid TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(plan_id, bssid)
+);
+CREATE INDEX IF NOT EXISTS idx_apm_plan ON ap_mappings(plan_id);
+
+-- Débit iperf3 par scan (une ligne max, seulement si un serveur est configuré)
+CREATE TABLE IF NOT EXISTS speed_tests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_id TEXT NOT NULL UNIQUE REFERENCES scans(id) ON DELETE CASCADE,
+  tcp_down_bps INTEGER DEFAULT NULL,
+  tcp_up_bps INTEGER DEFAULT NULL,
+  duration_s INTEGER NOT NULL,
+  error TEXT DEFAULT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- Réglages globaux clé/valeur (serveur iperf, durée des tests, ...)
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Un appui sur "Scan" à un point donné
 CREATE TABLE IF NOT EXISTS scans (
@@ -45,6 +75,9 @@ CREATE TABLE IF NOT EXISTS scans (
   mode TEXT NOT NULL CHECK(mode IN ('live','test')),
   scanned_at TEXT NOT NULL,
   rejected_count INTEGER NOT NULL DEFAULT 0,
+  gateway_ip TEXT DEFAULT NULL,
+  gateway_rtt_ms REAL DEFAULT NULL,
+  gateway_loss_percent REAL DEFAULT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_scans_point ON scans(scan_point_id);
@@ -69,6 +102,8 @@ CREATE TABLE IF NOT EXISTS observations (
   security TEXT NOT NULL,
   standard TEXT NOT NULL,
   virtual_bssid INTEGER NOT NULL DEFAULT 0 CHECK(virtual_bssid IN (0,1)),
+  unreliable_bssid INTEGER NOT NULL DEFAULT 0 CHECK(unreliable_bssid IN (0,1)),
+  current INTEGER NOT NULL DEFAULT 0 CHECK(current IN (0,1)),
   capabilities TEXT NOT NULL DEFAULT '[]',
   timestamp_us INTEGER
 );

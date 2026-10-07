@@ -10,6 +10,7 @@ import { InfoChip } from './InfoChip';
 import { ActionPanel } from './ActionPanel';
 import { EmptyPlanState } from './EmptyPlanState';
 import { DoneDialog } from './DoneDialog';
+import { ScanConfirmDialog } from './ScanConfirmDialog';
 import type { AccessPoint } from '../../types/project';
 
 export function ScanPage() {
@@ -30,6 +31,9 @@ export function ScanPage() {
   const [pendingLatLng, setPendingLatLng] = useState<L.LatLng | null>(null);
   const [scanConfirmed, setScanConfirmed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Position du dernier scan, pour le dialogue de confirmation
+  const [lastCoords, setLastCoords] = useState<{ x: number; y: number } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const fitRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -63,23 +67,23 @@ export function ScanPage() {
 
   const handleMapClick = useCallback(
     (latlng: L.LatLng) => {
-      if (!plan || scanning) return;
+      if (!plan || scanning || confirmOpen) return;
       dismissError();
       const clamped = clampCoord(latlngToData(latlng, plan.width, plan.height));
       const [lat, lng] = dataToLatLng(clamped.x, clamped.y, plan.width, plan.height);
       setPendingLatLng(L.latLng(lat, lng));
     },
-    [plan, scanning, dismissError]
+    [plan, scanning, confirmOpen, dismissError]
   );
 
   const handlePinDragEnd = useCallback(
     (latlng: L.LatLng) => {
-      if (!plan || scanning) return;
+      if (!plan || scanning || confirmOpen) return;
       const clamped = clampCoord(latlngToData(latlng, plan.width, plan.height));
       const [lat, lng] = dataToLatLng(clamped.x, clamped.y, plan.width, plan.height);
       setPendingLatLng(L.latLng(lat, lng));
     },
-    [plan, scanning]
+    [plan, scanning, confirmOpen]
   );
 
   const handleScan = useCallback(async () => {
@@ -88,10 +92,23 @@ export function ScanPage() {
     const result = await addScan(data.x, data.y);
     if (result) {
       setPendingLatLng(null);
+      setLastCoords({ x: data.x, y: data.y });
+      setConfirmOpen(true);
       setScanConfirmed(true);
       window.setTimeout(() => setScanConfirmed(false), 1200);
     }
   }, [plan, pendingLatLng, scanning, addScan]);
+
+  const handleKeepScan = useCallback(() => {
+    setConfirmOpen(false);
+  }, []);
+
+  const handleDiscardScan = useCallback(async () => {
+    // Le point venant d'être créé est toujours le dernier (verrou scanning).
+    const removed = await removeLast();
+    if (removed) setConfirmOpen(false);
+    // En cas d'échec, le dialogue reste ouvert avec l'erreur affichée.
+  }, [removeLast]);
 
   const handleUndo = useCallback(() => {
     removeLast();
@@ -186,13 +203,24 @@ export function ScanPage() {
       <ActionPanel
         hint={hint}
         hasPin={!!pendingLatLng}
-        canScan={!!pendingLatLng && !scanning}
-        canUndo={scanPoints.length > 0 && !scanning}
-        canDone={scanPoints.length > 0 && !scanning}
+        canScan={!!pendingLatLng && !scanning && !confirmOpen}
+        canUndo={scanPoints.length > 0 && !scanning && !confirmOpen}
+        canDone={scanPoints.length > 0 && !scanning && !confirmOpen}
         scanConfirmed={scanConfirmed}
         onScan={handleScan}
         onUndo={handleUndo}
         onDone={handleDone}
+      />
+
+      <ScanConfirmDialog
+        open={confirmOpen && !!lastResult}
+        result={lastResult}
+        x={lastCoords?.x ?? 0}
+        y={lastCoords?.y ?? 0}
+        discarding={scanning}
+        error={scanError}
+        onKeep={handleKeepScan}
+        onDiscard={handleDiscardScan}
       />
 
       <DoneDialog

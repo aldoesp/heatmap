@@ -25,8 +25,14 @@ import {
   listScanPointsByPlan,
   findScanPointById,
   deleteScanPoint,
+  updateScanPoint,
 } from '../repositories/scanPoints.repository.js';
-import { heatmapByPlan, getHistoryByPlan, listNetworksByPlan } from '../repositories/scans.repository.js';
+import { heatmapByPlan, getHistoryByPlan, listNetworksByPlan, exportPlanCsv, speedByPlan } from '../repositories/scans.repository.js';
+import {
+  listMappingsByPlan,
+  insertMapping,
+  deleteMapping,
+} from '../repositories/apMappings.repository.js';
 
 const planNameFromFile = (originalname) =>
   path.parse(originalname).name.trim() || 'Plan';
@@ -205,6 +211,40 @@ export const removeScanPoint = (req, res, next) => {
   res.status(204).end();
 };
 
+export const patchScanPoint = (req, res, next) => {
+  if (!findPlanById(req.params.id)) return next(new AppError('Plan introuvable.', 404));
+  const point = findScanPointById(req.params.pointId);
+  if (!point || point.plan_id !== req.params.id) {
+    return next(new AppError('Point de scan introuvable pour ce plan.', 404));
+  }
+  const patch = {};
+  if (req.body?.note !== undefined) {
+    if (typeof req.body.note !== 'string') {
+      return next(new AppError('Note invalide.', 400));
+    }
+    const note = req.body.note.trim();
+    if (!note) {
+      return next(new AppError('La note ne peut pas être vide.', 400));
+    }
+    if (note.length > 500) {
+      return next(new AppError('La note ne doit pas dépasser 500 caractères.', 400));
+    }
+    patch.note = note;
+  }
+  if (req.body?.is_enabled !== undefined) {
+    if (req.body.is_enabled !== 0 && req.body.is_enabled !== 1 && req.body.is_enabled !== false && req.body.is_enabled !== true) {
+      return next(new AppError('is_enabled doit être 0 ou 1.', 400));
+    }
+    patch.is_enabled = req.body.is_enabled ? 1 : 0;
+  }
+  if (Object.keys(patch).length === 0) {
+    return next(new AppError('Rien à mettre à jour.', 400));
+  }
+  const updated = updateScanPoint(point.id, patch);
+  if (!updated) return next(new AppError('Point de scan introuvable pour ce plan.', 404));
+  res.json(updated);
+};
+
 export const removePlan = async (req, res, next) => {
   const plan = findPlanById(req.params.id);
   if (!plan) return next(new AppError('Plan introuvable.', 404));
@@ -219,11 +259,17 @@ export const removePlan = async (req, res, next) => {
 
 export const getHeatmap = (req, res, next) => {
   if (!findPlanById(req.params.id)) return next(new AppError('Plan introuvable.', 404));
-  const { ssid, bssid } = req.query;
+  const { ssid, bssid, connected } = req.query;
   res.json(heatmapByPlan(req.params.id, {
     ssid: ssid ? String(ssid) : undefined,
     bssid: bssid ? String(bssid) : undefined,
+    connected: connected === '1' || connected === 'true',
   }));
+};
+
+export const getHeatmapSpeed = (req, res, next) => {
+  if (!findPlanById(req.params.id)) return next(new AppError('Plan introuvable.', 404));
+  res.json(speedByPlan(req.params.id));
 };
 
 export const getHistory = (req, res, next) => {
@@ -234,4 +280,47 @@ export const getHistory = (req, res, next) => {
 export const getNetworks = (req, res, next) => {
   if (!findPlanById(req.params.id)) return next(new AppError('Plan introuvable.', 404));
   res.json(listNetworksByPlan(req.params.id));
+};
+
+export const exportCsv = (req, res, next) => {
+  const plan = findPlanById(req.params.id);
+  if (!plan) return next(new AppError('Plan introuvable.', 404));
+  const csv = exportPlanCsv(plan.id);
+  const safeName = plan.name.replace(/[^\w\-àâäéèêëîïôöùûüç]+/gi, '_').slice(0, 60) || 'plan';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}-releves.csv"`);
+  res.send('\ufeff' + csv); // BOM pour Excel
+};
+
+const BSSID_RE = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
+
+export const getMappings = (req, res, next) => {
+  if (!findPlanById(req.params.id)) return next(new AppError('Plan introuvable.', 404));
+  res.json(listMappingsByPlan(req.params.id));
+};
+
+export const createMapping = (req, res, next) => {
+  const plan = findPlanById(req.params.id);
+  if (!plan) return next(new AppError('Plan introuvable.', 404));
+  const name = String(req.body?.name ?? '').trim();
+  const bssid = String(req.body?.bssid ?? '').trim().toLowerCase();
+  if (!name || name.length > 64) return next(new AppError('Nom de borne invalide.', 400));
+  if (!BSSID_RE.test(bssid)) {
+    return next(new AppError('Adresse MAC invalide (ex. 9e:05:d6:96:e8:30).', 400));
+  }
+  try {
+    res.status(201).json(insertMapping({ plan_id: plan.id, name, bssid }));
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) {
+      return next(new AppError('Ce BSSID a déjà un nom sur ce plan.', 409));
+    }
+    next(err);
+  }
+};
+
+export const removeMapping = (req, res, next) => {
+  if (!deleteMapping(req.params.mappingId)) {
+    return next(new AppError('Correspondance introuvable.', 404));
+  }
+  res.status(204).end();
 };

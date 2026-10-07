@@ -2,15 +2,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MapContainer, ImageOverlay, CircleMarker, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { usePlanImage } from '../../hooks/usePlanImage';
-import { getHeatmap, getNetworks } from '../../lib/api';
-import { ApiError, type HeatmapRow, type NetworkInfo } from '../../types/api';
-import { formatPercent } from '../../lib/format';
+import { getHeatmap, getHeatmapSpeed, getNetworks } from '../../lib/api';
+import {
+  getHeatmapRadius,
+  setHeatmapRadius,
+  calculateAutoRadius,
+} from '../../lib/heatmap';
+import { ApiError, type HeatmapRow, type NetworkInfo, type SpeedHeatmapRow } from '../../types/api';
+import { formatPercent, formatMbps } from '../../lib/format';
 
 function rssiColor(rssi: number): string {
   if (rssi >= -55) return '#10b981';
   if (rssi >= -67) return '#a3e635';
   if (rssi >= -75) return '#f59e0b';
   if (rssi >= -85) return '#f97316';
+  return '#ef4444';
+}
+
+function speedColor(mbps: number): string {
+  if (mbps >= 50) return '#10b981';
+  if (mbps >= 20) return '#a3e635';
+  if (mbps >= 5) return '#f59e0b';
+  if (mbps >= 1) return '#f97316';
   return '#ef4444';
 }
 
@@ -37,9 +50,16 @@ export function HeatmapPage() {
   const [networks, setNetworks] = useState<NetworkInfo[]>([]);
   const [ssid, setSsid] = useState('');
   const [bssid, setBssid] = useState('');
+  // Par défaut : seuls les cercles du réseau connecté (marqué au scan).
+  const [onlyConnected, setOnlyConnected] = useState(true);
   const [rows, setRows] = useState<HeatmapRow[]>([]);
+  const [speedRows, setSpeedRows] = useState<SpeedHeatmapRow[]>([]);
+  const [metric, setMetric] = useState<'rssi' | 'speed'>('rssi');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedRadius, setSelectedRadius] = useState<number | null>(
+    () => getHeatmapRadius()
+  );
 
   // Liste des réseaux pour les filtres
   useEffect(() => {
@@ -65,18 +85,23 @@ export function HeatmapPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getHeatmap(plan.id, {
-        ssid: ssid || undefined,
-        bssid: bssid || undefined,
-      });
+      const [data, speeds] = await Promise.all([
+        getHeatmap(plan.id, {
+          ssid: ssid || undefined,
+          bssid: bssid || undefined,
+          connected: onlyConnected || undefined,
+        }),
+        getHeatmapSpeed(plan.id).catch(() => [] as SpeedHeatmapRow[]),
+      ]);
       setRows(data);
+      setSpeedRows(speeds);
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null;
       setError(apiErr?.message ?? 'Impossible de charger la heatmap.');
     } finally {
       setLoading(false);
     }
-  }, [plan, ssid, bssid]);
+  }, [plan, ssid, bssid, onlyConnected]);
 
   useEffect(() => {
     if (planLoading) return;
@@ -95,6 +120,17 @@ export function HeatmapPage() {
     () => (plan ? [[0, 0], [plan.height, plan.width]] : null),
     [plan]
   );
+
+  // Rayon auto d'après l'emprise des points (comme l'upstream), ajustable.
+  const autoRadius = useMemo(() => {
+    if (!plan) return 30;
+    const seen = new Map<string, { x: number; y: number }>();
+    for (const r of rows) {
+      if (!seen.has(r.scan_point_id)) seen.set(r.scan_point_id, { x: r.x, y: r.y });
+    }
+    return calculateAutoRadius([...seen.values()], plan.width, plan.height);
+  }, [rows, plan]);
+  const radius = selectedRadius ?? autoRadius;
 
   if (planLoading || loading) {
     return <div className="fixed inset-0 bg-bg" />;
@@ -135,19 +171,73 @@ export function HeatmapPage() {
   }
 
   const hasFilter = !!ssid || !!bssid;
+  const showingSpeed = metric === 'speed';
+  const visibleCount = showingSpeed ? speedRows.length : rows.length;
+  const onlyDefaultFilter = onlyConnected && !ssid && !bssid;
+  const SPEED_LEGEND: Array<{ label: string; color: string }> = [
+    { label: '≥ 50 Mb/s', color: '#10b981' },
+    { label: '≥ 20 Mb/s', color: '#a3e635' },
+    { label: '≥ 5 Mb/s', color: '#f59e0b' },
+    { label: '≥ 1 Mb/s', color: '#f97316' },
+    { label: '< 1 Mb/s', color: '#ef4444' },
+  ];
+  const activeLegend = showingSpeed ? SPEED_LEGEND : LEGEND;
+  const isEmpty = showingSpeed ? speedRows.length === 0 : rows.length === 0;
+
+  const emptyMessage = showingSpeed
+    ? 'Aucune mesure de débit : configure un serveur iperf3 dans Paramètres, puis effectue des scans.'
+    : onlyDefaultFilter
+      ? 'Aucune mesure du réseau connecté : décoche « Connecté » pour tout voir, ou refais des scans en mode réel (le marquage demande Termux:API).'
+      : hasFilter
+        ? 'Aucune mesure pour ce filtre : la carte serait vide.'
+        : 'Aucun relevé à afficher : effectue d’abord des scans.';
 
   return (
     <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
       <div className="mb-4">
         <h1 className="text-[22px] font-medium tracking-tight mb-1">Heatmap</h1>
         <p className="text-text-dim text-sm">
-          {plan.name} · {rows.length} mesure{rows.length > 1 ? 's' : ''}
+          {plan.name} · {visibleCount} mesure{visibleCount > 1 ? 's' : ''}
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
-        <select
-          aria-label="Filtrer par SSID"
+        <div
+          role="group"
+          aria-label="Métrique affichée"
+          className="flex h-11 rounded-xl border border-glass-border-soft overflow-hidden"
+        >
+          {(['rssi', 'speed'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={metric === m}
+              onClick={() => setMetric(m)}
+              className={[
+                'px-4 text-sm font-medium transition-colors',
+                metric === m ? 'bg-accent-soft text-accent' : 'text-text-dim hover:text-text',
+              ].join(' ')}
+            >
+              {m === 'rssi' ? 'Signal' : 'Débit'}
+            </button>
+          ))}
+        </div>
+        {!showingSpeed && (
+          <>
+            <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                aria-label="Réseau connecté uniquement"
+                checked={onlyConnected}
+                onChange={(e) => setOnlyConnected(e.target.checked)}
+                className="w-4 h-4 accent-[#10b981]"
+              />
+              <span className={onlyConnected ? 'text-text font-medium' : 'text-text-dim'}>
+                Connecté
+              </span>
+            </label>
+            <select
+              aria-label="Filtrer par SSID"
           value={ssid}
           onChange={(e) => {
             setSsid(e.target.value);
@@ -176,18 +266,38 @@ export function HeatmapPage() {
             </option>
           ))}
         </select>
-        {hasFilter && (
+        </>
+        )}
+        {hasFilter && !showingSpeed && (
           <button
             type="button"
             onClick={() => {
               setSsid('');
               setBssid('');
+              setOnlyConnected(true);
             }}
             className="h-11 px-4 rounded-xl text-sm font-medium text-text-dim border border-glass-border hover:text-text"
           >
             Réinitialiser
           </button>
         )}
+        <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
+          <span className="whitespace-nowrap">Rayon {radius} px</span>
+          <input
+            type="range"
+            aria-label="Rayon des pastilles en pixels"
+            min={10}
+            max={120}
+            step={1}
+            value={radius}
+            onChange={(e) => {
+              const nextRadius = Number(e.target.value);
+              setSelectedRadius(nextRadius);
+              setHeatmapRadius(nextRadius);
+            }}
+            className="w-28 accent-[#10b981]"
+          />
+        </label>
       </div>
 
       {error && (
@@ -199,12 +309,10 @@ export function HeatmapPage() {
         </div>
       )}
 
-      {rows.length === 0 && !error ? (
+      {isEmpty && !error ? (
         <div className="text-center py-16">
           <p className="text-text text-[15px] mb-2">
-            {hasFilter
-              ? 'Aucune mesure pour ce filtre : la carte serait vide.'
-              : 'Aucun relevé à afficher : effectue d’abord des scans.'}
+            {emptyMessage}
           </p>
           <button
             type="button"
@@ -227,11 +335,11 @@ export function HeatmapPage() {
             >
               <FitBounds width={plan.width} height={plan.height} />
               <ImageOverlay url={imageUrl} bounds={bounds} />
-              {rows.map((r) => (
+              {!showingSpeed && rows.map((r) => (
                 <CircleMarker
                   key={`${r.scan_point_id}-${r.bssid}`}
                   center={[(1 - r.y) * plan.height, r.x * plan.width]}
-                  radius={10 + Math.max(0, (r.rssi + 100) / 10)}
+                  radius={radius}
                   pathOptions={{
                     color: rssiColor(r.rssi),
                     fillColor: rssiColor(r.rssi),
@@ -246,10 +354,30 @@ export function HeatmapPage() {
                   </Tooltip>
                 </CircleMarker>
               ))}
+              {showingSpeed && speedRows.map((r) => {
+                const mbps = r.speed_bps / 1_000_000;
+                return (
+                  <CircleMarker
+                    key={r.scan_point_id}
+                    center={[(1 - r.y) * plan.height, r.x * plan.width]}
+                    radius={radius}
+                    pathOptions={{
+                      color: speedColor(mbps),
+                      fillColor: speedColor(mbps),
+                      fillOpacity: 0.55,
+                      weight: 2,
+                    }}
+                  >
+                    <Tooltip>
+                      {formatMbps(r.speed_bps)} · x {formatPercent(r.x)} · y {formatPercent(r.y)}
+                    </Tooltip>
+                  </CircleMarker>
+                );
+              })}
             </MapContainer>
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-            {LEGEND.map((l) => (
+            {activeLegend.map((l) => (
               <span key={l.label} className="inline-flex items-center gap-1.5 text-[12px] text-text-dim font-mono">
                 <span
                   className="inline-block w-3 h-3 rounded-full"

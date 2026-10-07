@@ -10,6 +10,7 @@ export interface ScanPoint {
   planId: string;
   x: number;
   y: number;
+  note: string | null;
   createdAt: string;
   /** Résumé du dernier scan enregistré à ce point, si présent */
   lastScan?: {

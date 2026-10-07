@@ -47,6 +47,7 @@ export function useScanStore(planId: string | null) {
           planId: p.plan_id,
           x: p.x,
           y: p.y,
+          note: p.note,
           createdAt: p.created_at,
         }))
       );
@@ -83,6 +84,7 @@ export function useScanStore(planId: string | null) {
           planId,
           x: point.x,
           y: point.y,
+          note: point.note,
           createdAt: point.created_at,
           lastScan: {
             id: result.scan_id,

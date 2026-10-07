@@ -16,11 +16,12 @@ app.use('/uploads', express.static(UPLOADS_DIRECTORY, { fallthrough: false }));
 app.use(requestLogger);
 
 // Le scan Wi-Fi est coûteux : limite globale sur l'API
+// (RATE_LIMIT_MAX surchargeable pour les tests automatisés)
 app.use(
   '/api',
   rateLimit({
     windowMs: 60_000,
-    limit: 30,
+    limit: Number(process.env.RATE_LIMIT_MAX) || 30,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     message: { error: 'Trop de requêtes, réessaie dans une minute' },

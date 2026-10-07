@@ -14,6 +14,9 @@ const SurveysPage = lazy(() =>
 const HeatmapPage = lazy(() =>
   import("./components/heatmap/HeatmapPage").then(({ HeatmapPage }) => ({ default: HeatmapPage }))
 )
+const SettingsPage = lazy(() =>
+  import("./components/settings/SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage }))
+)
 
 function App() {
   const route = useHashRoute()
@@ -39,10 +42,10 @@ function App() {
           {route === 'scan' && <ScanPage />}
           {route === 'surveys' && <SurveysPage />}
           {route === 'heatmap' && <HeatmapPage />}
+          {route === 'settings' && <SettingsPage />}
         </Suspense>
         {route === 'upload' && <UploadPage />}
         {route === 'analyse' && <PlaceholderPage title="Analyse" />}
-        {route === 'settings' && <PlaceholderPage title="Paramètres" />}
       </div>
     </main>
   )

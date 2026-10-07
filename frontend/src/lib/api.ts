@@ -6,6 +6,7 @@ import {
   type SaveScanResponse,
   type ScanHistoryEntry,
   type ScanPointResponse,
+  type SpeedHeatmapRow,
   type UploadPlanResponse,
 } from '../types/api';
 import type { AccessPoint } from '../types/plan';
@@ -216,6 +217,22 @@ export async function deleteScanPoint(
   );
 }
 
+/** Met à jour un point de scan (note et/ou activation). */
+export async function updateScanPoint(
+  planId: string,
+  pointId: string,
+  patch: { note?: string; is_enabled?: 0 | 1 }
+): Promise<ScanPointResponse> {
+  return apiFetch<ScanPointResponse>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/scan-points/${encodeURIComponent(pointId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }
+  );
+}
+
 /** Lance un scan à un point et l'enregistre (observations incluses). */
 export async function saveScanAtPoint(pointId: string): Promise<SaveScanResponse> {
   return apiFetch<SaveScanResponse>(
@@ -236,14 +253,27 @@ export async function getHistory(planId: string): Promise<ScanHistoryEntry[]> {
 
 export async function getHeatmap(
   planId: string,
-  filter?: { ssid?: string; bssid?: string }
+  filter?: { ssid?: string; bssid?: string; connected?: boolean }
 ): Promise<HeatmapRow[]> {
   const params = new URLSearchParams();
   if (filter?.ssid) params.set('ssid', filter.ssid);
   if (filter?.bssid) params.set('bssid', filter.bssid);
+  if (filter?.connected) params.set('connected', '1');
   const qs = params.toString();
   return apiFetch<HeatmapRow[]>(
     `/api/v1/plans/${encodeURIComponent(planId)}/heatmap${qs ? `?${qs}` : ''}`
+  );
+}
+
+export async function getHeatmapSpeed(planId: string): Promise<SpeedHeatmapRow[]> {
+  return apiFetch<SpeedHeatmapRow[]>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/heatmap-speed`
+  );
+}
+
+export async function getIperfStatus(): Promise<{ available: boolean; version: string | null }> {
+  return apiFetch<{ available: boolean; version: string | null }>(
+    '/api/v1/settings/iperf-status'
   );
 }
 
@@ -251,4 +281,79 @@ export async function getNetworks(planId: string): Promise<NetworkInfo[]> {
   return apiFetch<NetworkInfo[]>(
     `/api/v1/plans/${encodeURIComponent(planId)}/networks`
   );
+}
+
+/* ==========================================================================
+   Statut, réglages, mapping AP, export
+   ========================================================================== */
+
+export interface AppStatus {
+  scan_mode: 'live' | 'test';
+  node: string;
+  platform: string;
+}
+
+export async function getStatus(): Promise<AppStatus> {
+  return apiFetch<AppStatus>('/api/v1/status');
+}
+
+export interface AppSettings {
+  iperf_server: string;
+  iperf_duration_s: string;
+}
+
+export async function getSettings(): Promise<AppSettings> {
+  return apiFetch<AppSettings>('/api/v1/settings');
+}
+
+export async function patchSetting(
+  key: keyof AppSettings,
+  value: string
+): Promise<{ key: string; value: string }> {
+  return apiFetch<{ key: string; value: string }>('/api/v1/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+export interface ApMapping {
+  id: string;
+  plan_id: string;
+  name: string;
+  bssid: string;
+  created_at: string;
+}
+
+export async function listApMappings(planId: string): Promise<ApMapping[]> {
+  return apiFetch<ApMapping[]>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/ap-mappings`
+  );
+}
+
+export async function createApMapping(
+  planId: string,
+  input: { name: string; bssid: string }
+): Promise<ApMapping> {
+  return apiFetch<ApMapping>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/ap-mappings`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }
+  );
+}
+
+export async function deleteApMapping(mappingId: string): Promise<void> {
+  await apiFetch<void>(
+    `/api/v1/plans/ap-mappings/${encodeURIComponent(mappingId)}`,
+    { method: 'DELETE' }
+  );
+}
+
+/** URL de téléchargement CSV des relevés (ancre <a href>, pas de fetch). */
+export function exportCsvUrl(planId: string): string {
+  const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
+  return `${base}/api/v1/plans/${encodeURIComponent(planId)}/export.csv`;
 }

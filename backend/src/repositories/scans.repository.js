@@ -1,24 +1,32 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { rssiToQuality } from '../utils/wifi.utils.js';
 
 // Sauve un scan complet (déjà normalisé) + ses observations en transaction.
-export function insertScanWithObservations({ scan_point_id, plan_id, mode, scanned_at, rejected_count, entries }) {
+export function insertScanWithObservations({ scan_point_id, plan_id, mode, scanned_at, rejected_count, gateway, entries }) {
   const db = getDb();
   const scan_id = randomUUID();
   const insert = db.transaction(() => {
     db.prepare(
-      `INSERT INTO scans (id, scan_point_id, plan_id, mode, scanned_at, rejected_count)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(scan_id, scan_point_id, plan_id, mode, scanned_at, rejected_count);
+      `INSERT INTO scans (id, scan_point_id, plan_id, mode, scanned_at, rejected_count,
+                          gateway_ip, gateway_rtt_ms, gateway_loss_percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      scan_id, scan_point_id, plan_id, mode, scanned_at, rejected_count,
+      gateway?.gatewayIp ?? null,
+      gateway?.medianRttMs ?? null,
+      gateway?.packetLossPercent ?? null
+    );
 
     const stmt = db.prepare(
       `INSERT INTO observations
         (scan_id, bssid, ssid, hidden, band, frequency_mhz, channel, bandwidth_mhz,
          center_frequency_mhz, center_channel, rssi, quality, level, security,
-         standard, virtual_bssid, capabilities, timestamp_us)
+         standard, virtual_bssid, unreliable_bssid, current, capabilities, timestamp_us)
        VALUES (@scan_id, @bssid, @ssid, @hidden, @band, @frequency_mhz, @channel,
          @bandwidth_mhz, @center_frequency_mhz, @center_channel, @rssi, @quality,
-         @level, @security, @standard, @virtual_bssid, @capabilities, @timestamp_us)`
+         @level, @security, @standard, @virtual_bssid, @unreliable_bssid, @current,
+         @capabilities, @timestamp_us)`
     );
     for (const e of entries) {
       stmt.run({
@@ -38,6 +46,8 @@ export function insertScanWithObservations({ scan_point_id, plan_id, mode, scann
         security: e.security,
         standard: e.standard,
         virtual_bssid: e.virtual_bssid ? 1 : 0,
+        unreliable_bssid: e.unreliable_bssid ? 1 : 0,
+        current: e.current ? 1 : 0,
         capabilities: JSON.stringify(e.capabilities ?? []),
         timestamp_us: e.timestamp_us,
       });
@@ -49,6 +59,35 @@ export function insertScanWithObservations({ scan_point_id, plan_id, mode, scann
 
 export function findScanById(id) {
   return getDb().prepare('SELECT * FROM scans WHERE id = ?').get(id) ?? null;
+}
+
+export function insertSpeedTest({ scan_id, tcp_down_bps, tcp_up_bps, duration_s, error }) {
+  getDb()
+    .prepare(
+      `INSERT INTO speed_tests (scan_id, tcp_down_bps, tcp_up_bps, duration_s, error)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(scan_id, tcp_down_bps, tcp_up_bps, duration_s, error ?? null);
+  return findSpeedByScan(scan_id);
+}
+
+export function findSpeedByScan(scan_id) {
+  return getDb().prepare('SELECT * FROM speed_tests WHERE scan_id = ?').get(scan_id) ?? null;
+}
+
+// Débit descendant max par point (points activés, pour la heatmap).
+export function speedByPlan(plan_id) {
+  return getDb()
+    .prepare(
+      `SELECT sp.id AS scan_point_id, sp.x, sp.y, MAX(st.tcp_down_bps) AS speed_bps
+       FROM scan_points sp
+       JOIN scans s ON s.scan_point_id = sp.id
+       JOIN speed_tests st ON st.scan_id = s.id
+       WHERE sp.plan_id = ? AND sp.is_enabled = 1 AND st.tcp_down_bps IS NOT NULL
+       GROUP BY sp.id
+       ORDER BY sp.created_at ASC`
+    )
+    .all(plan_id);
 }
 
 export function listScansByPoint(scan_point_id) {
@@ -77,7 +116,11 @@ export function getHistoryByPlan(plan_id) {
     .all(plan_id);
   return points.map((p) => {
     const scans = db
-      .prepare('SELECT * FROM scans WHERE scan_point_id = ? ORDER BY created_at ASC')
+      .prepare(
+        `SELECT s.*, st.tcp_down_bps, st.tcp_up_bps
+         FROM scans s LEFT JOIN speed_tests st ON st.scan_id = s.id
+         WHERE s.scan_point_id = ? ORDER BY s.created_at ASC`
+      )
       .all(p.id);
     return {
       ...p,
@@ -117,22 +160,82 @@ export function listObservationsByScan(scan_id, { ssid, band, minRssi } = {}) {
     ...r,
     hidden: !!r.hidden,
     virtual_bssid: !!r.virtual_bssid,
+    unreliable_bssid: !!r.unreliable_bssid,
+    current: !!r.current,
     capabilities: JSON.parse(r.capabilities ?? '[]'),
   }));
 }
 
-// Heatmap : meilleur/dernier rssi par point pour un ssid/bssid donné
-export function heatmapByPlan(plan_id, { ssid, bssid } = {}) {
+// Export CSV : une ligne par observation (points activés ou non, flag inclus).
+export function exportPlanCsv(plan_id) {
+  const mappings = Object.fromEntries(
+    getDb()
+      .prepare('SELECT bssid, name FROM ap_mappings WHERE plan_id = ?')
+      .all(plan_id)
+      .map((m) => [m.bssid.toLowerCase(), m.name])
+  );
+  const rows = getDb()
+    .prepare(
+      `SELECT sp.id AS point_id, sp.x, sp.y, sp.note, sp.is_enabled,
+              s.id AS scan_id, s.scanned_at, s.mode,
+              s.gateway_ip, s.gateway_rtt_ms, s.gateway_loss_percent,
+              st.tcp_down_bps, st.tcp_up_bps,
+              o.ssid, o.bssid, o.rssi, o.quality, o.level, o.band,
+              o.frequency_mhz, o.channel, o.security, o.standard
+       FROM scan_points sp
+       JOIN scans s ON s.scan_point_id = sp.id
+       JOIN observations o ON o.scan_id = s.id
+       LEFT JOIN speed_tests st ON st.scan_id = s.id
+       WHERE sp.plan_id = ?
+       ORDER BY sp.created_at ASC, o.rssi DESC`
+    )
+    .all(plan_id);
+  const cell = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = [
+    'point_id', 'x', 'y', 'note', 'enabled', 'scan_id', 'scanned_at', 'mode',
+    'gateway_ip', 'gateway_rtt_ms', 'gateway_loss_percent',
+    'tcp_down_mbps', 'tcp_up_mbps',
+    'ssid', 'bssid', 'ap_name', 'rssi_dbm', 'quality', 'level', 'band',
+    'frequency_mhz', 'channel', 'security', 'standard',
+  ];
+  const toMbps = (bps) =>
+    bps === null || bps === undefined ? '' : Math.round((bps / 1_000_000) * 100) / 100;
+  const lines = rows.map((r) =>
+    [
+      r.point_id, r.x, r.y, r.note, r.is_enabled ? 'yes' : 'no',
+      r.scan_id, r.scanned_at, r.mode,
+      r.gateway_ip, r.gateway_rtt_ms, r.gateway_loss_percent,
+      toMbps(r.tcp_down_bps), toMbps(r.tcp_up_bps),
+      r.ssid, r.bssid, mappings[String(r.bssid).toLowerCase()] ?? '',
+      r.rssi, r.quality, r.level, r.band,
+      r.frequency_mhz, r.channel, r.security, r.standard,
+    ]
+      .map(cell)
+      .join(',')
+  );
+  return [header.join(','), ...lines].join('\n') + '\n';
+}
+// Heatmap : meilleur rssi par point (ssid/bssid/réseau connecté en option).
+// quality est recalculée depuis ce rssi (même formule que normalizeEntry),
+// car MAX(rssi) et MAX(quality) pourraient venir de lignes différentes.
+export function heatmapByPlan(plan_id, { ssid, bssid, connected } = {}) {
   let sql = `
     SELECT sp.id AS scan_point_id, sp.x, sp.y,
-           o.bssid, o.ssid, MAX(o.rssi) AS rssi, MAX(o.quality) AS quality
+           o.bssid, o.ssid, MAX(o.rssi) AS rssi
     FROM scan_points sp
     JOIN scans s ON s.scan_point_id = sp.id
     JOIN observations o ON o.scan_id = s.id
-    WHERE sp.plan_id = ?`;
+    WHERE sp.plan_id = ? AND sp.is_enabled = 1`;
   const params = [plan_id];
   if (ssid) { sql += ' AND o.ssid = ?'; params.push(ssid); }
   if (bssid) { sql += ' AND o.bssid = ?'; params.push(bssid?.toLowerCase()); }
+  if (connected) { sql += ' AND o.current = 1'; }
   sql += ' GROUP BY sp.id, o.bssid ORDER BY sp.created_at ASC';
-  return getDb().prepare(sql).all(...params);
+  return getDb().prepare(sql).all(...params).map((r) => ({
+    ...r,
+    quality: rssiToQuality(r.rssi),
+  }));
 }

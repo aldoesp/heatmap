@@ -26,6 +26,8 @@ export interface ScanPointResponse {
   plan_id: string;
   x: number;
   y: number;
+  note: string | null;
+  is_enabled: number;
   created_at: string;
 }
 
@@ -45,8 +47,29 @@ export interface NetworkObservation {
   security: string;
   standard: string;
   virtual_bssid: boolean;
+  unreliable_bssid: boolean;
+  current: boolean;
   capabilities: string[];
   timestamp_us: number | null;
+}
+
+export interface GatewayInfo {
+  gatewayIp: string | null;
+  medianRttMs: number | null;
+  packetLossPercent: number | null;
+  probesSent: number;
+  probesReceived: number;
+  error?: string;
+}
+
+export interface SpeedInfo {
+  id: number;
+  scan_id: string;
+  tcp_down_bps: number | null;
+  tcp_up_bps: number | null;
+  duration_s: number;
+  error: string | null;
+  created_at: string;
 }
 
 export interface SaveScanResponse {
@@ -58,6 +81,16 @@ export interface SaveScanResponse {
   count: number;
   rejected_count: number;
   data: NetworkObservation[];
+  gateway: GatewayInfo | null;
+  connection_warning: string | null;
+  speed: SpeedInfo | null;
+}
+
+export interface SpeedHeatmapRow {
+  scan_point_id: string;
+  x: number;
+  y: number;
+  speed_bps: number;
 }
 
 export interface ScanHistoryEntry {
@@ -65,6 +98,8 @@ export interface ScanHistoryEntry {
   plan_id: string;
   x: number;
   y: number;
+  note: string | null;
+  is_enabled: number;
   created_at: string;
   scans: Array<{
     id: string;
@@ -73,6 +108,11 @@ export interface ScanHistoryEntry {
     mode: string;
     scanned_at: string;
     rejected_count: number;
+    gateway_ip: string | null;
+    gateway_rtt_ms: number | null;
+    gateway_loss_percent: number | null;
+    tcp_down_bps: number | null;
+    tcp_up_bps: number | null;
     created_at: string;
     network_count: number;
   }>;

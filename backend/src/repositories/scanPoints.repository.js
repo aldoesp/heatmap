@@ -22,3 +22,22 @@ export function listScanPointsByPlan(plan_id) {
 export function deleteScanPoint(id) {
   return getDb().prepare('DELETE FROM scan_points WHERE id = ?').run(id).changes > 0;
 }
+
+export function updateScanPoint(id, patch) {
+  const fields = [];
+  const params = [];
+  if (patch.note !== undefined) {
+    fields.push('note = ?');
+    params.push(patch.note);
+  }
+  if (patch.is_enabled !== undefined) {
+    fields.push('is_enabled = ?');
+    params.push(patch.is_enabled ? 1 : 0);
+  }
+  if (fields.length === 0) return findScanPointById(id);
+  params.push(id);
+  const r = getDb()
+    .prepare(`UPDATE scan_points SET ${fields.join(', ')} WHERE id = ?`)
+    .run(...params);
+  return r.changes > 0 ? findScanPointById(id) : null;
+}

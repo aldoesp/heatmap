@@ -19,3 +19,8 @@ export function formatApCoords(x: number, y: number): string {
 export function pluralPoints(n: number): string {
   return n === 0 ? '0 point' : n === 1 ? '1 point' : `${n} points`;
 }
+
+export function formatMbps(bps: number | null | undefined): string {
+  if (bps === null || bps === undefined) return '—';
+  return `${(Math.round((bps / 1_000_000) * 100) / 100).toLocaleString('fr-FR')} Mb/s`;
+}

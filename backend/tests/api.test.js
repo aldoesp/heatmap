@@ -10,6 +10,8 @@ import { deflateSync, crc32 } from 'node:zlib';
 const TMP = mkdtempSync(path.join(tmpdir(), 'heatmap-test-'));
 process.env.DB_PATH = path.join(TMP, 'test.db');
 process.env.SCAN_MODE = 'test';
+process.env.RATE_LIMIT_MAX = '1000';
+process.env.SKIP_GATEWAY_PING = '1';
 
 const { default: app } = await import('../src/app.js');
 const { PLANS_DIRECTORY } = await import('../src/services/plans.service.js');
@@ -265,9 +267,157 @@ describe('relevés Wi-Fi (mode test)', () => {
     assert.equal(nets.status, 200);
     assert.ok(nets.json.length > 0);
   });
+  it('enregistre la note du point', async () => {
+    const { status, json } = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
+      note: 'Entrée du bureau, porte ouverte.',
+    });
+    assert.equal(status, 200);
+    assert.equal(json.note, 'Entrée du bureau, porte ouverte.');
+  });
+
+  it('la note remonte dans l’historique', async () => {
+    const { status, json } = await api('GET', `/api/v1/plans/${planId}/history`);
+    assert.equal(status, 200);
+    assert.equal(json[0].note, 'Entrée du bureau, porte ouverte.');
+  });
+
+  it('400 sur note vide ou trop longue', async () => {
+    const empty = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
+      note: '   ',
+    });
+    assert.equal(empty.status, 400);
+    const long = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
+      note: 'x'.repeat(501),
+    });
+    assert.equal(long.status, 400);
+  });
+
+  it('404 sur point inexistant pour la note', async () => {
+    const { status } = await api('PATCH', `/api/v1/plans/${planId}/scan-points/point-inexistant`, {
+      note: 'test',
+    });
+    assert.equal(status, 404);
+  });
+});
+
+describe('réglages, mapping et export', () => {
+  let planId;
+  let pointId;
+
+  before(async () => {
+    const { json } = await api('GET', '/api/v1/plans');
+    planId = json[0].id;
+    const created = await api('POST', `/api/v1/plans/${planId}/scan-points`, { x: 0.3, y: 0.7 });
+    pointId = created.json.id;
+    await fetch(`${base}/api/v1/scan/scan-points/${pointId}/scans`, { method: 'POST' });
+  });
+
+  it('expose le statut et les réglages', async () => {
+    const st = await api('GET', '/api/v1/status');
+    assert.equal(st.status, 200);
+    assert.equal(st.json.scan_mode, 'test');
+    const se = await api('GET', '/api/v1/settings');
+    assert.equal(se.status, 200);
+    assert.ok('iperf_server' in se.json && 'iperf_duration_s' in se.json);
+  });
+
+  it('enregistre le serveur iperf et refuse une durée invalide', async () => {
+    const ok = await api('PATCH', '/api/v1/settings', { key: 'iperf_server', value: '192.168.1.10' });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.json.value, '192.168.1.10');
+    const bad = await api('PATCH', '/api/v1/settings', { key: 'iperf_duration_s', value: '99' });
+    assert.equal(bad.status, 400);
+    const unknown = await api('PATCH', '/api/v1/settings', { key: 'nope', value: 'x' });
+    assert.equal(unknown.status, 400);
+    // Nettoyage : pas de serveur pour la suite (sinon iperf ralentit les tests)
+    const reset = await api('PATCH', '/api/v1/settings', { key: 'iperf_server', value: '' });
+    assert.equal(reset.status, 200);
+  });
+
+  it('nomme une borne (BSSID), 409 sur doublon, 400 sur MAC invalide', async () => {
+    const created = await api('POST', `/api/v1/plans/${planId}/ap-mappings`, {
+      name: 'Borne salon',
+      bssid: '9e:05:d6:96:e8:30',
+    });
+    assert.equal(created.status, 201);
+    const dup = await api('POST', `/api/v1/plans/${planId}/ap-mappings`, {
+      name: 'Autre nom',
+      bssid: '9E:05:D6:96:E8:30',
+    });
+    assert.equal(dup.status, 409);
+    const bad = await api('POST', `/api/v1/plans/${planId}/ap-mappings`, {
+      name: 'X',
+      bssid: 'pas-une-mac',
+    });
+    assert.equal(bad.status, 400);
+    const list = await api('GET', `/api/v1/plans/${planId}/ap-mappings`);
+    assert.equal(list.json.length, 1);
+    const del = await api('DELETE', `/api/v1/plans/ap-mappings/${created.json.id}`);
+    assert.equal(del.status, 204);
+  });
+
+  it('coupe un point : exclu de la heatmap, visible dans le CSV', async () => {
+    const off = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
+      is_enabled: 0,
+    });
+    assert.equal(off.status, 200);
+    assert.equal(off.json.is_enabled, 0);
+    const hm = await api('GET', `/api/v1/plans/${planId}/heatmap`);
+    assert.ok(!hm.json.some((r) => r.scan_point_id === pointId));
+    const csvRes = await fetch(`${base}/api/v1/plans/${planId}/export.csv`);
+    assert.equal(csvRes.status, 200);
+    assert.ok(String(csvRes.headers.get('content-type')).includes('text/csv'));
+    const csv = await csvRes.text();
+    assert.ok(csv.split('\n')[0].includes('ap_name'));
+    assert.ok(csv.includes('no,') || csv.includes(',no,'));
+    const on = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
+      is_enabled: 1,
+    });
+    assert.equal(on.json.is_enabled, 1);
+  });
+  it('filtre la heatmap sur le réseau connecté', async () => {
+    const { getDb } = await import('../src/database/db.js');
+    const db = getDb();
+    const target = db
+      .prepare(
+        `SELECT o.bssid FROM observations o
+         JOIN scans s ON s.id = o.scan_id
+         JOIN scan_points sp ON sp.id = s.scan_point_id
+         WHERE sp.plan_id = ? ORDER BY o.rssi DESC LIMIT 1`
+      )
+      .get(planId);
+    assert.ok(target);
+    db.prepare('UPDATE observations SET current = 1 WHERE bssid = ?').run(target.bssid);
+    const filtered = await api('GET', `/api/v1/plans/${planId}/heatmap?connected=1`);
+    assert.equal(filtered.status, 200);
+    assert.ok(filtered.json.length > 0);
+    assert.ok(filtered.json.every((r) => r.bssid === target.bssid));
+    const all = await api('GET', `/api/v1/plans/${planId}/heatmap`);
+    assert.ok(all.json.length >= filtered.json.length);
+  });
 });
 
 describe('suppressions', () => {
+  it('abandonne un relevé après scan (revue Garder/Supprimer)', async () => {
+    const { json: plans } = await api('GET', '/api/v1/plans');
+    const planId = plans[0].id;
+    // Scan complet comme le ferait le dialogue de revue avant Supprimer
+    const created = await api('POST', `/api/v1/plans/${planId}/scan-points`, {
+      x: 0.1,
+      y: 0.9,
+    });
+    assert.equal(created.status, 201);
+    const saved = await fetch(
+      `${base}/api/v1/scan/scan-points/${created.json.id}/scans`,
+      { method: 'POST' }
+    );
+    assert.equal(saved.status, 201);
+    const del = await api('DELETE', `/api/v1/plans/${planId}/scan-points/${created.json.id}`);
+    assert.equal(del.status, 204);
+    const { json: points } = await api('GET', `/api/v1/plans/${planId}/scan-points`);
+    assert.ok(!points.some((p) => p.id === created.json.id));
+  });
+
   it('supprime un point de scan puis le plan et son fichier', async () => {
     const { json: plans } = await api('GET', '/api/v1/plans');
     const planId = plans[0].id;

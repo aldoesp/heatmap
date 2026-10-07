@@ -108,7 +108,7 @@ export function UploadPage() {
   }
 
   return (
-    <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
+    <div className="max-w-300 mx-auto px-4 pt-6 pb-48 md:pb-8 lg:px-6 lg:py-8">
       <div className="mb-6">
         <h1 className="text-[22px] font-medium tracking-tight mb-1">
           Plan du site
