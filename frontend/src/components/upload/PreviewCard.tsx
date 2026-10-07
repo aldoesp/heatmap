@@ -65,7 +65,7 @@ export function PreviewCard({
           src={imageUrl}
           alt="Aperçu du plan"
           draggable={false}
-          className="block max-w-full max-h-[60vh] object-contain select-none pointer-events-none"
+          className="block max-w-full max-h-[40vh] lg:max-h-[60vh] object-contain select-none pointer-events-none"
         />
         {accessPoints.map((ap, i) => (
           <ApMarker

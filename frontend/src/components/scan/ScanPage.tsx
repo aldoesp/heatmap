@@ -131,7 +131,7 @@ export function ScanPage() {
 
   if (planError && !plan) {
     return (
-      <div className="max-w-150 mx-auto px-4 py-16 text-center">
+      <div className="max-w-150 mx-auto px-4 pt-16 pb-28 md:pb-16 text-center">
         <p className="text-text text-[15px] mb-4">{planError}</p>
         <button
           type="button"
@@ -147,7 +147,7 @@ export function ScanPage() {
   if (!plan || !imageUrl) {
     if (imageMissing && plan) {
       return (
-        <div className="max-w-150 mx-auto px-4 py-16 text-center">
+        <div className="max-w-150 mx-auto px-4 pt-16 pb-28 md:pb-16 text-center">
           <p className="text-text text-[15px] mb-2">
             L’image du plan « {plan.name} » est introuvable sur le serveur.
           </p>

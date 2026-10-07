@@ -47,7 +47,10 @@
   }
 
   body {
-    @apply bg-bg text-text font-ui antialiased overflow-hidden;
+    /* overflow-x-clip : pas de scroll horizontal, mais le scroll vertical
+       reste possible (indispensable sur mobile pour atteindre le bas de page).
+       À ne pas remettre en overflow-hidden : cela coupe le contenu. */
+    @apply bg-bg text-text font-ui antialiased overflow-x-clip;
   }
 
   :focus-visible {

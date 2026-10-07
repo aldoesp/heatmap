@@ -4,7 +4,7 @@ interface PlaceholderPageProps {
 
 export function PlaceholderPage({ title }: PlaceholderPageProps) {
   return (
-    <div className="max-w-150 mx-auto px-4 py-16 text-center">
+    <div className="max-w-150 mx-auto px-4 pt-16 pb-28 md:pb-16 text-center">
       <h1 className="text-[22px] font-medium tracking-tight mb-2">{title}</h1>
       <p className="text-text-dim text-sm mb-4">
         Cette page n’est pas encore disponible dans cette version.

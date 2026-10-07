@@ -19,7 +19,7 @@ function App() {
   const route = useHashRoute()
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden bg-[#070b12]">
+    <main className="relative min-h-screen overflow-x-clip bg-[#070b12]">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
         <Particles
           particleColors={["#ffffff"]}

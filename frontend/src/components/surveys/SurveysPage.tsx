@@ -59,7 +59,7 @@ export function SurveysPage() {
 
   if (planError && !plan) {
     return (
-      <div className="max-w-150 mx-auto px-4 py-16 text-center">
+      <div className="max-w-150 mx-auto px-4 pt-16 pb-28 md:pb-16 text-center">
         <p className="text-text text-[15px] mb-4">{planError}</p>
         <button
           type="button"
@@ -76,7 +76,7 @@ export function SurveysPage() {
 
   if (!plan) {
     return (
-      <div className="max-w-150 mx-auto px-4 py-16 text-center">
+      <div className="max-w-150 mx-auto px-4 pt-16 pb-28 md:pb-16 text-center">
         <p className="text-text text-[15px] mb-4">Aucun plan pour le moment.</p>
         <button
           type="button"
@@ -94,7 +94,7 @@ export function SurveysPage() {
   const totalScans = history.reduce((n, p) => n + p.scans.length, 0);
 
   return (
-    <div className="max-w-300 mx-auto px-4 py-6 lg:px-6 lg:py-8">
+    <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
       <div className="mb-6">
         <h1 className="text-[22px] font-medium tracking-tight mb-1">Relevés</h1>
         <p className="text-text-dim text-sm">

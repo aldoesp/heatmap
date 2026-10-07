@@ -108,7 +108,7 @@ export function UploadPage() {
   }
 
   return (
-    <div className="max-w-300 mx-auto px-4 py-6 lg:px-6 lg:py-8">
+    <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
       <div className="mb-6">
         <h1 className="text-[22px] font-medium tracking-tight mb-1">
           Plan du site
@@ -210,6 +210,8 @@ export function UploadPage() {
               (!plan || busyUI) && 'opacity-40 cursor-not-allowed',
               'hover:opacity-95',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
+              // Sur mobile, la validation passe par la barre fixe ci-dessous
+              'hidden md:block',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -231,6 +233,27 @@ export function UploadPage() {
           />
         </div>
       </div>
+
+      {/* Barre de validation fixe (mobile uniquement) : le bouton reste
+          atteignable sans scroller, au-dessus de la navigation basse. */}
+      {plan && (
+        <div className="md:hidden fixed z-40 left-3 right-3 bottom-[calc(88px+env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            disabled={busyUI}
+            onClick={handleValidate}
+            className={[
+              'w-full h-12 rounded-[14px] bg-accent text-bg font-medium text-[15px] shadow-glass transition-opacity',
+              busyUI && 'opacity-40 cursor-not-allowed',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            Valider le plan
+          </button>
+        </div>
+      )}
     </div>
   );
 }

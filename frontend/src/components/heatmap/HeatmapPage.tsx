@@ -102,7 +102,7 @@ export function HeatmapPage() {
 
   if ((planError && !plan) || (!plan && !planLoading)) {
     return (
-      <div className="max-w-150 mx-auto px-4 py-16 text-center">
+      <div className="max-w-150 mx-auto px-4 pt-16 pb-28 md:pb-16 text-center">
         <p className="text-text text-[15px] mb-4">
           {planError ?? 'Aucun plan pour le moment.'}
         </p>
@@ -121,7 +121,7 @@ export function HeatmapPage() {
 
   if (!plan || !imageUrl || !bounds) {
     return (
-      <div className="max-w-150 mx-auto px-4 py-16 text-center">
+      <div className="max-w-150 mx-auto px-4 pt-16 pb-28 md:pb-16 text-center">
         <p className="text-text text-[15px] mb-2">
           {imageMissing
             ? `L’image du plan « ${plan?.name} » est introuvable sur le serveur.`
@@ -137,7 +137,7 @@ export function HeatmapPage() {
   const hasFilter = !!ssid || !!bssid;
 
   return (
-    <div className="max-w-300 mx-auto px-4 py-6 lg:px-6 lg:py-8">
+    <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
       <div className="mb-4">
         <h1 className="text-[22px] font-medium tracking-tight mb-1">Heatmap</h1>
         <p className="text-text-dim text-sm">
