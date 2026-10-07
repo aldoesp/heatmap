@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlanStore } from '../../hooks/usePlanStore';
+import { DEMO_PLANS } from '../../lib/demoPlans';
 import { Dropzone } from './Dropzone';
 import { PreviewCard } from './PreviewCard';
 import { PlanInfoCard } from './PlanInfoCard';
@@ -18,6 +19,7 @@ export function UploadPage() {
     error,
     info,
     loadFile,
+    loadDemoPlan,
     clear,
     renamePlan,
     addAp,
@@ -119,11 +121,40 @@ export function UploadPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 lg:gap-6 lg:items-start">
         <div className="flex flex-col gap-4">
           {!plan ? (
-            <Dropzone
-              onFile={loadFile}
-              hasError={!!error}
-              loading={uploading}
-            />
+            <>
+              <Dropzone
+                onFile={loadFile}
+                hasError={!!error}
+                loading={uploading}
+              />
+              <div className="glass-fallback bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 border border-glass-border-soft shadow-glass-light rounded-card p-4 lg:p-5">
+                <div className="text-sm font-medium mb-1">Plans de démo</div>
+                <p className="text-[13px] text-text-dim mb-3">
+                  Pas d’image sous la main ? Touche un plan pour l’importer
+                  directement (même validation, même nommage).
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {DEMO_PLANS.map((demo) => (
+                    <button
+                      key={demo.fileName}
+                      type="button"
+                      disabled={uploading}
+                      onClick={() => loadDemoPlan(demo)}
+                      className="flex flex-col gap-1.5 p-2 rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] text-left transition-opacity hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40 disabled:cursor-wait focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                    >
+                      <img
+                        src={demo.url}
+                        alt={demo.label}
+                        className="block w-full h-24 object-cover rounded-lg pointer-events-none"
+                      />
+                      <span className="text-[12px] font-medium text-text truncate">
+                        {demo.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
           ) : (
             <PreviewCard
               imageUrl={plan.imageUrl}

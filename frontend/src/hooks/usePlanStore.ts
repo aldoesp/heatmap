@@ -18,6 +18,7 @@ import {
 } from '../lib/api';
 import { ApiError } from '../types/api';
 import { stripExtension } from '../lib/format';
+import { fetchDemoFile, type DemoPlan } from '../lib/demoPlans';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const ACCEPTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
@@ -144,27 +145,7 @@ export function usePlanStore() {
   /* ==========================================================================
      Import : validation locale puis envoi au backend
      ========================================================================== */
-  const loadFile = useCallback(async (file: File) => {
-    if (uploading) return;
-    setError(null);
-    setInfo(null);
-
-    if (!ACCEPTED.includes(file.type)) {
-      setError({
-        kind: 'format',
-        message: "Ce format n'est pas supporté. Utilise un JPG, PNG ou WebP.",
-      });
-      return;
-    }
-
-    if (file.size > MAX_BYTES) {
-      setError({
-        kind: 'size',
-        message: 'Cette image dépasse 10 Mo. Choisis-en une plus légère.',
-      });
-      return;
-    }
-
+  const persistFile = useCallback(async (file: File) => {
     setUploading(true);
     try {
       const res = await uploadPlanImage(file);
@@ -196,7 +177,56 @@ export function usePlanStore() {
     } finally {
       if (aliveRef.current) setUploading(false);
     }
-  }, [uploading]);
+  }, []);
+
+  const validateFile = useCallback((file: File): boolean => {
+    if (!ACCEPTED.includes(file.type)) {
+      setError({
+        kind: 'format',
+        message: "Ce format n'est pas supporté. Utilise un JPG, PNG ou WebP.",
+      });
+      return false;
+    }
+
+    if (file.size > MAX_BYTES) {
+      setError({
+        kind: 'size',
+        message: 'Cette image dépasse 10 Mo. Choisis-en une plus légère.',
+      });
+      return false;
+    }
+    return true;
+  }, []);
+
+  const loadFile = useCallback(async (file: File) => {
+    if (uploading) return;
+    setError(null);
+    setInfo(null);
+    if (!validateFile(file)) return;
+    await persistFile(file);
+  }, [uploading, validateFile, persistFile]);
+
+  /* ==========================================================================
+     Plan de démo packagé : même validation + même nommage que l'import.
+     ========================================================================== */
+  const loadDemoPlan = useCallback(async (demo: DemoPlan) => {
+    if (uploading) return;
+    setError(null);
+    setInfo(null);
+    let file: File;
+    try {
+      file = await fetchDemoFile(demo);
+    } catch {
+      setError({
+        kind: 'unreadable',
+        message: 'Impossible de charger ce plan de démo.',
+      });
+      return;
+    }
+    if (!aliveRef.current) return;
+    if (!validateFile(file)) return;
+    await persistFile(file);
+  }, [uploading, validateFile, persistFile]);
 
   /* ==========================================================================
      Suppression du plan (backend + fichiers) — l'appelant doit confirmer.
@@ -347,6 +377,7 @@ export function usePlanStore() {
     error,
     info,
     loadFile,
+    loadDemoPlan,
     clear,
     renamePlan,
     addAp,
