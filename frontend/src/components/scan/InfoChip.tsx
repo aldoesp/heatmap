@@ -3,9 +3,10 @@ import { pluralPoints } from '../../lib/format';
 interface InfoChipProps {
   planName: string | null;
   pointCount: number;
+  mode: 'live' | 'test' | null;
 }
 
-export function InfoChip({ planName, pointCount }: InfoChipProps) {
+export function InfoChip({ planName, pointCount, mode }: InfoChipProps) {
   return (
     <div
       aria-live="polite"
@@ -21,6 +22,21 @@ export function InfoChip({ planName, pointCount }: InfoChipProps) {
       </span>
       <span className="text-text-dim">·</span>
       <span className="text-text-dim">{pluralPoints(pointCount)}</span>
+      {mode && (
+        <>
+          <span className="text-text-dim">·</span>
+          <span
+            className={[
+              'px-1.5 py-0.5 rounded-md text-[10px] font-semibold border',
+              mode === 'live'
+                ? 'bg-accent-soft border-accent-border text-accent'
+                : 'bg-white/[0.04] border-white/10 text-text-dim',
+            ].join(' ')}
+          >
+            {mode === 'live' ? 'Réel' : 'Test'}
+          </span>
+        </>
+      )}
     </div>
   );
 }

@@ -39,5 +39,10 @@ export const patchSettings = (req, res, next) => {
       return next(new AppError('La durée doit être entre 1 et 30 secondes.', 400));
     }
   }
+  if (key === 'scan_mode') {
+    if (!['test', 'live', ''].includes(str)) {
+      return next(new AppError("Le mode doit être 'test', 'live' ou vide (suit SCAN_MODE).", 400));
+    }
+  }
   res.json(setSetting(key, str));
 };

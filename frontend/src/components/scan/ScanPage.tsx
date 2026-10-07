@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import { usePlanImage } from '../../hooks/usePlanImage';
 import { useScanStore } from '../../hooks/useScanStore';
-import { listAccessPoints } from '../../lib/api';
+import { listAccessPoints, getStatus } from '../../lib/api';
 import { latlngToData, dataToLatLng, clampCoord } from '../../lib/coords';
 import { formatPercent } from '../../lib/format';
 import { ScanMap } from './ScanMap';
@@ -31,6 +31,7 @@ export function ScanPage() {
   const [pendingLatLng, setPendingLatLng] = useState<L.LatLng | null>(null);
   const [scanConfirmed, setScanConfirmed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [mode, setMode] = useState<'live' | 'test' | null>(null);
   // Position du dernier scan, pour le dialogue de confirmation
   const [lastCoords, setLastCoords] = useState<{ x: number; y: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -55,14 +56,31 @@ export function ScanPage() {
     fitRef.current = fn;
   }, []);
 
-  /* Re-fit à chaque retour sur #/scan */
+  /* Mode de scan (bouton Test/Réel des Paramètres) : relecture à chaque retour */
   useEffect(() => {
+    let alive = true;
+    const fetchMode = () => {
+      getStatus()
+        .then((st) => {
+          if (alive) setMode(st.scan_mode);
+        })
+        .catch(() => {
+          /* badge masqué si serveur injoignable */
+        });
+    };
+    fetchMode();
     const onHash = () => {
       const isScan = location.hash === '#/scan' || location.hash === '';
-      if (isScan) requestAnimationFrame(() => fitRef.current?.());
+      if (isScan) {
+        fetchMode();
+        requestAnimationFrame(() => fitRef.current?.());
+      }
     };
     window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    return () => {
+      alive = false;
+      window.removeEventListener('hashchange', onHash);
+    };
   }, []);
 
   const handleMapClick = useCallback(
@@ -113,6 +131,10 @@ export function ScanPage() {
   const handleUndo = useCallback(() => {
     removeLast();
   }, [removeLast]);
+
+  const handleRecenter = useCallback(() => {
+    fitRef.current?.();
+  }, []);
 
   const handleDone = useCallback(() => {
     if (scanPoints.length === 0) return;
@@ -198,7 +220,7 @@ export function ScanPage() {
         registerFit={registerFit}
       />
 
-      <InfoChip planName={plan.name} pointCount={scanPoints.length} />
+      <InfoChip planName={plan.name} pointCount={scanPoints.length} mode={mode} />
 
       <ActionPanel
         hint={hint}
@@ -210,6 +232,7 @@ export function ScanPage() {
         onScan={handleScan}
         onUndo={handleUndo}
         onDone={handleDone}
+        onRecenter={handleRecenter}
       />
 
       <ScanConfirmDialog

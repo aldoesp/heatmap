@@ -3,11 +3,22 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AppError } from '../utils/AppError.js';
+import { getSetting } from '../repositories/settings.repository.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(__dirname, '../../tests/wifi-scan-info-test.json');
 
-export const getScanMode = () => (process.env.SCAN_MODE === 'test' ? 'test' : 'live');
+// Priorité : réglage persisté en DB (bouton Test/Réel de l'UI),
+// sinon variable d'environnement SCAN_MODE. Survit au redémarrage.
+export const getScanMode = () => {
+  try {
+    const override = getSetting('scan_mode');
+    if (override === 'test' || override === 'live') return override;
+  } catch {
+    /* DB pas encore prête : repli sur l'environnement */
+  }
+  return process.env.SCAN_MODE === 'test' ? 'test' : 'live';
+};
 
 const runTermux = () =>
   new Promise((resolve, reject) => {

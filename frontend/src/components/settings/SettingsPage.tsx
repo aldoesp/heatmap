@@ -21,7 +21,8 @@ export function SettingsPage() {
   const { plan, loading: planLoading } = usePlanImage();
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [iperf, setIperf] = useState<{ available: boolean; version: string | null } | null>(null);
-  const [settings, setSettings] = useState<AppSettings>({ iperf_server: '', iperf_duration_s: '' });
+  const [settings, setSettings] = useState<AppSettings>({ iperf_server: '', iperf_duration_s: '', scan_mode: '' });
+  const [switchingMode, setSwitchingMode] = useState(false);
   const [mappings, setMappings] = useState<ApMapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -124,6 +125,23 @@ export function SettingsPage() {
     }
   }, []);
 
+  const switchMode = useCallback(async (mode: 'test' | 'live') => {
+    setSwitchingMode(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await patchSetting('scan_mode', mode);
+      setSettings((s) => ({ ...s, scan_mode: mode }));
+      setStatus((st) => (st ? { ...st, scan_mode: mode } : st));
+      setInfo(mode === 'live' ? 'Mode réel activé : les scans utilisent Termux:API.' : 'Mode test activé : les scans utilisent les données simulées.');
+    } catch (err) {
+      const apiErr = err instanceof ApiError ? err : null;
+      setError(apiErr?.message ?? 'Impossible de changer de mode.');
+    } finally {
+      setSwitchingMode(false);
+    }
+  }, []);
+
   if (planLoading || loading) {
     return <div className="fixed inset-0 bg-bg" />;
   }
@@ -152,6 +170,39 @@ export function SettingsPage() {
       )}
 
       <div className="flex flex-col gap-4">
+        <section className="glass-fallback bg-glass-bg-soft border border-glass-border-soft rounded-card p-4 lg:p-5">
+          <h2 className="text-sm font-medium mb-1">Mode de scan</h2>
+          <p className="text-[13px] text-text-dim mb-3">
+            Test : données simulées, sans matériel. Réel : mesures Termux:API (localisation activée requise).
+            Chaque relevé garde son mode.
+          </p>
+          <div
+            role="group"
+            aria-label="Mode de scan"
+            className="flex h-11 rounded-xl border border-glass-border-soft overflow-hidden"
+          >
+            {(['test', 'live'] as const).map((m) => {
+              const active = (status?.scan_mode ?? 'test') === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={active}
+                  disabled={switchingMode}
+                  onClick={() => {
+                    if (!active) switchMode(m);
+                  }}
+                  className={[
+                    'flex-1 px-4 text-sm font-medium transition-colors disabled:cursor-wait',
+                    active ? 'bg-accent-soft text-accent' : 'text-text-dim hover:text-text',
+                  ].join(' ')}
+                >
+                  {m === 'test' ? 'Test' : 'Réel'}
+                </button>
+              );
+            })}
+          </div>
+        </section>
         <section className="glass-fallback bg-glass-bg-soft border border-glass-border-soft rounded-card p-4 lg:p-5">
           <h2 className="text-sm font-medium mb-1">Serveur iperf3 (optionnel)</h2>
           <p className="text-[13px] text-text-dim mb-3">

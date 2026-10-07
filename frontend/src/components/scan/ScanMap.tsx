@@ -44,10 +44,13 @@ function MapController({
     fit();
     registerFit(fit);
 
+    // Sur resize (barre d'URL Android, rotation...), on ne refait QUE
+    // invalidateSize : la vue/zoom de l'utilisateur est conservée.
+    // Le recadrage reste un geste volontaire (bouton Recentrer, retour #/scan).
     let timer: number | null = null;
     const onResize = () => {
       if (timer) window.clearTimeout(timer);
-      timer = window.setTimeout(fit, 200);
+      timer = window.setTimeout(() => map.invalidateSize(), 200);
     };
     window.addEventListener('resize', onResize);
     return () => {

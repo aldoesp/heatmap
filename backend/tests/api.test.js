@@ -395,6 +395,18 @@ describe('réglages, mapping et export', () => {
     const all = await api('GET', `/api/v1/plans/${planId}/heatmap`);
     assert.ok(all.json.length >= filtered.json.length);
   });
+  it('bascule le mode de scan et revient à SCAN_MODE', async () => {
+    const live = await api('PATCH', '/api/v1/settings', { key: 'scan_mode', value: 'live' });
+    assert.equal(live.status, 200);
+    const stLive = await api('GET', '/api/v1/status');
+    assert.equal(stLive.json.scan_mode, 'live');
+    const bad = await api('PATCH', '/api/v1/settings', { key: 'scan_mode', value: 'demo' });
+    assert.equal(bad.status, 400);
+    const reset = await api('PATCH', '/api/v1/settings', { key: 'scan_mode', value: '' });
+    assert.equal(reset.status, 200);
+    const stTest = await api('GET', '/api/v1/status');
+    assert.equal(stTest.json.scan_mode, 'test');
+  });
 });
 
 describe('suppressions', () => {

@@ -300,6 +300,7 @@ export async function getStatus(): Promise<AppStatus> {
 export interface AppSettings {
   iperf_server: string;
   iperf_duration_s: string;
+  scan_mode: string;
 }
 
 export async function getSettings(): Promise<AppSettings> {

@@ -1,4 +1,4 @@
-import { Check, Undo2, Wifi } from 'lucide-react';
+import { Check, Undo2, Wifi, LocateFixed } from 'lucide-react';
 
 interface ActionPanelProps {
   hint: string;
@@ -10,6 +10,7 @@ interface ActionPanelProps {
   onScan: () => void;
   onUndo: () => void;
   onDone: () => void;
+  onRecenter: () => void;
 }
 
 export function ActionPanel({
@@ -22,6 +23,7 @@ export function ActionPanel({
   onScan,
   onUndo,
   onDone,
+  onRecenter,
 }: ActionPanelProps) {
   return (
     <div
@@ -59,6 +61,20 @@ export function ActionPanel({
         >
           <Undo2 size={18} strokeWidth={1.75} aria-hidden />
           <span>Annuler</span>
+        </button>
+
+        <button
+          type="button"
+          aria-label="Recentrer la carte sur le plan"
+          title="Recentrer la carte sur le plan"
+          onClick={onRecenter}
+          className={[
+            'inline-flex items-center justify-center h-12 w-12 shrink-0 rounded-item text-sm font-medium border border-glass-border-soft text-text bg-transparent',
+            'hover:bg-glass-bg active:bg-white/[0.08] transition-colors duration-ui ease-ui',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
+          ].join(' ')}
+        >
+          <LocateFixed size={18} strokeWidth={1.75} aria-hidden />
         </button>
 
         <button
