@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, ImageOverlay, CircleMarker, Tooltip, useMap } from 'react-leaflet';
-import { LocateFixed } from 'lucide-react';
+import { LocateFixed, Plus, Minus } from 'lucide-react';
 import L from 'leaflet';
 import { usePlanImage } from '../../hooks/usePlanImage';
 import { getHeatmap, getHeatmapSpeed, getNetworks } from '../../lib/api';
@@ -28,40 +28,89 @@ function speedColor(mbps: number): string {
   return '#ef4444';
 }
 
-function FitBounds({
+function MapSetup({
   width,
   height,
-  registerFit,
+  registerRecenter,
 }: {
   width: number;
   height: number;
-  registerFit: (fn: () => void) => void;
+  registerRecenter: (fn: () => void) => void;
 }) {
   const map = useMap();
+
   useEffect(() => {
     const bounds = L.latLngBounds([0, 0], [height, width]);
-    const fit = () => {
-      map.invalidateSize();
-      map.fitBounds(bounds, { padding: [24, 24] });
-    };
-    fit();
-    registerFit(fit);
+    const center = L.latLng(height / 2, width / 2);
 
-    // Sur resize (barre d'URL Android, rotation...), on ne refait QUE
-    // invalidateSize : le zoom de l'utilisateur est conservé.
-    // Le recadrage reste un geste volontaire (bouton Recentrer).
+    // État initial : plan entier visible, centré, sans fitBounds.
+    const applyInitialView = () => {
+      map.invalidateSize();
+      const fitZoom = map.getBoundsZoom(bounds);
+      map.setMinZoom(fitZoom - 1);
+      map.setView(center, fitZoom, { animate: false });
+    };
+
+    applyInitialView();
+
+    // Recentrer = revenir à l'état initial (zoom "plan entier").
+    const recenter = () => {
+      const fitZoom = map.getBoundsZoom(bounds);
+      map.setMinZoom(fitZoom - 1);
+      map.setView(center, fitZoom, { animate: true });
+    };
+    registerRecenter(recenter);
+
+    // Au resize : on garde le zoom utilisateur, on recalcule juste minZoom
+    // et on rafraîchit la taille du conteneur.
     let timer: number | null = null;
     const onResize = () => {
       if (timer) window.clearTimeout(timer);
-      timer = window.setTimeout(() => map.invalidateSize(), 200);
+      timer = window.setTimeout(() => {
+        map.invalidateSize();
+        map.setMinZoom(map.getBoundsZoom(bounds) - 1);
+      }, 200);
     };
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
       if (timer) window.clearTimeout(timer);
     };
-  }, [map, width, height, registerFit]);
+  }, [map, width, height, registerRecenter]);
+
   return null;
+}
+
+function ZoomControl() {
+  const map = useMap();
+  return (
+    <div className="leaflet-top leaflet-right" style={{ pointerEvents: 'none' }}>
+      <div
+        className="leaflet-control"
+        style={{ pointerEvents: 'auto', marginTop: 56 }}
+      >
+        <div className="flex flex-col rounded-xl overflow-hidden border border-white/10 bg-[#0d1319]/90 backdrop-blur">
+          <button
+            type="button"
+            aria-label="Zoomer"
+            onClick={() => map.zoomIn(0.5)}
+            className="h-11 w-11 inline-flex items-center justify-center text-text hover:bg-white/10 transition-colors"
+          >
+            <Plus size={18} strokeWidth={1.75} aria-hidden />
+          </button>
+          <div className="h-px bg-white/10" />
+          <button
+            type="button"
+            aria-label="Dézoomer"
+            onClick={() => map.zoomOut(0.5)}
+            className="h-11 w-11 inline-flex items-center justify-center text-text hover:bg-white/10 transition-colors"
+          >
+            <Minus size={18} strokeWidth={1.75} aria-hidden />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const LEGEND: Array<{ label: string; color: string }> = [
@@ -87,14 +136,14 @@ export function HeatmapPage() {
   const [selectedRadius, setSelectedRadius] = useState<number | null>(
     () => getHeatmapRadius()
   );
-  const fitRef = useRef<(() => void) | null>(null);
+  const recenterRef = useRef<(() => void) | null>(null);
 
-  const registerFit = useCallback((fn: () => void) => {
-    fitRef.current = fn;
+  const registerRecenter = useCallback((fn: () => void) => {
+    recenterRef.current = fn;
   }, []);
 
   const handleRecenter = useCallback(() => {
-    fitRef.current?.();
+    recenterRef.current?.();
   }, []);
 
   // Liste des réseaux pour les filtres
@@ -373,12 +422,23 @@ export function HeatmapPage() {
               <LocateFixed size={18} strokeWidth={1.75} aria-hidden />
             </button>
             <MapContainer
-              bounds={bounds}
+              center={[plan.height / 2, plan.width / 2]}
+              zoom={0}
               crs={L.CRS.Simple}
               attributionControl={false}
+              zoomControl={false}
+              zoomSnap={0.25}
+              zoomDelta={0.5}
+              scrollWheelZoom
+              touchZoom
               className="w-full h-[60vh] z-0"
             >
-              <FitBounds width={plan.width} height={plan.height} registerFit={registerFit} />
+              <MapSetup
+                width={plan.width}
+                height={plan.height}
+                registerRecenter={registerRecenter}
+              />
+              <ZoomControl />
               <ImageOverlay url={imageUrl} bounds={bounds} />
               {!showingSpeed && rows.map((r) => (
                 <CircleMarker
