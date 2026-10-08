@@ -13,6 +13,43 @@ process.env.SCAN_MODE = 'test';
 process.env.RATE_LIMIT_MAX = '1000';
 process.env.SKIP_GATEWAY_PING = '1';
 
+const Database = (await import('better-sqlite3')).default;
+const legacyDb = new Database(process.env.DB_PATH);
+legacyDb.exec(`
+  CREATE TABLE plans (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    stored_file TEXT NOT NULL,
+    image_url TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE scan_points (
+    id TEXT PRIMARY KEY,
+    plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+legacyDb.prepare(
+  `INSERT INTO plans
+   (id, name, file_name, stored_file, image_url, mime, width, height, size_bytes, created_at, updated_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+).run(
+  'legacy-plan', 'Ancien plan', 'ancien.png', 'ancien.png', '/uploads/plans/ancien.png',
+  'image/png', 8, 8, 100, '2020-01-01 00:00:00', '2020-01-01 00:00:00'
+);
+legacyDb.prepare(
+  'INSERT INTO scan_points (id, plan_id, x, y) VALUES (?, ?, ?, ?)'
+).run('legacy-point', 'legacy-plan', 0.2, 0.4);
+legacyDb.close();
+
 const { default: app } = await import('../src/app.js');
 const { PLANS_DIRECTORY } = await import('../src/services/plans.service.js');
 
@@ -131,6 +168,107 @@ describe('plans', () => {
     form.append('image', new Blob(['pas une image'], { type: 'text/plain' }), 'note.txt');
     const res = await fetch(`${base}/api/v1/plans`, { method: 'POST', body: form });
     assert.ok([400, 415].includes(res.status));
+  });
+});
+
+describe('migration des surveys existants', () => {
+  it('regroupe l’historique d’un plan existant dans une campagne initiale', async () => {
+    const surveys = await api('GET', '/api/v1/plans/legacy-plan/surveys');
+    assert.equal(surveys.status, 200);
+    assert.equal(surveys.json.length, 1);
+    assert.equal(surveys.json[0].name, 'Ancien plan');
+
+    const history = await api('GET', `/api/v1/surveys/${surveys.json[0].id}/history`);
+    assert.equal(history.status, 200);
+    assert.equal(history.json.length, 1);
+    assert.equal(history.json[0].id, 'legacy-point');
+    assert.equal(history.json[0].survey_id, surveys.json[0].id);
+  });
+});
+
+describe('surveys', () => {
+  let planId;
+  let surveyId;
+  let pointId;
+  let otherSurveyId;
+
+  before(async () => {
+    const { json } = await api('GET', '/api/v1/plans');
+    planId = json[0].id;
+  });
+
+  it('crée un survey explicitement sous un plan', async () => {
+    const created = await api('POST', `/api/v1/plans/${planId}/surveys`, {
+      name: 'Campagne initiale',
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.json.plan_id, planId);
+    assert.equal(created.json.name, 'Campagne initiale');
+    surveyId = created.json.id;
+
+    const list = await api('GET', `/api/v1/plans/${planId}/surveys`);
+    assert.equal(list.status, 200);
+    assert.ok(list.json.some((survey) => survey.id === surveyId));
+  });
+
+  it('valide la création du survey et le plan parent', async () => {
+    const noName = await api('POST', `/api/v1/plans/${planId}/surveys`, { name: '  ' });
+    assert.equal(noName.status, 400);
+    const missingPlan = await api('POST', '/api/v1/plans/inexistant/surveys', { name: 'X' });
+    assert.equal(missingPlan.status, 404);
+  });
+
+  it('stocke les points et expose seulement les résultats de ce survey', async () => {
+    const created = await api('POST', `/api/v1/surveys/${surveyId}/scan-points`, {
+      x: 0.25,
+      y: 0.75,
+    });
+    assert.equal(created.status, 201);
+    pointId = created.json.id;
+    assert.equal(created.json.survey_id, surveyId);
+
+    const scan = await fetch(`${base}/api/v1/scan/scan-points/${pointId}/scans`, {
+      method: 'POST',
+    });
+    assert.equal(scan.status, 201);
+
+    const history = await api('GET', `/api/v1/surveys/${surveyId}/history`);
+    assert.equal(history.status, 200);
+    assert.equal(history.json.length, 1);
+    assert.ok(history.json[0].scans[0].network_count > 0);
+
+    const heatmap = await api('GET', `/api/v1/surveys/${surveyId}/heatmap`);
+    assert.equal(heatmap.status, 200);
+    assert.ok(heatmap.json.length > 0);
+
+    const list = await api('GET', `/api/v1/surveys/${surveyId}/scan-points`);
+    assert.equal(list.status, 200);
+    assert.equal(list.json[0].id, pointId);
+
+    const other = await api('POST', `/api/v1/plans/${planId}/surveys`, {
+      name: 'Campagne indépendante',
+    });
+    otherSurveyId = other.json.id;
+    const isolated = await api('GET', `/api/v1/surveys/${otherSurveyId}/history`);
+    assert.deepEqual(isolated.json, []);
+  });
+
+  it('renomme et supprime la campagne avec ses points et résultats', async () => {
+    const renamed = await api('PATCH', `/api/v1/surveys/${surveyId}`, {
+      name: 'Campagne renommée',
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.json.name, 'Campagne renommée');
+
+    const removed = await api('DELETE', `/api/v1/surveys/${surveyId}`);
+    assert.equal(removed.status, 204);
+    const missing = await api('GET', `/api/v1/surveys/${surveyId}/history`);
+    assert.equal(missing.status, 404);
+
+    const pointScan = await fetch(`${base}/api/v1/scan/scan-points/${pointId}/scans`, {
+      method: 'POST',
+    });
+    assert.equal(pointScan.status, 404);
   });
 });
 

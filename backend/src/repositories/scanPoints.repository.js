@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
 
-export function insertScanPoint({ plan_id, x, y }) {
+export function insertScanPoint({ plan_id, survey_id = null, x, y }) {
   const id = randomUUID();
   getDb()
-    .prepare(`INSERT INTO scan_points (id, plan_id, x, y) VALUES (?, ?, ?, ?)`)
-    .run(id, plan_id, x, y);
+    .prepare(`INSERT INTO scan_points (id, plan_id, survey_id, x, y) VALUES (?, ?, ?, ?, ?)`)
+    .run(id, plan_id, survey_id, x, y);
   return findScanPointById(id);
 }
 
@@ -17,6 +17,12 @@ export function listScanPointsByPlan(plan_id) {
   return getDb()
     .prepare('SELECT * FROM scan_points WHERE plan_id = ? ORDER BY created_at ASC')
     .all(plan_id);
+}
+
+export function listScanPointsBySurvey(survey_id) {
+  return getDb()
+    .prepare('SELECT * FROM scan_points WHERE survey_id = ? ORDER BY created_at ASC')
+    .all(survey_id);
 }
 
 export function deleteScanPoint(id) {

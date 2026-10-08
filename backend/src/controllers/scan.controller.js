@@ -78,6 +78,7 @@ export const saveScanAtPoint = async (req, res, next) => {
       scan_id: scanId,
       scan_point_id: point.id,
       plan_id: point.plan_id,
+      survey_id: point.survey_id,
       ...result,
       speed,
     });

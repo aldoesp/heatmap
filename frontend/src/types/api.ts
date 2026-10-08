@@ -96,6 +96,7 @@ export interface SpeedHeatmapRow {
 export interface ScanHistoryEntry {
   id: string;
   plan_id: string;
+  survey_id: string | null;
   x: number;
   y: number;
   note: string | null;
@@ -116,6 +117,13 @@ export interface ScanHistoryEntry {
     created_at: string;
     network_count: number;
   }>;
+}
+
+export type ScanHistoryRecord = ScanHistoryEntry['scans'][number];
+
+export interface ScanDetailResponse extends ScanHistoryRecord {
+  observations: NetworkObservation[];
+  speed: SpeedInfo | null;
 }
 
 export interface HeatmapRow {

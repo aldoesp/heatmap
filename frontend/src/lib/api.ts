@@ -4,6 +4,7 @@ import {
   type NetworkInfo,
   type PlanResponse,
   type SaveScanResponse,
+  type ScanDetailResponse,
   type ScanHistoryEntry,
   type ScanPointResponse,
   type SpeedHeatmapRow,
@@ -248,6 +249,12 @@ export async function saveScanAtPoint(pointId: string): Promise<SaveScanResponse
 export async function getHistory(planId: string): Promise<ScanHistoryEntry[]> {
   return apiFetch<ScanHistoryEntry[]>(
     `/api/v1/plans/${encodeURIComponent(planId)}/history`
+  );
+}
+
+export async function getScanDetail(scanId: string): Promise<ScanDetailResponse> {
+  return apiFetch<ScanDetailResponse>(
+    `/api/v1/scan/scans/${encodeURIComponent(scanId)}`
   );
 }
 

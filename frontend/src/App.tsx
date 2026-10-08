@@ -11,6 +11,9 @@ const ScanPage = lazy(() =>
 const SurveysPage = lazy(() =>
   import("./components/surveys/SurveysPage").then(({ SurveysPage }) => ({ default: SurveysPage }))
 )
+const SurveysLibraryPage = lazy(() =>
+  import("./components/surveys/SurveysLibraryPage").then(({ SurveysLibraryPage }) => ({ default: SurveysLibraryPage }))
+)
 const HeatmapPage = lazy(() =>
   import("./components/heatmap/HeatmapPage").then(({ HeatmapPage }) => ({ default: HeatmapPage }))
 )
@@ -40,7 +43,8 @@ function App() {
       <div className="relative z-10">
         <Suspense fallback={<div className="fixed inset-0 bg-bg" />}>
           {route === 'scan' && <ScanPage />}
-          {route === 'surveys' && <SurveysPage />}
+          {route === 'surveys' && <SurveysLibraryPage />}
+          {route === 'releves' && <SurveysPage />}
           {route === 'heatmap' && <HeatmapPage />}
           {route === 'settings' && <SettingsPage />}
         </Suspense>

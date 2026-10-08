@@ -15,6 +15,16 @@ CREATE TABLE IF NOT EXISTS plans (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Campagne de mesures menée sur un plan.
+CREATE TABLE IF NOT EXISTS surveys (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_surveys_plan ON surveys(plan_id);
+
 -- APs déclarés à la main sur le plan (x,y normalisés 0-1)
 CREATE TABLE IF NOT EXISTS access_points (
   id TEXT PRIMARY KEY,
@@ -31,6 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_ap_plan ON access_points(plan_id);
 CREATE TABLE IF NOT EXISTS scan_points (
   id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+  survey_id TEXT REFERENCES surveys(id) ON DELETE CASCADE,
   x REAL NOT NULL CHECK(x BETWEEN 0 AND 1),
   y REAL NOT NULL CHECK(y BETWEEN 0 AND 1),
   note TEXT DEFAULT NULL,

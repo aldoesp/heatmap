@@ -24,3 +24,13 @@ export function formatMbps(bps: number | null | undefined): string {
   if (bps === null || bps === undefined) return '—';
   return `${(Math.round((bps / 1_000_000) * 100) / 100).toLocaleString('fr-FR')} Mb/s`;
 }
+
+/* Rendu façon Node console.table (cf. backend/tests/parser.json) :
+   string -> 'valeur', number/boolean/null bruts, objets -> JSON. */
+export function formatConsoleCell(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'null';
+  if (typeof value === 'string') return `'${value}'`;
+  return JSON.stringify(value);
+}

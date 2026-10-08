@@ -30,6 +30,8 @@ import {
   createMapping,
   removeMapping,
 } from '../controllers/plans.controller.js';
+import { createSurveyForPlan, listSurveys } from '../controllers/surveys.controller.js';
+import { validateCreateSurvey } from '../middleware/surveys.middleware.js';
 
 const storage = multer.diskStorage({
   destination: (_req, _file, callback) => {
@@ -63,6 +65,8 @@ router.post('/', upload.single('image'), createPlan);
 router.get('/:id', getPlan);
 router.patch('/:id', patchPlan);
 router.delete('/:id', removePlan);
+router.get('/:planId/surveys', listSurveys);
+router.post('/:planId/surveys', validateCreateSurvey, createSurveyForPlan);
 
 router.get('/:id/access-points', getAccessPoints);
 router.post('/:id/access-points', createAccessPoint);

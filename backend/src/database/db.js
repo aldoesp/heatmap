@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,9 @@ function migrate(db) {
   const columnsOf = (table) =>
     db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   const scanPoints = columnsOf('scan_points');
+  if (!scanPoints.includes('survey_id')) {
+    db.exec('ALTER TABLE scan_points ADD COLUMN survey_id TEXT REFERENCES surveys(id) ON DELETE CASCADE');
+  }
   if (!scanPoints.includes('note')) {
     db.exec('ALTER TABLE scan_points ADD COLUMN note TEXT DEFAULT NULL');
   }
@@ -51,6 +55,31 @@ function migrate(db) {
   if (!observations.includes('current')) {
     db.exec('ALTER TABLE observations ADD COLUMN current INTEGER NOT NULL DEFAULT 0');
   }
+
+  // Keep existing plan-level history together as an initial campaign per plan.
+  const migrateLegacySurveys = db.transaction(() => {
+    const plans = db
+      .prepare(
+        `SELECT p.id, p.name, p.created_at
+         FROM plans p
+         WHERE NOT EXISTS (SELECT 1 FROM surveys s WHERE s.plan_id = p.id)`
+      )
+      .all();
+    const insertSurvey = db.prepare(
+      `INSERT INTO surveys (id, plan_id, name, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`
+    );
+    const assignPoints = db.prepare(
+      `UPDATE scan_points SET survey_id = ?
+       WHERE plan_id = ? AND survey_id IS NULL`
+    );
+    for (const plan of plans) {
+      const surveyId = randomUUID();
+      insertSurvey.run(surveyId, plan.id, plan.name, plan.created_at, plan.created_at);
+      assignPoints.run(surveyId, plan.id);
+    }
+  });
+  migrateLegacySurveys();
 }
 
 export function closeDb() {

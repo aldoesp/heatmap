@@ -147,7 +147,7 @@ export function ScanPage() {
 
   const handleSurveys = useCallback(() => {
     setDialogOpen(false);
-    location.hash = '#/surveys';
+    location.hash = '#/releves';
   }, []);
 
   const hint = useMemo(() => {

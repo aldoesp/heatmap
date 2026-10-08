@@ -4,6 +4,7 @@ export type Route =
   | 'scan'
   | 'upload'
   | 'surveys'
+  | 'releves'
   | 'analyse'
   | 'heatmap'
   | 'settings';
@@ -13,6 +14,7 @@ const VALID_ROUTES: Route[] = [
   'scan',
   'upload',
   'surveys',
+  'releves',
   'analyse',
   'heatmap',
   'settings',

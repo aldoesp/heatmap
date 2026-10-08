@@ -90,6 +90,20 @@ export function speedByPlan(plan_id) {
     .all(plan_id);
 }
 
+export function speedBySurvey(survey_id) {
+  return getDb()
+    .prepare(
+      `SELECT sp.id AS scan_point_id, sp.x, sp.y, MAX(st.tcp_down_bps) AS speed_bps
+       FROM scan_points sp
+       JOIN scans s ON s.scan_point_id = sp.id
+       JOIN speed_tests st ON st.scan_id = s.id
+       WHERE sp.survey_id = ? AND sp.is_enabled = 1 AND st.tcp_down_bps IS NOT NULL
+       GROUP BY sp.id
+       ORDER BY sp.created_at ASC`
+    )
+    .all(survey_id);
+}
+
 export function listScansByPoint(scan_point_id) {
   return getDb()
     .prepare('SELECT * FROM scans WHERE scan_point_id = ? ORDER BY created_at ASC')
@@ -114,6 +128,18 @@ export function getHistoryByPlan(plan_id) {
   const points = db
     .prepare('SELECT * FROM scan_points WHERE plan_id = ? ORDER BY created_at ASC')
     .all(plan_id);
+  return historyForPoints(points);
+}
+
+export function getHistoryBySurvey(survey_id) {
+  const points = getDb()
+    .prepare('SELECT * FROM scan_points WHERE survey_id = ? ORDER BY created_at ASC')
+    .all(survey_id);
+  return historyForPoints(points);
+}
+
+function historyForPoints(points) {
+  const db = getDb();
   return points.map((p) => {
     const scans = db
       .prepare(
@@ -149,6 +175,21 @@ export function listNetworksByPlan(plan_id) {
     .all(plan_id);
 }
 
+export function listNetworksBySurvey(survey_id) {
+  return getDb()
+    .prepare(
+      `SELECT o.ssid, o.bssid, COUNT(DISTINCT s.id) AS scan_count,
+              MAX(o.rssi) AS best_rssi
+       FROM observations o
+       JOIN scans s ON s.id = o.scan_id
+       JOIN scan_points sp ON sp.id = s.scan_point_id
+       WHERE sp.survey_id = ?
+       GROUP BY o.ssid, o.bssid
+       ORDER BY best_rssi DESC`
+    )
+    .all(survey_id);
+}
+
 export function listObservationsByScan(scan_id, { ssid, band, minRssi } = {}) {
   let sql = 'SELECT * FROM observations WHERE scan_id = ?';
   const params = [scan_id];
@@ -168,6 +209,15 @@ export function listObservationsByScan(scan_id, { ssid, band, minRssi } = {}) {
 
 // Export CSV : une ligne par observation (points activés ou non, flag inclus).
 export function exportPlanCsv(plan_id) {
+  return exportCsvFor('sp.plan_id = ?', plan_id, plan_id);
+}
+
+export function exportSurveyCsv(survey_id) {
+  const survey = getDb().prepare('SELECT plan_id FROM surveys WHERE id = ?').get(survey_id);
+  return survey ? exportCsvFor('sp.survey_id = ?', survey_id, survey.plan_id) : null;
+}
+
+function exportCsvFor(scope, scope_id, plan_id) {
   const mappings = Object.fromEntries(
     getDb()
       .prepare('SELECT bssid, name FROM ap_mappings WHERE plan_id = ?')
@@ -186,10 +236,10 @@ export function exportPlanCsv(plan_id) {
        JOIN scans s ON s.scan_point_id = sp.id
        JOIN observations o ON o.scan_id = s.id
        LEFT JOIN speed_tests st ON st.scan_id = s.id
-       WHERE sp.plan_id = ?
+       WHERE ${scope}
        ORDER BY sp.created_at ASC, o.rssi DESC`
     )
-    .all(plan_id);
+    .all(scope_id);
   const cell = (v) => {
     const s = v === null || v === undefined ? '' : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -222,14 +272,22 @@ export function exportPlanCsv(plan_id) {
 // quality est recalculée depuis ce rssi (même formule que normalizeEntry),
 // car MAX(rssi) et MAX(quality) pourraient venir de lignes différentes.
 export function heatmapByPlan(plan_id, { ssid, bssid, connected } = {}) {
+  return heatmapByScope('sp.plan_id = ?', plan_id, { ssid, bssid, connected });
+}
+
+export function heatmapBySurvey(survey_id, { ssid, bssid, connected } = {}) {
+  return heatmapByScope('sp.survey_id = ?', survey_id, { ssid, bssid, connected });
+}
+
+function heatmapByScope(scope, scope_id, { ssid, bssid, connected } = {}) {
   let sql = `
     SELECT sp.id AS scan_point_id, sp.x, sp.y,
            o.bssid, o.ssid, MAX(o.rssi) AS rssi
     FROM scan_points sp
     JOIN scans s ON s.scan_point_id = sp.id
     JOIN observations o ON o.scan_id = s.id
-    WHERE sp.plan_id = ? AND sp.is_enabled = 1`;
-  const params = [plan_id];
+    WHERE ${scope} AND sp.is_enabled = 1`;
+  const params = [scope_id];
   if (ssid) { sql += ' AND o.ssid = ?'; params.push(ssid); }
   if (bssid) { sql += ' AND o.bssid = ?'; params.push(bssid?.toLowerCase()); }
   if (connected) { sql += ' AND o.current = 1'; }
