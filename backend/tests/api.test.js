@@ -245,12 +245,40 @@ describe('surveys', () => {
     assert.equal(list.status, 200);
     assert.equal(list.json[0].id, pointId);
 
+    const liveAnalysis = await api('GET', `/api/v1/surveys/${surveyId}/analysis/live`);
+    assert.equal(liveAnalysis.status, 200);
+    assert.equal(liveAnalysis.json.survey_id, surveyId);
+    assert.ok(Array.isArray(liveAnalysis.json.data));
+
+    const analysisHistory = await api('GET', `/api/v1/surveys/${surveyId}/analysis/history`);
+    assert.equal(analysisHistory.status, 200);
+    assert.equal(analysisHistory.json.survey_id, surveyId);
+    assert.equal(analysisHistory.json.count, analysisHistory.json.data.length);
+    assert.ok(analysisHistory.json.data.some((measurement) =>
+      measurement.scan_point_id === pointId &&
+      measurement.x === 0.25 &&
+      measurement.y === 0.75 &&
+      Number.isInteger(measurement.rssi) &&
+      Number.isInteger(measurement.channel)
+    ));
+
     const other = await api('POST', `/api/v1/plans/${planId}/surveys`, {
       name: 'Campagne indépendante',
     });
     otherSurveyId = other.json.id;
     const isolated = await api('GET', `/api/v1/surveys/${otherSurveyId}/history`);
     assert.deepEqual(isolated.json, []);
+
+    const emptyAnalysis = await api('GET', `/api/v1/surveys/${otherSurveyId}/analysis/history`);
+    assert.equal(emptyAnalysis.status, 200);
+    assert.deepEqual(emptyAnalysis.json.data, []);
+  });
+
+  it('retourne 404 pour une analyse sans survey', async () => {
+    const live = await api('GET', '/api/v1/surveys/survey-inexistant/analysis/live');
+    const history = await api('GET', '/api/v1/surveys/survey-inexistant/analysis/history');
+    assert.equal(live.status, 404);
+    assert.equal(history.status, 404);
   });
 
   it('renomme et supprime la campagne avec ses points et résultats', async () => {

@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react"
 import Particles from "./components/ui/Particles"
 import { Navbar } from "./components/layout/Navbar"
 import { UploadPage } from "./components/upload/UploadPage"
-import { PlaceholderPage } from "./components/common/PlaceholderPage"
+import { AnalysePage } from "./components/analyse/AnalysePage"
 import { useHashRoute } from "./hooks/useHashRoutes"
 
 const ScanPage = lazy(() =>
@@ -49,7 +49,7 @@ function App() {
           {route === 'settings' && <SettingsPage />}
         </Suspense>
         {route === 'upload' && <UploadPage />}
-        {route === 'analyse' && <PlaceholderPage title="Analyse" />}
+        {route === 'analyse' && <AnalysePage />}
       </div>
     </main>
   )

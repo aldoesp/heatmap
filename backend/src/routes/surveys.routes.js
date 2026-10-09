@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { readAnalysisHistory, readLiveAnalysis } from '../controllers/analysis.controller.js';
+import { scanLimiter } from '../middleware/rateLimit.js';
 import {
   deleteSurvey,
   deleteSurveyPoint,
@@ -21,6 +23,9 @@ import {
 } from '../middleware/surveys.middleware.js';
 
 const router = Router();
+
+router.get('/:surveyId/analysis/live', scanLimiter, readLiveAnalysis);
+router.get('/:surveyId/analysis/history', readAnalysisHistory);
 
 router.get('/:surveyId', readSurvey);
 router.patch('/:surveyId', validateSurveyName, patchSurvey);
