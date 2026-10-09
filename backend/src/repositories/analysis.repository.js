@@ -1,7 +1,9 @@
 import { getDb } from '../database/db.js';
+import { withBssidNames } from './bssidRules.repository.js';
 
 export function listStrongestObservationsBySurvey(survey_id) {
-  return getDb()
+  const db = getDb();
+  return withBssidNames(db
     .prepare(
       `WITH ranked_observations AS (
          SELECT sp.id AS scan_point_id, sp.x, sp.y, sp.note,
@@ -15,6 +17,9 @@ export function listStrongestObservationsBySurvey(survey_id) {
          JOIN scans s ON s.scan_point_id = sp.id
          JOIN observations o ON o.scan_id = s.id
          WHERE sp.survey_id = ? AND sp.is_enabled = 1
+           AND NOT EXISTS (
+             SELECT 1 FROM bssid_rules br WHERE br.bssid = o.bssid AND br.blacklisted = 1
+           )
        )
        SELECT scan_point_id, x, y, note, scan_id, scanned_at,
               bssid, ssid, rssi, channel
@@ -22,5 +27,5 @@ export function listStrongestObservationsBySurvey(survey_id) {
        WHERE observation_rank = 1
        ORDER BY scan_point_id, rssi DESC, bssid`
     )
-    .all(survey_id);
+    .all(survey_id));
 }

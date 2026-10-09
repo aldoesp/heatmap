@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
 import { rssiToQuality } from '../utils/wifi.utils.js';
+import { withBssidNames } from './bssidRules.repository.js';
 
 // Sauve un scan complet (déjà normalisé) + ses observations en transaction.
 export function insertScanWithObservations({ scan_point_id, plan_id, mode, scanned_at, rejected_count, gateway, entries }) {
@@ -117,8 +118,12 @@ export function listScansByPlan(plan_id) {
 }
 
 export function countObservationsByScan(scan_id) {
-  return getDb()
-    .prepare('SELECT COUNT(*) AS count FROM observations WHERE scan_id = ?')
+  return getDb().prepare(
+      `SELECT COUNT(*) AS count FROM observations o
+       WHERE o.scan_id = ? AND NOT EXISTS (
+         SELECT 1 FROM bssid_rules br WHERE br.bssid = o.bssid AND br.blacklisted = 1
+       )`
+    )
     .get(scan_id).count;
 }
 
@@ -153,7 +158,12 @@ function historyForPoints(points) {
       scans: scans.map((s) => ({
         ...s,
         network_count: db
-          .prepare('SELECT COUNT(*) AS count FROM observations WHERE scan_id = ?')
+          .prepare(
+            `SELECT COUNT(*) AS count FROM observations o
+             WHERE o.scan_id = ? AND NOT EXISTS (
+               SELECT 1 FROM bssid_rules br WHERE br.bssid = o.bssid AND br.blacklisted = 1
+             )`
+          )
           .get(s.id).count,
       })),
     };
@@ -162,49 +172,56 @@ function historyForPoints(points) {
 
 // Réseaux distincts vus sur un plan (pour les filtres SSID/BSSID)
 export function listNetworksByPlan(plan_id) {
-  return getDb()
+  return withBssidNames(getDb()
     .prepare(
       `SELECT o.ssid, o.bssid, COUNT(DISTINCT s.id) AS scan_count,
               MAX(o.rssi) AS best_rssi
        FROM observations o
        JOIN scans s ON s.id = o.scan_id
-       WHERE s.plan_id = ?
+       WHERE s.plan_id = ? AND NOT EXISTS (
+         SELECT 1 FROM bssid_rules br WHERE br.bssid = o.bssid AND br.blacklisted = 1
+       )
        GROUP BY o.ssid, o.bssid
        ORDER BY best_rssi DESC`
     )
-    .all(plan_id);
+    .all(plan_id));
 }
 
 export function listNetworksBySurvey(survey_id) {
-  return getDb()
+  return withBssidNames(getDb()
     .prepare(
       `SELECT o.ssid, o.bssid, COUNT(DISTINCT s.id) AS scan_count,
               MAX(o.rssi) AS best_rssi
        FROM observations o
        JOIN scans s ON s.id = o.scan_id
        JOIN scan_points sp ON sp.id = s.scan_point_id
-       WHERE sp.survey_id = ?
+       WHERE sp.survey_id = ? AND NOT EXISTS (
+         SELECT 1 FROM bssid_rules br WHERE br.bssid = o.bssid AND br.blacklisted = 1
+       )
        GROUP BY o.ssid, o.bssid
        ORDER BY best_rssi DESC`
     )
-    .all(survey_id);
+    .all(survey_id));
 }
 
 export function listObservationsByScan(scan_id, { ssid, band, minRssi } = {}) {
-  let sql = 'SELECT * FROM observations WHERE scan_id = ?';
+  let sql = `SELECT o.* FROM observations o
+             WHERE o.scan_id = ? AND NOT EXISTS (
+               SELECT 1 FROM bssid_rules br WHERE br.bssid = o.bssid AND br.blacklisted = 1
+             )`;
   const params = [scan_id];
   if (ssid !== undefined) { sql += ' AND ssid = ?'; params.push(ssid); }
   if (band !== undefined) { sql += ' AND band = ?'; params.push(band); }
   if (minRssi !== undefined) { sql += ' AND rssi >= ?'; params.push(minRssi); }
   sql += ' ORDER BY rssi DESC';
-  return getDb().prepare(sql).all(...params).map((r) => ({
+  return withBssidNames(getDb().prepare(sql).all(...params).map((r) => ({
     ...r,
     hidden: !!r.hidden,
     virtual_bssid: !!r.virtual_bssid,
     unreliable_bssid: !!r.unreliable_bssid,
     current: !!r.current,
     capabilities: JSON.parse(r.capabilities ?? '[]'),
-  }));
+  })));
 }
 
 // Export CSV : une ligne par observation (points activés ou non, flag inclus).
@@ -217,26 +234,23 @@ export function exportSurveyCsv(survey_id) {
   return survey ? exportCsvFor('sp.survey_id = ?', survey_id, survey.plan_id) : null;
 }
 
-function exportCsvFor(scope, scope_id, plan_id) {
-  const mappings = Object.fromEntries(
-    getDb()
-      .prepare('SELECT bssid, name FROM ap_mappings WHERE plan_id = ?')
-      .all(plan_id)
-      .map((m) => [m.bssid.toLowerCase(), m.name])
-  );
+function exportCsvFor(scope, scope_id) {
   const rows = getDb()
     .prepare(
       `SELECT sp.id AS point_id, sp.x, sp.y, sp.note, sp.is_enabled,
               s.id AS scan_id, s.scanned_at, s.mode,
               s.gateway_ip, s.gateway_rtt_ms, s.gateway_loss_percent,
               st.tcp_down_bps, st.tcp_up_bps,
-              o.ssid, o.bssid, o.rssi, o.quality, o.level, o.band,
+              o.ssid, o.bssid, br.name AS ap_name, o.rssi, o.quality, o.level, o.band,
               o.frequency_mhz, o.channel, o.security, o.standard
        FROM scan_points sp
        JOIN scans s ON s.scan_point_id = sp.id
        JOIN observations o ON o.scan_id = s.id
+       LEFT JOIN bssid_rules br ON br.bssid = o.bssid
        LEFT JOIN speed_tests st ON st.scan_id = s.id
-       WHERE ${scope}
+       WHERE ${scope} AND NOT EXISTS (
+         SELECT 1 FROM bssid_rules br WHERE br.bssid = o.bssid AND br.blacklisted = 1
+       )
        ORDER BY sp.created_at ASC, o.rssi DESC`
     )
     .all(scope_id);
@@ -259,7 +273,7 @@ function exportCsvFor(scope, scope_id, plan_id) {
       r.scan_id, r.scanned_at, r.mode,
       r.gateway_ip, r.gateway_rtt_ms, r.gateway_loss_percent,
       toMbps(r.tcp_down_bps), toMbps(r.tcp_up_bps),
-      r.ssid, r.bssid, mappings[String(r.bssid).toLowerCase()] ?? '',
+      r.ssid, r.bssid, r.ap_name ?? '',
       r.rssi, r.quality, r.level, r.band,
       r.frequency_mhz, r.channel, r.security, r.standard,
     ]
@@ -286,14 +300,17 @@ function heatmapByScope(scope, scope_id, { ssid, bssid, connected } = {}) {
     FROM scan_points sp
     JOIN scans s ON s.scan_point_id = sp.id
     JOIN observations o ON o.scan_id = s.id
-    WHERE ${scope} AND sp.is_enabled = 1`;
+    WHERE ${scope} AND sp.is_enabled = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM bssid_rules br WHERE br.bssid = o.bssid AND br.blacklisted = 1
+      )`;
   const params = [scope_id];
   if (ssid) { sql += ' AND o.ssid = ?'; params.push(ssid); }
   if (bssid) { sql += ' AND o.bssid = ?'; params.push(bssid?.toLowerCase()); }
   if (connected) { sql += ' AND o.current = 1'; }
   sql += ' GROUP BY sp.id, o.bssid ORDER BY sp.created_at ASC';
-  return getDb().prepare(sql).all(...params).map((r) => ({
+  return withBssidNames(getDb().prepare(sql).all(...params).map((r) => ({
     ...r,
     quality: rssiToQuality(r.rssi),
-  }));
+  })));
 }

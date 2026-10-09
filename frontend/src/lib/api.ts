@@ -310,6 +310,47 @@ export interface AppSettings {
   scan_mode: string;
 }
 
+export interface BssidRule {
+  id: string;
+  bssid: string;
+  name: string;
+  blacklisted: boolean;
+  created_at: string;
+}
+
+export async function listBssidRules(): Promise<BssidRule[]> {
+  return apiFetch<BssidRule[]>('/api/v1/bssid-rules');
+}
+
+export async function createBssidRule(input: {
+  bssid: string;
+  name: string;
+  blacklisted: boolean;
+}): Promise<BssidRule> {
+  return apiFetch<BssidRule>('/api/v1/bssid-rules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateBssidRule(
+  id: string,
+  patch: Partial<Pick<BssidRule, 'name' | 'blacklisted'>>
+): Promise<BssidRule> {
+  return apiFetch<BssidRule>(`/api/v1/bssid-rules/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteBssidRule(id: string): Promise<void> {
+  await apiFetch<void>(`/api/v1/bssid-rules/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function getSettings(): Promise<AppSettings> {
   return apiFetch<AppSettings>('/api/v1/settings');
 }

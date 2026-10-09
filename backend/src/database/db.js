@@ -80,6 +80,29 @@ function migrate(db) {
     }
   });
   migrateLegacySurveys();
+
+  const rulesMigrated = db
+    .prepare("SELECT 1 FROM settings WHERE key = 'bssid_rules_migrated'")
+    .get();
+  if (!rulesMigrated) {
+    const migrateLegacyMappings = db.transaction(() => {
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO bssid_rules (id, bssid, name)
+         VALUES (?, ?, ?)`
+      );
+      const mappings = db
+        .prepare('SELECT bssid, name FROM ap_mappings ORDER BY created_at DESC')
+        .all();
+      for (const mapping of mappings) {
+        insert.run(randomUUID(), String(mapping.bssid).toLowerCase(), mapping.name);
+      }
+      db.prepare(
+        `INSERT INTO settings (key, value, updated_at)
+         VALUES ('bssid_rules_migrated', '1', datetime('now'))`
+      ).run();
+    });
+    migrateLegacyMappings();
+  }
 }
 
 export function closeDb() {

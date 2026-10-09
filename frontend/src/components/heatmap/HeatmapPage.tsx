@@ -347,7 +347,7 @@ export function HeatmapPage() {
           <option value="">Tous les BSSID</option>
           {bssids.map((b) => (
             <option key={b} value={b}>
-              {b}
+              {networks.find((network) => network.bssid === b)?.bssid_name ?? b}
             </option>
           ))}
         </select>
@@ -453,7 +453,7 @@ export function HeatmapPage() {
                   }}
                 >
                   <Tooltip>
-                    {r.ssid ?? '(réseau masqué)'} · {r.bssid}
+                    {r.ssid ?? '(réseau masqué)'} · {r.bssid_name}
                     <br />
                     {r.rssi} dBm · x {formatPercent(r.x)} · y {formatPercent(r.y)}
                   </Tooltip>

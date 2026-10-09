@@ -33,6 +33,7 @@ export interface ScanPointResponse {
 
 export interface NetworkObservation {
   bssid: string;
+  bssid_name: string;
   ssid: string | null;
   hidden: boolean;
   band: string;
@@ -131,6 +132,7 @@ export interface HeatmapRow {
   x: number;
   y: number;
   bssid: string;
+  bssid_name: string;
   ssid: string | null;
   rssi: number;
   quality: number;
@@ -139,6 +141,7 @@ export interface HeatmapRow {
 export interface NetworkInfo {
   ssid: string | null;
   bssid: string;
+  bssid_name: string;
   scan_count: number;
   best_rssi: number;
 }

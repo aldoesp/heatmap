@@ -5,11 +5,12 @@ import {
   getSettings,
   patchSetting,
   getIperfStatus,
-  listApMappings,
-  createApMapping,
-  deleteApMapping,
+  listBssidRules,
+  createBssidRule,
+  updateBssidRule,
+  deleteBssidRule,
   exportCsvUrl,
-  type ApMapping,
+  type BssidRule,
   type AppSettings,
   type AppStatus,
 } from '../../lib/api';
@@ -23,13 +24,16 @@ export function SettingsPage() {
   const [iperf, setIperf] = useState<{ available: boolean; version: string | null } | null>(null);
   const [settings, setSettings] = useState<AppSettings>({ iperf_server: '', iperf_duration_s: '', scan_mode: '' });
   const [switchingMode, setSwitchingMode] = useState(false);
-  const [mappings, setMappings] = useState<ApMapping[]>([]);
+  const [mappings, setMappings] = useState<BssidRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [mapName, setMapName] = useState('');
   const [mapBssid, setMapBssid] = useState('');
+  const [blacklistNew, setBlacklistNew] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  const [editingRuleName, setEditingRuleName] = useState('');
   const [mapError, setMapError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -59,19 +63,20 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (!plan) return;
     let alive = true;
-    listApMappings(plan.id)
+    listBssidRules()
       .then((m) => {
         if (alive) setMappings(m);
       })
-      .catch(() => {
-        /* mapping indisponible : le reste reste utilisable */
+      .catch((err) => {
+        if (!alive) return;
+        const apiErr = err instanceof ApiError ? err : null;
+        setMapError(apiErr?.message ?? 'Impossible de charger les règles BSSID.');
       });
     return () => {
       alive = false;
     };
-  }, [plan]);
+  }, []);
 
   const saveSettings = useCallback(async () => {
     setSaving(true);
@@ -92,11 +97,10 @@ export function SettingsPage() {
   }, [settings]);
 
   const addMapping = useCallback(async () => {
-    if (!plan) return;
     const name = mapName.trim();
     const bssid = mapBssid.trim().toLowerCase();
-    if (!name) {
-      setMapError('Donne un nom à cette borne.');
+    if (!name && !blacklistNew) {
+      setMapError('Donne un nom ou ajoute ce BSSID à la liste noire.');
       return;
     }
     if (!BSSID_RE.test(bssid)) {
@@ -105,25 +109,47 @@ export function SettingsPage() {
     }
     setMapError(null);
     try {
-      const created = await createApMapping(plan.id, { name, bssid });
+      const created = await createBssidRule({ name, bssid, blacklisted: blacklistNew });
       setMappings((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
       setMapName('');
       setMapBssid('');
+      setBlacklistNew(false);
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null;
       setMapError(apiErr?.message ?? 'Impossible d’ajouter cette borne.');
     }
-  }, [plan, mapName, mapBssid]);
+  }, [mapName, mapBssid, blacklistNew]);
 
   const removeMapping = useCallback(async (id: string) => {
     try {
-      await deleteApMapping(id);
+      await deleteBssidRule(id);
       setMappings((prev) => prev.filter((m) => m.id !== id));
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null;
       setMapError(apiErr?.message ?? 'Impossible de supprimer cette borne.');
     }
   }, []);
+
+  const toggleBlacklist = useCallback(async (rule: BssidRule) => {
+    try {
+      const updated = await updateBssidRule(rule.id, { blacklisted: !rule.blacklisted });
+      setMappings((prev) => prev.map((item) => item.id === rule.id ? updated : item));
+    } catch (err) {
+      const apiErr = err instanceof ApiError ? err : null;
+      setMapError(apiErr?.message ?? 'Impossible de modifier la liste noire.');
+    }
+  }, []);
+
+  const saveRuleName = useCallback(async (rule: BssidRule) => {
+    try {
+      const updated = await updateBssidRule(rule.id, { name: editingRuleName.trim() });
+      setMappings((prev) => prev.map((item) => item.id === rule.id ? updated : item));
+      setEditingRuleId(null);
+    } catch (err) {
+      const apiErr = err instanceof ApiError ? err : null;
+      setMapError(apiErr?.message ?? 'Impossible de modifier le nom.');
+    }
+  }, [editingRuleName]);
 
   const switchMode = useCallback(async (mode: 'test' | 'live') => {
     setSwitchingMode(true);
@@ -252,17 +278,13 @@ export function SettingsPage() {
         </section>
 
         <section className="glass-fallback bg-glass-bg-soft border border-glass-border-soft rounded-card p-4 lg:p-5">
-          <h2 className="text-sm font-medium mb-1">Noms des bornes</h2>
+          <h2 className="text-sm font-medium mb-1">Noms et liste noire des BSSID</h2>
           <p className="text-[13px] text-text-dim mb-3">
-            Associe chaque adresse MAC à un nom convivial
-            {plan ? ` (plan « ${plan.name} »)` : ''}. Utilisé dans l’export CSV.
+            Les noms sont globaux et remplacent le BSSID dans l’application. Un BSSID en liste noire est exclu des scans et des analyses, y compris l’historique.
           </p>
-          {!plan ? (
-            <p className="text-[13px] text-text-dim">Importe d’abord un plan.</p>
-          ) : (
             <>
               {mappings.length === 0 ? (
-                <p className="text-[13px] text-text-dim mb-2">Aucune borne nommée.</p>
+                <p className="text-[13px] text-text-dim mb-2">Aucun BSSID configuré.</p>
               ) : (
                 <div className="flex flex-col gap-2 mb-3">
                   {mappings.map((m) => (
@@ -271,9 +293,50 @@ export function SettingsPage() {
                       className="flex items-center gap-2.5 p-2 rounded-xl border border-transparent hover:bg-glass-bg"
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium truncate">{m.name}</div>
+                        {editingRuleId === m.id ? (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              autoFocus
+                              aria-label={`Nom de ${m.bssid}`}
+                              value={editingRuleName}
+                              onChange={(e) => setEditingRuleName(e.target.value)}
+                              className="min-w-0 h-8 px-2 bg-[rgba(255,255,255,0.03)] border border-glass-border-soft rounded-lg text-[13px] text-text outline-none focus:border-accent"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveRuleName(m)}
+                              className="h-8 px-2 rounded-lg border border-glass-border text-[12px] text-text"
+                            >
+                              OK
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingRuleId(m.id);
+                              setEditingRuleName(m.name);
+                            }}
+                            className="text-left text-[13px] font-medium truncate"
+                          >
+                            {m.name || 'Renommer'}
+                          </button>
+                        )}
                         <div className="font-mono text-[12px] text-text-dim">{m.bssid}</div>
                       </div>
+                      <button
+                        type="button"
+                        aria-pressed={m.blacklisted}
+                        onClick={() => toggleBlacklist(m)}
+                        className={[
+                          'shrink-0 h-9 px-3 rounded-[10px] text-[13px] border transition-colors',
+                          m.blacklisted
+                            ? 'border-danger bg-danger-soft text-danger'
+                            : 'border-glass-border text-text-dim hover:text-text',
+                        ].join(' ')}
+                      >
+                        {m.blacklisted ? 'Liste noire' : 'Exclure'}
+                      </button>
                       <button
                         type="button"
                         aria-label={`Supprimer ${m.name}`}
@@ -304,6 +367,15 @@ export function SettingsPage() {
                   onChange={(e) => setMapBssid(e.target.value)}
                   className="h-11 px-3 font-mono bg-[rgba(255,255,255,0.03)] border border-glass-border-soft rounded-xl text-sm text-text outline-none focus:border-accent"
                 />
+                <label className="sm:col-span-2 flex items-center gap-2 text-[13px] text-text-dim">
+                  <input
+                    type="checkbox"
+                    checked={blacklistNew}
+                    onChange={(e) => setBlacklistNew(e.target.checked)}
+                    className="w-4 h-4 accent-[#10b981]"
+                  />
+                  Ajouter directement à la liste noire
+                </label>
                 <button
                   type="button"
                   onClick={addMapping}
@@ -313,7 +385,6 @@ export function SettingsPage() {
                 </button>
               </div>
             </>
-          )}
         </section>
 
         {plan && (

@@ -522,6 +522,35 @@ describe('réglages, mapping et export', () => {
     assert.equal(del.status, 204);
   });
 
+  it('nomme globalement un BSSID et exclut les BSSID en liste noire des scans', async () => {
+    const bssid = '8c:30:66:74:50:83';
+    const created = await api('POST', '/api/v1/bssid-rules', {
+      bssid,
+      name: 'CH 209',
+      blacklisted: false,
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.json.name, 'CH 209');
+    assert.equal(created.json.blacklisted, false);
+
+    const scan = await api('GET', '/api/v1/scan');
+    assert.equal(scan.status, 200);
+    assert.equal(scan.json.data.find((entry) => entry.bssid === bssid)?.bssid_name, 'CH 209');
+
+    const blocked = await api('PATCH', `/api/v1/bssid-rules/${created.json.id}`, {
+      blacklisted: true,
+    });
+    assert.equal(blocked.status, 200);
+    assert.equal(blocked.json.blacklisted, true);
+
+    const filteredScan = await api('GET', '/api/v1/scan');
+    assert.equal(filteredScan.status, 200);
+    assert.ok(!filteredScan.json.data.some((entry) => entry.bssid === bssid));
+
+    const deleted = await api('DELETE', `/api/v1/bssid-rules/${created.json.id}`);
+    assert.equal(deleted.status, 204);
+  });
+
   it('coupe un point : exclu de la heatmap, visible dans le CSV', async () => {
     const off = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
       is_enabled: 0,

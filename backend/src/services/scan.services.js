@@ -3,6 +3,7 @@ import { validateRawScan } from '../validators/scan.validator.js';
 import { AppError } from '../utils/AppError.js';
 import { isPlaceholderBssid, measureGatewayPing } from '../utils/ping.utils.js';
 import { collectConnectionInfo } from './connection.service.js';
+import { listBlacklistedBssids, withBssidNames } from '../repositories/bssidRules.repository.js';
 import {
   normalizeBssid,
   frequencyToBand,
@@ -60,7 +61,12 @@ export const getNormalizedScan = async (filters = {}) => {
   const { valid, rejected, fatal } = validateRawScan(raw);
   if (fatal) throw new AppError(fatal, 502);
 
-  const normalized = valid.map(normalizeEntry).sort((a, b) => b.rssi - a.rssi);
+  const blocked = new Set(listBlacklistedBssids());
+  const normalizedEntries = valid.map(normalizeEntry);
+  const blockedCount = normalizedEntries.filter((entry) => blocked.has(entry.bssid)).length;
+  const normalized = normalizedEntries
+    .filter((entry) => !blocked.has(entry.bssid))
+    .sort((a, b) => b.rssi - a.rssi);
 
   // Réseau connecté : le plus fort avec le même SSID (ou même BSSID),
   // comme l'upstream wifi-heatmapper. Best-effort, jamais fatal.
@@ -83,7 +89,7 @@ export const getNormalizedScan = async (filters = {}) => {
     /* marquage optionnel : le scan reste valable */
   }
 
-  const data = applyFilters(normalized, filters);
+  const data = withBssidNames(applyFilters(normalized, filters));
   // En test automatisé, le ping est désactivé (pas de réseau fiable) ;
   // les parseurs restent couverts par tests/ping.test.js.
   const gateway = process.env.SKIP_GATEWAY_PING
@@ -101,7 +107,7 @@ export const getNormalizedScan = async (filters = {}) => {
     mode: getScanMode(),
     scanned_at: new Date().toISOString(),
     count: data.length,
-    rejected_count: rejected.length,
+    rejected_count: rejected.length + blockedCount,
     rejected,
     data,
     gateway,

@@ -61,6 +61,16 @@ CREATE TABLE IF NOT EXISTS ap_mappings (
 );
 CREATE INDEX IF NOT EXISTS idx_apm_plan ON ap_mappings(plan_id);
 
+-- Noms et exclusions globaux par BSSID.
+CREATE TABLE IF NOT EXISTS bssid_rules (
+  id TEXT PRIMARY KEY,
+  bssid TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL DEFAULT '',
+  blacklisted INTEGER NOT NULL DEFAULT 0 CHECK(blacklisted IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bssid_rules_blacklisted ON bssid_rules(blacklisted);
+
 -- Débit iperf3 par scan (une ligne max, seulement si un serveur est configuré)
 CREATE TABLE IF NOT EXISTS speed_tests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

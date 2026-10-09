@@ -150,7 +150,7 @@ export function ScanConfirmDialog({
                     </span>
                   )}
                 </div>
-                <div className="font-mono text-text-dim">{n.bssid}</div>
+                <div className="font-mono text-text-dim">{n.bssid_name}</div>
                 <div className="font-mono text-text-dim">
                   {n.rssi} dBm · qualité {n.quality} ({n.level}) · {n.band} ·{' '}
                   {n.frequency_mhz} MHz{n.channel !== null ? ` · canal ${n.channel}` : ''}

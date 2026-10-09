@@ -304,7 +304,7 @@ export function PointsTable({ surveyName, rows, onBack }: Props) {
                   <>
                     <td className="px-3 py-2 font-mono text-text-dim">{f.obsIndex}</td>
                     <td className="px-3 py-2 font-mono text-text whitespace-nowrap">
-                      {formatConsoleCell(f.obs.bssid)}
+                      {formatConsoleCell(f.obs.bssid_name)}
                     </td>
                     <td className="px-3 py-2 font-mono text-text-dim whitespace-nowrap">
                       {formatConsoleCell(f.obs.ssid)}
