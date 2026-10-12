@@ -443,7 +443,7 @@ export function HeatmapPage() {
               {!showingSpeed && rows.map((r) => (
                 <CircleMarker
                   key={`${r.scan_point_id}-${r.bssid}`}
-                  center={[(1 - r.y) * plan.height, r.x * plan.width]}
+                  center={[r.y * plan.height, r.x * plan.width]}
                   radius={radius}
                   pathOptions={{
                     color: rssiColor(r.rssi),
@@ -464,7 +464,7 @@ export function HeatmapPage() {
                 return (
                   <CircleMarker
                     key={r.scan_point_id}
-                    center={[(1 - r.y) * plan.height, r.x * plan.width]}
+                    center={[r.y * plan.height, r.x * plan.width]}
                     radius={radius}
                     pathOptions={{
                       color: speedColor(mbps),

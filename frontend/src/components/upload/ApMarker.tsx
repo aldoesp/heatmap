@@ -35,7 +35,8 @@ export function ApMarker({
 
       const move = (ev: PointerEvent) => {
         const x = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-        const y = Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height));
+        const yFromTop = Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height));
+        const y = 1 - yFromTop;
         onMove(ap.id, x, y);
       };
 
@@ -65,7 +66,7 @@ export function ApMarker({
         e.stopPropagation();
         onSelect(ap.id);
       }}
-      style={{ left: `${ap.x * 100}%`, top: `${ap.y * 100}%` }}
+      style={{ left: `${ap.x * 100}%`, top: `${(1 - ap.y) * 100}%` }}
       className={[
         'absolute -ml-5.5 -mt-5.5 w-11 h-11',
         'flex items-center justify-center',

@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS surveys (
 );
 CREATE INDEX IF NOT EXISTS idx_surveys_plan ON surveys(plan_id);
 
--- APs déclarés à la main sur le plan (x,y normalisés 0-1)
+-- Coordonnées normalisées : x=0 à gauche, y=0 en bas du plan.
 CREATE TABLE IF NOT EXISTS access_points (
   id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS access_points (
 );
 CREATE INDEX IF NOT EXISTS idx_ap_plan ON access_points(plan_id);
 
--- Position cliquée sur le terrain
+-- Position cliquée sur le terrain, avec la même convention x/y que les APs.
 CREATE TABLE IF NOT EXISTS scan_points (
   id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,

@@ -36,6 +36,15 @@ legacyDb.exec(`
     y REAL NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE access_points (
+    id TEXT PRIMARY KEY,
+    plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(plan_id, name)
+  );
 `);
 legacyDb.prepare(
   `INSERT INTO plans
@@ -48,6 +57,9 @@ legacyDb.prepare(
 legacyDb.prepare(
   'INSERT INTO scan_points (id, plan_id, x, y) VALUES (?, ?, ?, ?)'
 ).run('legacy-point', 'legacy-plan', 0.2, 0.4);
+legacyDb.prepare(
+  'INSERT INTO access_points (id, plan_id, name, x, y) VALUES (?, ?, ?, ?, ?)'
+).run('legacy-ap', 'legacy-plan', 'Ancienne borne', 0.3, 0.4);
 legacyDb.close();
 
 const { default: app } = await import('../src/app.js');
@@ -183,6 +195,16 @@ describe('migration des surveys existants', () => {
     assert.equal(history.json.length, 1);
     assert.equal(history.json[0].id, 'legacy-point');
     assert.equal(history.json[0].survey_id, surveys.json[0].id);
+  });
+
+  it('inverse Y des points existants sans changer leur position sur le plan', async () => {
+    const scanPoints = await api('GET', '/api/v1/plans/legacy-plan/scan-points');
+    assert.equal(scanPoints.status, 200);
+    assert.equal(scanPoints.json[0].y, 0.6);
+
+    const accessPoints = await api('GET', '/api/v1/plans/legacy-plan/access-points');
+    assert.equal(accessPoints.status, 200);
+    assert.equal(accessPoints.json[0].y, 0.6);
   });
 });
 

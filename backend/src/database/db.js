@@ -56,6 +56,21 @@ function migrate(db) {
     db.exec('ALTER TABLE observations ADD COLUMN current INTEGER NOT NULL DEFAULT 0');
   }
 
+  const coordinatesMigrated = db
+    .prepare("SELECT 1 FROM settings WHERE key = 'coordinates_y_origin_bottom'")
+    .get();
+  if (!coordinatesMigrated) {
+    const migrateCoordinateOrigin = db.transaction(() => {
+      db.exec('UPDATE access_points SET y = 1 - y');
+      db.exec('UPDATE scan_points SET y = 1 - y');
+      db.prepare(
+        `INSERT INTO settings (key, value, updated_at)
+         VALUES ('coordinates_y_origin_bottom', '1', datetime('now'))`
+      ).run();
+    });
+    migrateCoordinateOrigin();
+  }
+
   // Keep existing plan-level history together as an initial campaign per plan.
   const migrateLegacySurveys = db.transaction(() => {
     const plans = db

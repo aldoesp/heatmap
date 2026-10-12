@@ -41,8 +41,9 @@ export function PreviewCard({
     if (!placing || !imgRef.current || !frameRef.current) return;
     const imgRect = imgRef.current.getBoundingClientRect();
     const x = (e.clientX - imgRect.left) / imgRect.width;
-    const y = (e.clientY - imgRect.top) / imgRect.height;
-    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    const yFromTop = (e.clientY - imgRect.top) / imgRect.height;
+    if (x < 0 || x > 1 || yFromTop < 0 || yFromTop > 1) return;
+    const y = 1 - yFromTop;
     onPlace(x, y);
   };
 

@@ -12,7 +12,7 @@ export function latlngToData(
 ): NormalizedCoord {
   return {
     x: latlng.lng / width,
-    y: 1 - latlng.lat / height,
+    y: latlng.lat / height,
   };
 }
 
@@ -22,7 +22,7 @@ export function dataToLatLng(
   width: number,
   height: number
 ): [number, number] {
-  return [(1 - y) * height, x * width];
+  return [y * height, x * width];
 }
 
 export function clampCoord({ x, y }: NormalizedCoord): NormalizedCoord {
