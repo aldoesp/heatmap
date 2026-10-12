@@ -1,19 +1,19 @@
 import { Marker } from 'react-leaflet';
 import L from 'leaflet';
-import { Wifi } from 'lucide-react';
 import { renderToString } from 'react-dom/server';
 
 const ICON_HTML = renderToString(
-  <div className="marker-pin">
-    <Wifi size={18} strokeWidth={2} />
+  <div className="marker-target" aria-hidden="true">
+    <span className="marker-target__ring" />
+    <span className="marker-target__dot" />
   </div>
 );
 
 const pendingPinIcon = L.divIcon({
   className: '',
   html: ICON_HTML,
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
 });
 
 interface PendingPinProps {

@@ -83,6 +83,34 @@
   outline: none;
 }
 
+.marker-target {
+  position: relative;
+  display: block;
+  width: 32px;
+  height: 32px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9));
+}
+
+.marker-target__ring {
+  position: absolute;
+  inset: 3px;
+  border: 2px solid #10b981;
+  border-radius: 50%;
+  background: rgba(11, 15, 20, 0.55);
+}
+
+.marker-target__dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #0b0f14;
+  border-radius: 50%;
+  background: #10b981;
+  transform: translate(-50%, -50%);
+}
+
 /* Contrôles zoom → style glass */
 .leaflet-top.leaflet-right {
   top: var(--nav-top-offset, 12px);
