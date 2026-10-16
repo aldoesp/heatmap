@@ -260,12 +260,13 @@ export async function getScanDetail(scanId: string): Promise<ScanDetailResponse>
 
 export async function getHeatmap(
   planId: string,
-  filter?: { ssid?: string; bssid?: string; connected?: boolean }
+  filter?: { ssid?: string; bssid?: string; connected?: boolean; band?: '2.4' | '5' | '6' }
 ): Promise<HeatmapRow[]> {
   const params = new URLSearchParams();
   if (filter?.ssid) params.set('ssid', filter.ssid);
   if (filter?.bssid) params.set('bssid', filter.bssid);
   if (filter?.connected) params.set('connected', '1');
+  if (filter?.band) params.set('band', filter.band);
   const qs = params.toString();
   return apiFetch<HeatmapRow[]>(
     `/api/v1/plans/${encodeURIComponent(planId)}/heatmap${qs ? `?${qs}` : ''}`

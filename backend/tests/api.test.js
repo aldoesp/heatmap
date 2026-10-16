@@ -612,6 +612,25 @@ describe('réglages, mapping et export', () => {
     const all = await api('GET', `/api/v1/plans/${planId}/heatmap`);
     assert.ok(all.json.length >= filtered.json.length);
   });
+  it('filtre la heatmap par bande (2.4 / 5 / 6 GHz)', async () => {
+    const all = await api('GET', `/api/v1/plans/${planId}/heatmap`);
+    assert.equal(all.status, 200);
+    const b5 = await api('GET', `/api/v1/plans/${planId}/heatmap?band=5`);
+    assert.equal(b5.status, 200);
+    const b24 = await api('GET', `/api/v1/plans/${planId}/heatmap?band=2.4`);
+    assert.equal(b24.status, 200);
+    const b6 = await api('GET', `/api/v1/plans/${planId}/heatmap?band=6`);
+    assert.equal(b6.status, 200);
+    // La fixture ne contient que du 2.4 et du 5 GHz : les deux bandes
+    // doivent reconstituer l'ensemble, et le 6 GHz reste vide.
+    assert.ok(b5.json.length > 0);
+    assert.ok(b24.json.length > 0);
+    assert.deepEqual(b6.json, []);
+    assert.equal(all.json.length, b5.json.length + b24.json.length);
+    const bad = await api('GET', `/api/v1/plans/${planId}/heatmap?band=7`);
+    assert.equal(bad.status, 400);
+  });
+
   it('bascule le mode de scan et revient à SCAN_MODE', async () => {
     const live = await api('PATCH', '/api/v1/settings', { key: 'scan_mode', value: 'live' });
     assert.equal(live.status, 200);

@@ -259,11 +259,20 @@ export const removePlan = async (req, res, next) => {
 
 export const getHeatmap = (req, res, next) => {
   if (!findPlanById(req.params.id)) return next(new AppError('Plan introuvable.', 404));
-  const { ssid, bssid, connected } = req.query;
+  const { ssid, bssid, connected, band } = req.query;
+  // Même normalisation que validateScanQuery : 2.4 | 5 | 6 -> '2.4GHz'...
+  let bandFilter;
+  if (band !== undefined) {
+    if (!['2.4', '5', '6'].includes(String(band))) {
+      return next(new AppError('band doit être 2.4, 5 ou 6.', 400));
+    }
+    bandFilter = `${band}GHz`;
+  }
   res.json(heatmapByPlan(req.params.id, {
     ssid: ssid ? String(ssid) : undefined,
     bssid: bssid ? String(bssid) : undefined,
     connected: connected === '1' || connected === 'true',
+    band: bandFilter,
   }));
 };
 

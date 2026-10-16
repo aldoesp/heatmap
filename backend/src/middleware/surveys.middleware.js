@@ -56,7 +56,7 @@ export const validateSurveyPointPatch = (req, _res, next) => {
 };
 
 export const validateSurveyHeatmap = (req, _res, next) => {
-  const { ssid, bssid, connected } = req.query;
+  const { ssid, bssid, connected, band: bandParam } = req.query;
   if (ssid !== undefined && typeof ssid !== 'string') {
     return next(new AppError('ssid invalide.', 400));
   }
@@ -66,10 +66,18 @@ export const validateSurveyHeatmap = (req, _res, next) => {
   if (connected !== undefined && !['0', '1', 'true', 'false'].includes(connected)) {
     return next(new AppError('connected doit être 0, 1, true ou false.', 400));
   }
+  let band;
+  if (bandParam !== undefined) {
+    if (!['2.4', '5', '6'].includes(String(bandParam))) {
+      return next(new AppError('band doit être 2.4, 5 ou 6.', 400));
+    }
+    band = `${bandParam}GHz`;
+  }
   req.surveyHeatmapFilters = {
     ssid: ssid || undefined,
     bssid: bssid || undefined,
     connected: connected === '1' || connected === 'true',
+    band,
   };
   next();
 };

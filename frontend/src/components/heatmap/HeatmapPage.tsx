@@ -9,8 +9,10 @@ import {
   setHeatmapRadius,
   calculateAutoRadius,
 } from '../../lib/heatmap';
+import { CoverageOverlay, type CoverageBand, type CoveragePoint } from './CoverageOverlay';
 import { ApiError, type HeatmapRow, type NetworkInfo, type SpeedHeatmapRow } from '../../types/api';
 import { formatPercent, formatMbps } from '../../lib/format';
+import { average } from '../../lib/signal';
 
 function rssiColor(rssi: number): string {
   if (rssi >= -55) return '#10b981';
@@ -113,12 +115,49 @@ function ZoomControl() {
   );
 }
 
-const LEGEND: Array<{ label: string; color: string }> = [
-  { label: '≥ −55 dBm · excellent', color: '#10b981' },
-  { label: '≥ −67 dBm · bon', color: '#a3e635' },
-  { label: '≥ −75 dBm · moyen', color: '#f59e0b' },
-  { label: '≥ −85 dBm · faible', color: '#f97316' },
-  { label: '< −85 dBm · très faible', color: '#ef4444' },
+/* Bandes du champ de couverture : mêmes seuils/réseaux que rssiColor et
+   le backend (rssiToLevel) — aucune valeur inventée ici. */
+const RSSI_BANDS: CoverageBand[] = [
+  { min: -55, color: '#10b981' },
+  { min: -67, color: '#a3e635' },
+  { min: -75, color: '#f59e0b' },
+  { min: -85, color: '#f97316' },
+  { min: Number.NEGATIVE_INFINITY, color: '#ef4444' },
+];
+
+const SPEED_BANDS: CoverageBand[] = [
+  { min: 50, color: '#10b981' },
+  { min: 20, color: '#a3e635' },
+  { min: 5, color: '#f59e0b' },
+  { min: 1, color: '#f97316' },
+  { min: Number.NEGATIVE_INFINITY, color: '#ef4444' },
+];
+
+const RSSI_LABELS: Record<string, string> = {
+  '-55': '≥ −55 dBm · excellent',
+  '-67': '≥ −67 dBm · bon',
+  '-75': '≥ −75 dBm · moyen',
+  '-85': '≥ −85 dBm · faible',
+  '-inf': '< −85 dBm · très faible',
+};
+
+const SPEED_LABELS: Record<string, string> = {
+  '50': '≥ 50 Mb/s',
+  '20': '≥ 20 Mb/s',
+  '5': '≥ 5 Mb/s',
+  '1': '≥ 1 Mb/s',
+  '-inf': '< 1 Mb/s',
+};
+
+const bandKey = (min: number) =>
+  min === Number.NEGATIVE_INFINITY ? '-inf' : String(min);
+
+type BandChoice = '' | '2.4' | '5' | '6';
+const BAND_TABS: Array<{ value: BandChoice; label: string }> = [
+  { value: '', label: 'Toutes' },
+  { value: '2.4', label: '2.4 GHz' },
+  { value: '5', label: '5 GHz' },
+  { value: '6', label: '6 GHz' },
 ];
 
 export function HeatmapPage() {
@@ -126,6 +165,8 @@ export function HeatmapPage() {
   const [networks, setNetworks] = useState<NetworkInfo[]>([]);
   const [ssid, setSsid] = useState('');
   const [bssid, setBssid] = useState('');
+  // Bande affichée ('' = toutes), façon sélecteur 2.4/5/6 GHz d'UniFi.
+  const [band, setBand] = useState<BandChoice>('');
   // Par défaut : seuls les cercles du réseau connecté (marqué au scan).
   const [onlyConnected, setOnlyConnected] = useState(true);
   const [rows, setRows] = useState<HeatmapRow[]>([]);
@@ -175,6 +216,7 @@ export function HeatmapPage() {
           ssid: ssid || undefined,
           bssid: bssid || undefined,
           connected: onlyConnected || undefined,
+          band: band || undefined,
         }),
         getHeatmapSpeed(plan.id).catch(() => [] as SpeedHeatmapRow[]),
       ]);
@@ -186,7 +228,7 @@ export function HeatmapPage() {
     } finally {
       setLoading(false);
     }
-  }, [plan, ssid, bssid, onlyConnected]);
+  }, [plan, ssid, bssid, onlyConnected, band]);
 
   useEffect(() => {
     if (planLoading) return;
@@ -216,6 +258,41 @@ export function HeatmapPage() {
     return calculateAutoRadius([...seen.values()], plan.width, plan.height);
   }, [rows, plan]);
   const radius = selectedRadius ?? autoRadius;
+
+  const showingSpeed = metric === 'speed';
+
+  // Une valeur par point de mesure : le meilleur RSSI (l'API renvoie une
+  // ligne par BSSID, superposer toutes les pastilles n'apporte rien).
+  const bestPerPoint = useMemo<HeatmapRow[]>(() => {
+    const best = new Map<string, HeatmapRow>();
+    for (const row of rows) {
+      const prev = best.get(row.scan_point_id);
+      if (!prev || row.rssi > prev.rssi) best.set(row.scan_point_id, row);
+    }
+    return [...best.values()];
+  }, [rows]);
+
+  const coveragePoints = useMemo<CoveragePoint[]>(() => {
+    if (showingSpeed) {
+      return speedRows.map((r) => ({ x: r.x, y: r.y, value: r.speed_bps / 1_000_000 }));
+    }
+    return bestPerPoint.map((r) => ({ x: r.x, y: r.y, value: r.rssi }));
+  }, [showingSpeed, speedRows, bestPerPoint]);
+
+  const stats = useMemo(() => {
+    const values = showingSpeed
+      ? speedRows.map((r) => r.speed_bps / 1_000_000)
+      : bestPerPoint.map((r) => r.rssi);
+    const avg = average(values);
+    return {
+      count: values.length,
+      avg,
+      best: values.length ? Math.max(...values) : null,
+      worst: values.length ? Math.min(...values) : null,
+      // « À améliorer » = sous le seuil fair (< -75 dBm / < 5 Mb/s).
+      weakCount: values.filter((v) => (showingSpeed ? v < 5 : v < -75)).length,
+    };
+  }, [showingSpeed, speedRows, bestPerPoint]);
 
   if (planLoading || loading) {
     return <div className="fixed inset-0 bg-bg" />;
@@ -255,18 +332,11 @@ export function HeatmapPage() {
     );
   }
 
-  const hasFilter = !!ssid || !!bssid;
-  const showingSpeed = metric === 'speed';
+  const hasFilter = !!ssid || !!bssid || !!band;
+  const onlyDefaultFilter = onlyConnected && !ssid && !bssid && !band;
   const visibleCount = showingSpeed ? speedRows.length : rows.length;
-  const onlyDefaultFilter = onlyConnected && !ssid && !bssid;
-  const SPEED_LEGEND: Array<{ label: string; color: string }> = [
-    { label: '≥ 50 Mb/s', color: '#10b981' },
-    { label: '≥ 20 Mb/s', color: '#a3e635' },
-    { label: '≥ 5 Mb/s', color: '#f59e0b' },
-    { label: '≥ 1 Mb/s', color: '#f97316' },
-    { label: '< 1 Mb/s', color: '#ef4444' },
-  ];
-  const activeLegend = showingSpeed ? SPEED_LEGEND : LEGEND;
+  const activeBands = showingSpeed ? SPEED_BANDS : RSSI_BANDS;
+  const activeLabels = showingSpeed ? SPEED_LABELS : RSSI_LABELS;
   const isEmpty = showingSpeed ? speedRows.length === 0 : rows.length === 0;
 
   const emptyMessage = showingSpeed
@@ -276,6 +346,11 @@ export function HeatmapPage() {
       : hasFilter
         ? 'Aucune mesure pour ce filtre : la carte serait vide.'
         : 'Aucun relevé à afficher : effectue d’abord des scans.';
+
+  // stats.values sont en Mb/s (débit) ou dBm (RSSI) : formatMbps attend
+  // des bits/s, on reconvertit avant de formater.
+  const formatValue = (v: number) =>
+    showingSpeed ? formatMbps(v * 1_000_000) : `${Math.round(v)} dBm`;
 
   return (
     <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
@@ -309,6 +384,26 @@ export function HeatmapPage() {
         </div>
         {!showingSpeed && (
           <>
+            <div
+              role="group"
+              aria-label="Bande de fréquence"
+              className="flex h-11 rounded-xl border border-glass-border-soft overflow-hidden"
+            >
+              {BAND_TABS.map((b) => (
+                <button
+                  key={b.value || 'all'}
+                  type="button"
+                  aria-pressed={band === b.value}
+                  onClick={() => setBand(b.value)}
+                  className={[
+                    'px-3 text-sm font-medium transition-colors whitespace-nowrap',
+                    band === b.value ? 'bg-accent-soft text-accent' : 'text-text-dim hover:text-text',
+                  ].join(' ')}
+                >
+                  {b.label}
+                </button>
+              ))}
+            </div>
             <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -323,42 +418,43 @@ export function HeatmapPage() {
             </label>
             <select
               aria-label="Filtrer par SSID"
-          value={ssid}
-          onChange={(e) => {
-            setSsid(e.target.value);
-          }}
-          className="h-11 px-3 bg-[rgba(255,255,255,0.03)] border border-glass-border-soft rounded-xl text-sm text-text outline-none"
-        >
-          <option value="">Tous les SSID</option>
-          {ssids.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Filtrer par BSSID"
-          value={bssid}
-          onChange={(e) => {
-            setBssid(e.target.value);
-          }}
-          className="h-11 px-3 bg-[rgba(255,255,255,0.03)] border border-glass-border-soft rounded-xl text-sm text-text outline-none"
-        >
-          <option value="">Tous les BSSID</option>
-          {bssids.map((b) => (
-            <option key={b} value={b}>
-              {networks.find((network) => network.bssid === b)?.bssid_name ?? b}
-            </option>
-          ))}
-        </select>
-        </>
+              value={ssid}
+              onChange={(e) => {
+                setSsid(e.target.value);
+              }}
+              className="h-11 px-3 bg-[rgba(255,255,255,0.03)] border border-glass-border-soft rounded-xl text-sm text-text outline-none"
+            >
+              <option value="">Tous les SSID</option>
+              {ssids.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filtrer par BSSID"
+              value={bssid}
+              onChange={(e) => {
+                setBssid(e.target.value);
+              }}
+              className="h-11 px-3 bg-[rgba(255,255,255,0.03)] border border-glass-border-soft rounded-xl text-sm text-text outline-none"
+            >
+              <option value="">Tous les BSSID</option>
+              {bssids.map((b) => (
+                <option key={b} value={b}>
+                  {networks.find((network) => network.bssid === b)?.bssid_name ?? b}
+                </option>
+              ))}
+            </select>
+          </>
         )}
-        {hasFilter && !showingSpeed && (
+        {hasFilter && (
           <button
             type="button"
             onClick={() => {
               setSsid('');
               setBssid('');
+              setBand('');
               setOnlyConnected(true);
             }}
             className="h-11 px-4 rounded-xl text-sm font-medium text-text-dim border border-glass-border hover:text-text"
@@ -367,10 +463,10 @@ export function HeatmapPage() {
           </button>
         )}
         <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
-          <span className="whitespace-nowrap">Rayon {radius} px</span>
+          <span className="whitespace-nowrap">Lissage {radius} px</span>
           <input
             type="range"
-            aria-label="Rayon des pastilles en pixels"
+            aria-label="Rayon de lissage du champ de couverture en pixels"
             min={10}
             max={120}
             step={1}
@@ -440,16 +536,25 @@ export function HeatmapPage() {
               />
               <ZoomControl />
               <ImageOverlay url={imageUrl} bounds={bounds} />
-              {!showingSpeed && rows.map((r) => (
+              {/* Champ interpolé sous les points de mesure. */}
+              <CoverageOverlay
+                points={coveragePoints}
+                width={plan.width}
+                height={plan.height}
+                radius={radius}
+                bounds={bounds}
+                bands={activeBands}
+              />
+              {!showingSpeed && bestPerPoint.map((r) => (
                 <CircleMarker
-                  key={`${r.scan_point_id}-${r.bssid}`}
+                  key={r.scan_point_id}
                   center={[r.y * plan.height, r.x * plan.width]}
-                  radius={radius}
+                  radius={6}
                   pathOptions={{
-                    color: rssiColor(r.rssi),
+                    color: '#0d1319',
                     fillColor: rssiColor(r.rssi),
-                    fillOpacity: 0.55,
-                    weight: 2,
+                    fillOpacity: 0.95,
+                    weight: 1.5,
                   }}
                 >
                   <Tooltip>
@@ -465,12 +570,12 @@ export function HeatmapPage() {
                   <CircleMarker
                     key={r.scan_point_id}
                     center={[r.y * plan.height, r.x * plan.width]}
-                    radius={radius}
+                    radius={6}
                     pathOptions={{
-                      color: speedColor(mbps),
+                      color: '#0d1319',
                       fillColor: speedColor(mbps),
-                      fillOpacity: 0.55,
-                      weight: 2,
+                      fillOpacity: 0.95,
+                      weight: 1.5,
                     }}
                   >
                     <Tooltip>
@@ -481,16 +586,77 @@ export function HeatmapPage() {
               })}
             </MapContainer>
           </div>
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-            {activeLegend.map((l) => (
-              <span key={l.label} className="inline-flex items-center gap-1.5 text-[12px] text-text-dim font-mono">
+
+          {/* Légende : barre segmentée par seuil + meilleur relevé, comme
+              le bandeau « Primary Coverage » d'UniFi. */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="flex h-3 rounded-full overflow-hidden border border-white/10 min-w-64 flex-1 max-w-120">
+              {activeBands
+                .slice()
+                .reverse()
+                .map((bandDef) => (
+                  <div
+                    key={bandKey(bandDef.min)}
+                    className="flex-1"
+                    style={{ backgroundColor: bandDef.color }}
+                    aria-hidden
+                  />
+                ))}
+            </div>
+            <span className="text-[12px] text-text-dim font-mono">
+              {showingSpeed ? 'Débit' : 'Signal'} · meilleur relevé{' '}
+              <span className="text-text font-medium">
+                {stats.best !== null ? formatValue(stats.best) : '—'}
+              </span>
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            {activeBands.map((bandDef) => (
+              <span
+                key={bandKey(bandDef.min)}
+                className="inline-flex items-center gap-1.5 text-[12px] text-text-dim font-mono"
+              >
                 <span
                   className="inline-block w-3 h-3 rounded-full"
-                  style={{ backgroundColor: l.color }}
+                  style={{ backgroundColor: bandDef.color }}
                 />
-                {l.label}
+                {activeLabels[bandKey(bandDef.min)]}
               </span>
             ))}
+          </div>
+
+          {/* Panneau de synthèse : l'état du parc en un coup d'œil. */}
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] px-3 py-2.5">
+              <div className="text-[12px] text-text-dim">Points mesurés</div>
+              <div className="text-text text-[15px] font-medium font-mono">{stats.count}</div>
+            </div>
+            <div className="rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] px-3 py-2.5">
+              <div className="text-[12px] text-text-dim">Moyen</div>
+              <div className="text-text text-[15px] font-medium font-mono">
+                {stats.avg !== null ? formatValue(stats.avg) : '—'}
+              </div>
+            </div>
+            <div className="rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] px-3 py-2.5">
+              <div className="text-[12px] text-text-dim">Plus faible</div>
+              <div className="text-text text-[15px] font-medium font-mono">
+                {stats.worst !== null ? formatValue(stats.worst) : '—'}
+              </div>
+            </div>
+            <div className="rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] px-3 py-2.5">
+              <div className="text-[12px] text-text-dim">À améliorer</div>
+              <div
+                className="text-[15px] font-medium font-mono"
+                style={{ color: stats.weakCount > 0 ? '#f97316' : '#10b981' }}
+              >
+                {stats.weakCount} point{stats.weakCount > 1 ? 's' : ''}
+                {stats.count > 0 && (
+                  <span className="text-text-dim">
+                    {' '}({formatPercent(stats.weakCount / stats.count)})
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </>
       )}

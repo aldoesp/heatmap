@@ -282,18 +282,18 @@ function exportCsvFor(scope, scope_id) {
   );
   return [header.join(','), ...lines].join('\n') + '\n';
 }
-// Heatmap : meilleur rssi par point (ssid/bssid/réseau connecté en option).
+// Heatmap : meilleur rssi par point (ssid/bssid/bande/réseau connecté en option).
 // quality est recalculée depuis ce rssi (même formule que normalizeEntry),
 // car MAX(rssi) et MAX(quality) pourraient venir de lignes différentes.
-export function heatmapByPlan(plan_id, { ssid, bssid, connected } = {}) {
-  return heatmapByScope('sp.plan_id = ?', plan_id, { ssid, bssid, connected });
+export function heatmapByPlan(plan_id, { ssid, bssid, band, connected } = {}) {
+  return heatmapByScope('sp.plan_id = ?', plan_id, { ssid, bssid, band, connected });
 }
 
-export function heatmapBySurvey(survey_id, { ssid, bssid, connected } = {}) {
-  return heatmapByScope('sp.survey_id = ?', survey_id, { ssid, bssid, connected });
+export function heatmapBySurvey(survey_id, { ssid, bssid, band, connected } = {}) {
+  return heatmapByScope('sp.survey_id = ?', survey_id, { ssid, bssid, band, connected });
 }
 
-function heatmapByScope(scope, scope_id, { ssid, bssid, connected } = {}) {
+function heatmapByScope(scope, scope_id, { ssid, bssid, band, connected } = {}) {
   let sql = `
     SELECT sp.id AS scan_point_id, sp.x, sp.y,
            o.bssid, o.ssid, MAX(o.rssi) AS rssi
@@ -307,6 +307,8 @@ function heatmapByScope(scope, scope_id, { ssid, bssid, connected } = {}) {
   const params = [scope_id];
   if (ssid) { sql += ' AND o.ssid = ?'; params.push(ssid); }
   if (bssid) { sql += ' AND o.bssid = ?'; params.push(bssid?.toLowerCase()); }
+  // Bande déjà normalisée ('2.4GHz' | '5GHz' | '6GHz') par l'appelant.
+  if (band) { sql += ' AND o.band = ?'; params.push(band); }
   if (connected) { sql += ' AND o.current = 1'; }
   sql += ' GROUP BY sp.id, o.bssid ORDER BY sp.created_at ASC';
   return withBssidNames(getDb().prepare(sql).all(...params).map((r) => ({

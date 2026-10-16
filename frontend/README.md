@@ -1,7 +1,7 @@
 # WiFi Heatmapper — Frontend
 
-Interface mobile React de WiFi Heatmapper. Elle permettra d'importer un plan,
-réaliser des relevés Wi-Fi et afficher une heatmap.
+Interface mobile React de WiFi Heatmapper. Elle permet d'importer un plan,
+réaliser des relevés Wi-Fi et visualiser la couverture estimée sur une heatmap.
 
 ## Commandes
 
