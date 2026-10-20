@@ -1,12 +1,21 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { ANTENNA_OPTIONS } from '../../lib/antennas';
 import { FREQUENCY_OPTIONS, RESOLUTION_OPTIONS_M, SURFACE_LIMITS_M } from '../../lib/defaults';
-import { clamp } from '../../lib/wifiHeatmap';
-import type { FrequencyMHz, PropagationModelId, RadioParams, SimulatorConfig } from '../../types/wifi';
+import { clamp } from '../../lib/heatmap';
+import type {
+  AntennaId,
+  FrequencyMHz,
+  PropagationModelId,
+  RadioParams,
+  SimulatorConfig,
+} from '../../types/wifi';
 
 interface SimulatorControlsProps {
   config: SimulatorConfig;
   effectiveResolutionM: number;
+  /** EIRP de crête (Ptx + gain max), en dBm, calculée. */
+  peakEirpDbm: number;
   onConfigChange: (next: SimulatorConfig) => void;
   onReset: () => void;
 }
@@ -108,6 +117,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 export function SimulatorControls({
   config,
   effectiveResolutionM,
+  peakEirpDbm,
   onConfigChange,
   onReset,
 }: SimulatorControlsProps) {
@@ -157,24 +167,31 @@ export function SimulatorControls({
             ))}
           </select>
         </div>
-        <SliderField id="power" label="Puissance d'émission" unit="dBm" step={0.5} value={radio.txPowerDbm} min={-10} max={40}
+        <div className="flex items-center justify-between gap-3">
+          <label htmlFor="antenna" className="text-sm text-slate-300">Antenne</label>
+          <select id="antenna" className={`${inputCls} w-44`} value={radio.antennaId}
+            onChange={(e) => setRadio({ antennaId: e.target.value as AntennaId })}>
+            {ANTENNA_OPTIONS.map((a) => (
+              <option key={a.id} value={a.id}>{a.label}</option>
+            ))}
+          </select>
+        </div>
+        <SliderField id="txpower" label="Puissance d'émission" unit="dBm" step={0.5} value={radio.txPowerDbm} min={0} max={30}
           onCommit={(v) => setRadio({ txPowerDbm: v })} />
-        <SliderField id="ap-rotation" label="Rotation AP" unit="degrés" step={1} value={radio.apRotationDeg} min={-180} max={180}
+        <p className="text-xs text-slate-400">
+          EIRP de crête (calculée) : {peakEirpDbm.toFixed(1).replace('.', ',')} dBm. Le gain
+          d'antenne n'est ajouté qu'une fois, selon la direction.
+        </p>
+        <SliderField id="rxgain" label="Gain réception" unit="dBi" step={0.5} value={radio.rxGainDbi} min={-10} max={15}
+          onCommit={(v) => setRadio({ rxGainDbi: v })} />
+        <SliderField id="rotation" label="Orientation AP" unit="°" step={1} value={radio.apRotationDeg} min={0} max={359}
           onCommit={(v) => setRadio({ apRotationDeg: v })} />
-        <NumberField id="ap-height" label="Hauteur AP" unit="m" step={0.1} value={radio.apHeightM} min={0} max={50}
+        <NumberField id="apheight" label="Hauteur AP" unit="m" value={radio.apHeightM} min={0.5} max={20}
           onCommit={(v) => setRadio({ apHeightM: v })} />
-        <NumberField id="rx-height" label="Hauteur récepteur" unit="m" step={0.1} value={radio.rxHeightM} min={0} max={10}
+        <NumberField id="rxheight" label="Hauteur récepteur" unit="m" value={radio.rxHeightM} min={0} max={5}
           onCommit={(v) => setRadio({ rxHeightM: v })} />
       </Group>
 
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs text-slate-400">
-            EIRP de crête {radio.txPowerDbm + radio.antenna.peakGainDbi} dBm
-          </p>
-          <p className="text-xs text-slate-400">Puissance + gain maximal de l'antenne</p>
-        </div>
-      </div>
       <Group title="Modèle de propagation">
         <div className="flex items-center justify-between gap-3">
           <label htmlFor="model" className="text-sm text-slate-300">Modèle</label>

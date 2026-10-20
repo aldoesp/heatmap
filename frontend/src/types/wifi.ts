@@ -3,6 +3,24 @@ export type FrequencyMHz = 2400 | 5000 | 6000;
 
 export type PropagationModelId = 'fspl' | 'log-distance';
 
+export type AntennaId = 'isotropic' | 'u7-pro-xgs';
+
+/**
+ * Diagramme d'antenne : deux coupes, en dB relatifs au pic (≤ 0, 0 = maximum).
+ * Approximation séparable : G(az, nadir) = pic + A_az(az) + A_el(nadir).
+ */
+export interface AntennaPattern {
+  /** Gain de crête en dBi (fiche technique). */
+  peakGainDbi: number;
+  /** 360 valeurs, 1 par degré d'azimut. */
+  azimuthDb: readonly number[];
+  /**
+   * 360 valeurs, angle mesuré depuis le nadir :
+   * 0° = droit sous l'AP, 90° = horizon, 180° = zénith.
+   */
+  elevationDb: readonly number[];
+}
+
 /** Coordonnées physiques en mètres. Origine en haut à gauche, y vers le bas. */
 export interface Point {
   x: number;
@@ -14,21 +32,18 @@ export interface Surface {
   heightM: number;
 }
 
-export interface AntennaPattern {
-  peakGainDbi: number;    // gain max de l'antenne
-  azimuthDb: number[];    // 360 valeurs, gain relatif au pic (≤ 0 dB), index = degré
-  elevationDb: number[];  // 360 valeurs, 0° = horizontal, 270° = vers le bas
-}
-
 export type Rgb = readonly [number, number, number];
 
 export interface RadioParams {
   frequencyMHz: FrequencyMHz;
-  txPowerDbm: number;     // puissance conduite à l'entrée de l'antenne
-  antenna: AntennaPattern;
-  apRotationDeg: number;  // orientation de l'AP
-  apHeightM: number;      // hauteur de l'AP
-  rxHeightM: number;      // hauteur du récepteur
+  /** Puissance conduite à l'entrée de l'antenne, en dBm (sans le gain d'antenne). */
+  txPowerDbm: number;
+  antennaId: AntennaId;
+  /** Orientation de l'AP : direction (en degrés, y vers le bas) de l'azimut 0° du diagramme. */
+  apRotationDeg: number;
+  /** Hauteur de l'AP et du récepteur au-dessus du sol, en mètres. */
+  apHeightM: number;
+  rxHeightM: number;
   /** Gain de l'antenne de réception en dBi. */
   rxGainDbi: number;
   model: PropagationModelId;
@@ -48,7 +63,12 @@ export interface ColorStop {
 }
 
 export interface SignalSample {
+  /** Distance 3D AP -> récepteur (m). */
   distanceM: number;
+  /** Distance horizontale (m). */
+  horizontalM: number;
+  /** Gain d'émission dans cette direction (dBi). */
+  txGainDbi: number;
   powerDbm: number;
 }
 

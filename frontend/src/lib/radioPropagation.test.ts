@@ -1,26 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import type { RadioParams } from '../types/wifi';
+import { flatPattern } from './antennaPattern';
 import {
   dbmToMilliwatts,
   fsplDb,
   ghzToMhz,
+  linkGeometry,
   milliwattsToDbm,
+  peakEirpDbm,
   receivedPowerDbm,
   receivedPowerFsplDbm,
   signalAt,
-  txGainDbi,
 } from './radioPropagation';
 
-const flatAntenna: AntennaPattern = {
-  peakGainDbi: 0,
-  azimuthDb: new Array(360).fill(0),
-  elevationDb: new Array(360).fill(0),
-};
-
+/** AP et récepteur à la même hauteur : distance 3D = distance horizontale. */
 const makeRadio = (o: Partial<RadioParams> = {}): RadioParams => ({
   frequencyMHz: 5000,
   txPowerDbm: 20,
-  antenna: flatAntenna,
+  antennaId: 'isotropic',
+  apRotationDeg: 0,
+  apHeightM: 1,
+  rxHeightM: 1,
   rxGainDbi: 0,
   model: 'fspl',
   pathLossExponent: 2,
@@ -38,27 +38,10 @@ describe('conversions', () => {
   });
 });
 
-describe('txGainDbi', () => {
-  it('diagramme plat -> gain nul', () => {
-    expect(txGainDbi(flatAntenna, 0, 0)).toBeCloseTo(0, 9);
-  });
-  it('gain avec peakGainDbi', () => {
-    const antenna: AntennaPattern = {
-      peakGainDbi: 10,
-      azimuthDb: new Array(360).fill(0),
-      elevationDb: new Array(360).fill(0),
-    };
-    expect(txGainDbi(antenna, 0, 0)).toBeCloseTo(10, 9);
-  });
-});
-
 describe('fsplDb (valeurs de référence)', () => {
-  it('2,4 GHz à 1 m ≈ 40,04 dB', () =>
-    expect(fsplDb(1, 2400)).toBeCloseTo(40.044, 2));
-  it('5 GHz à 1 m ≈ 46,42 dB', () =>
-    expect(fsplDb(1, 5000)).toBeCloseTo(46.419, 2));
-  it('5 GHz à 100 m ≈ 86,42 dB', () =>
-    expect(fsplDb(100, 5000)).toBeCloseTo(86.419, 2));
+  it('2,4 GHz à 1 m ≈ 40,04 dB', () => expect(fsplDb(1, 2400)).toBeCloseTo(40.044, 2));
+  it('5 GHz à 1 m ≈ 46,42 dB', () => expect(fsplDb(1, 5000)).toBeCloseTo(46.419, 2));
+  it('5 GHz à 100 m ≈ 86,42 dB', () => expect(fsplDb(100, 5000)).toBeCloseTo(86.419, 2));
   it('doubler la distance ajoute 6,02 dB', () =>
     expect(fsplDb(2, 5000) - fsplDb(1, 5000)).toBeCloseTo(6.0206, 3));
   it('5 GHz vs 2,4 GHz : +6,375 dB à distance constante', () =>
@@ -71,66 +54,75 @@ describe('fsplDb (valeurs de référence)', () => {
   });
 });
 
-describe('puissance reçue', () => {
-  it('FSPL : 20 dBm txPower, 5 GHz, 1 m, 0 dBi -> -26,42 dBm', () =>
-    expect(receivedPowerFsplDbm(1, makeRadio())).toBeCloseTo(-26.419, 2));
+describe('bilan de liaison', () => {
+  it('Ptx 20 dBm, gain 0 dBi, 5 GHz, 1 m -> -26,42 dBm', () =>
+    expect(receivedPowerFsplDbm(1, makeRadio(), 0)).toBeCloseTo(-26.419, 2));
+  it('le gain d\'émission est compté une seule fois', () => {
+    // Ptx 14 dBm + 6 dBi == Ptx 20 dBm + 0 dBi
+    expect(receivedPowerFsplDbm(3, makeRadio({ txPowerDbm: 14 }), 6)).toBeCloseTo(
+      receivedPowerFsplDbm(3, makeRadio({ txPowerDbm: 20 }), 0),
+      9,
+    );
+  });
   it('le gain de réception s\'ajoute 1 fois', () =>
-    expect(receivedPowerFsplDbm(1, makeRadio({ rxGainDbi: 3 }))).toBeCloseTo(
-      -23.419,
-      2,
-    ));
+    expect(receivedPowerFsplDbm(1, makeRadio({ rxGainDbi: 3 }), 0)).toBeCloseTo(-23.419, 2));
   it('décroît avec la distance', () => {
     const r = makeRadio();
-    expect(receivedPowerDbm(2, r)).toBeLessThan(receivedPowerDbm(1, r));
-    expect(receivedPowerDbm(8, r)).toBeLessThan(receivedPowerDbm(2, r));
+    expect(receivedPowerDbm(2, r, 0)).toBeLessThan(receivedPowerDbm(1, r, 0));
+    expect(receivedPowerDbm(8, r, 0)).toBeLessThan(receivedPowerDbm(2, r, 0));
   });
-  it('txPower +5 dB -> +5 dBm', () => {
-    const d = 4;
+  it('puissance d\'émission +5 dB -> +5 dBm', () =>
     expect(
-      receivedPowerDbm(d, makeRadio({ txPowerDbm: 25 })) -
-        receivedPowerDbm(d, makeRadio({ txPowerDbm: 20 })),
-    ).toBeCloseTo(5, 9);
-  });
+      receivedPowerDbm(4, makeRadio({ txPowerDbm: 25 }), 0) -
+        receivedPowerDbm(4, makeRadio({ txPowerDbm: 20 }), 0),
+    ).toBeCloseTo(5, 9));
   it('fréquence plus haute -> puissance plus faible', () =>
-    expect(receivedPowerDbm(3, makeRadio({ frequencyMHz: 6000 }))).toBeLessThan(
-      receivedPowerDbm(3, makeRadio({ frequencyMHz: 2400 })),
+    expect(receivedPowerDbm(3, makeRadio({ frequencyMHz: 6000 }), 0)).toBeLessThan(
+      receivedPowerDbm(3, makeRadio({ frequencyMHz: 2400 }), 0),
     ));
-
-  it('txGain compute from antenna pattern', () => {
-    const antenna: AntennaPattern = {
-      peakGainDbi: 5,
-      azimuthDb: new Array(360).fill(0),
-      elevationDb: new Array(360).fill(0),
-    };
-    const radio = makeRadio({ antenna });
-    expect(receivedPowerFsplDbm(1, radio, 5)).toBeCloseTo(-21.419, 2);
-  });
+  it('EIRP de crête = Ptx + gain max', () =>
+    expect(peakEirpDbm(makeRadio({ txPowerDbm: 14 }), flatPattern(6))).toBe(20));
 });
 
 describe('modèle log-distance', () => {
+  const ld = (o: Partial<RadioParams> = {}) => makeRadio({ model: 'log-distance', ...o });
   it('n = 2 coïncide avec le FSPL', () => {
     for (const d of [0.5, 1, 3, 7.3]) {
-      expect(
-        receivedPowerDbm(d, makeRadio({ model: 'log-distance', pathLossExponent: 2 })),
-      ).toBeCloseTo(receivedPowerDbm(d, makeRadio()), 6);
+      expect(receivedPowerDbm(d, ld(), 0)).toBeCloseTo(receivedPowerDbm(d, makeRadio(), 0), 6);
     }
   });
   it('n = 3, d0 = 1 m, d = 10 m -> Pr(d0) - 30 dB', () =>
-    expect(
-      receivedPowerDbm(10, makeRadio({ model: 'log-distance', pathLossExponent: 3 })),
-    ).toBeCloseTo(-56.419, 2));
+    expect(receivedPowerDbm(10, ld({ pathLossExponent: 3 }), 0)).toBeCloseTo(-56.419, 2));
   it('un n plus grand atténue davantage au-delà de d0', () =>
-    expect(
-      receivedPowerDbm(8, makeRadio({ model: 'log-distance', pathLossExponent: 4 })),
-    ).toBeLessThan(
-      receivedPowerDbm(8, makeRadio({ model: 'log-distance', pathLossExponent: 2 })),
+    expect(receivedPowerDbm(8, ld({ pathLossExponent: 4 }), 0)).toBeLessThan(
+      receivedPowerDbm(8, ld({ pathLossExponent: 2 }), 0),
     ));
 });
 
+describe('géométrie 3D', () => {
+  it('droit sous l\'AP : nadir 0°, distance = différence de hauteur', () => {
+    const g = linkGeometry(0, 0, makeRadio({ apHeightM: 2.8, rxHeightM: 1 }));
+    expect(g.nadirDeg).toBeCloseTo(0, 9);
+    expect(g.distanceM).toBeCloseTo(1.8, 9);
+  });
+  it('même hauteur : nadir 90° (horizon)', () =>
+    expect(linkGeometry(3, 0, makeRadio()).nadirDeg).toBeCloseTo(90, 9));
+  it('triangle 3-4 horizontal + 3 vertical -> distance 3D', () => {
+    const g = linkGeometry(3, 4, makeRadio({ apHeightM: 4, rxHeightM: 1 }));
+    expect(g.horizontalM).toBeCloseTo(5, 9);
+    expect(g.distanceM).toBeCloseTo(Math.hypot(5, 3), 9);
+  });
+  it('rotation de l\'AP décale l\'azimut relatif', () => {
+    expect(linkGeometry(1, 0, makeRadio({ apRotationDeg: 0 })).azimuthDeg).toBeCloseTo(0, 9);
+    expect(linkGeometry(1, 0, makeRadio({ apRotationDeg: 90 })).azimuthDeg).toBeCloseTo(270, 9);
+  });
+});
+
 describe('signalAt', () => {
-  it('distance euclidienne 3-4-5', () => {
-    const s = signalAt({ x: 3, y: 4 }, { x: 0, y: 0 }, makeRadio());
+  it('distance euclidienne 3-4-5 (antenne isotrope)', () => {
+    const s = signalAt({ x: 3, y: 4 }, { x: 0, y: 0 }, makeRadio(), flatPattern(0));
     expect(s.distanceM).toBeCloseTo(5, 9);
-    expect(s.powerDbm).toBeCloseTo(receivedPowerDbm(5, makeRadio()), 9);
+    expect(s.txGainDbi).toBe(0);
+    expect(s.powerDbm).toBeCloseTo(receivedPowerDbm(5, makeRadio(), 0), 9);
   });
 });

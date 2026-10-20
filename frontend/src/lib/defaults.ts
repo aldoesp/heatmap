@@ -20,16 +20,16 @@ export const SURFACE_LIMITS_M = { min: 2, max: 50 } as const;
 
 /**
  * Seuils par défaut : choisis pour rendre le gradient lisible en espace libre
- * sur ~10 × 8 m (la puissance y reste élevée : environ -6 à -50 dBm).
+ * sur ~10 × 8 m (avec les réglages par défaut, environ -38 à -54 dBm).
  * Ce ne sont PAS des normes : les seuils usuels en site réel (ex. -67 dBm)
  * s'appliquent à des environnements avec murs et pertes. Modifiables dans l'UI.
  */
 export const DEFAULT_COLOR_STOPS: readonly ColorStop[] = [
-  { label: 'Excellent', thresholdDbm: -30, rgb: [22, 101, 52] },
-  { label: 'Bon', thresholdDbm: -35, rgb: [74, 222, 128] },
-  { label: 'Moyen', thresholdDbm: -40, rgb: [250, 204, 21] },
-  { label: 'Faible', thresholdDbm: -45, rgb: [249, 115, 22] },
-  { label: 'Très faible', thresholdDbm: -50, rgb: [220, 38, 38] },
+  { label: 'Excellent', thresholdDbm: -35, rgb: [22, 101, 52] },
+  { label: 'Bon', thresholdDbm: -40, rgb: [74, 222, 128] },
+  { label: 'Moyen', thresholdDbm: -45, rgb: [250, 204, 21] },
+  { label: 'Faible', thresholdDbm: -50, rgb: [249, 115, 22] },
+  { label: 'Très faible', thresholdDbm: -55, rgb: [220, 38, 38] },
 ];
 
 export const DEFAULT_PROBE: Point = { x: 8, y: 4 };
@@ -40,12 +40,8 @@ export function createDefaultConfig(): SimulatorConfig {
     resolutionM: 0.1,
     radio: {
       frequencyMHz: 5000,
-      txPowerDbm: 20,
-      antenna: {
-        peakGainDbi: 0,
-        azimuthDb: new Array(360).fill(0),
-        elevationDb: new Array(360).fill(0),
-      },
+      txPowerDbm: 14,
+      antennaId: 'u7-pro-xgs',
       apRotationDeg: 0,
       apHeightM: 2.8,
       rxHeightM: 1,

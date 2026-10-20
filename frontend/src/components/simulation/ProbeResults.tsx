@@ -1,4 +1,4 @@
-import { colorForDbm } from '../../lib/wifiHeatmap';
+import { colorForDbm } from '../../lib/heatmap';
 import { FREQUENCY_OPTIONS } from '../../lib/defaults';
 import type { ColorStop, Point, RadioParams, SignalSample } from '../../types/wifi';
 
@@ -55,7 +55,11 @@ export function ProbeResults({ ap, probe, sample, radio, colorStops }: ProbeResu
         {sample && (
           <>
             <dt className="text-slate-400">Distance à l'AP</dt>
-            <dd className="tabular-nums">{fmt(sample.distanceM)} m</dd>
+            <dd className="tabular-nums">
+              {fmt(sample.distanceM)} m (3D), {fmt(sample.horizontalM)} m (horizontale)
+            </dd>
+            <dt className="text-slate-400">Gain d'émission</dt>
+            <dd className="tabular-nums">{fmt(sample.txGainDbi, 1)} dBi vers ce point</dd>
           </>
         )}
         <dt className="text-slate-400">Fréquence</dt>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { clamp, gridToRgba } from '../../lib/wifiHeatmap';
+import { clamp, gridToRgba } from '../../lib/heatmap';
 import type { ColorStop, HeatmapGrid, Point, Surface } from '../../types/wifi';
 
 interface HeatmapCanvasProps {
@@ -8,6 +8,8 @@ interface HeatmapCanvasProps {
   grid: HeatmapGrid;
   colorStops: readonly ColorStop[];
   ap: Point;
+  /** Direction de l'azimut 0° du diagramme, en degrés (y vers le bas). */
+  apRotationDeg: number;
   probe: Point | null;
   onApMove: (p: Point) => void;
   onProbeMove: (p: Point) => void;
@@ -20,6 +22,7 @@ export function HeatmapCanvas({
   grid,
   colorStops,
   ap,
+  apRotationDeg,
   probe,
   onApMove,
   onProbeMove,
@@ -146,6 +149,7 @@ export function HeatmapCanvas({
   const { widthM, heightM } = surface;
   const markerR = Math.min(widthM, heightM) * 0.045;
   const iconScale = markerR / 1.5;
+  const rotRad = (apRotationDeg * Math.PI) / 180;
   const vLines = Array.from({ length: Math.max(0, Math.ceil(widthM) - 1) }, (_, i) => i + 1);
   const hLines = Array.from({ length: Math.max(0, Math.ceil(heightM) - 1) }, (_, i) => i + 1);
 
@@ -186,6 +190,7 @@ export function HeatmapCanvas({
         )}
 
         <g transform={`translate(${ap.x} ${ap.y})`}>
+          <line x1={0} y1={0} x2={Math.cos(rotRad) * markerR * 2} y2={Math.sin(rotRad) * markerR * 2} stroke="#38bdf8" strokeWidth={3} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
           <circle r={markerR} fill="#0f172a" fillOpacity={0.9} stroke="white" strokeWidth={2} vectorEffect="non-scaling-stroke" />
           <g transform={`scale(${iconScale})`} fill="none" stroke="white" strokeLinecap="round" strokeWidth={0.16}>
             <path d="M -0.283 0.167 A 0.4 0.4 0 0 1 0.283 0.167" />

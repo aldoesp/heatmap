@@ -5,8 +5,9 @@ import {
   computeHeatmapGrid,
   effectiveResolutionM,
   surfaceCenter,
-} from '../../lib/wifiHeatmap';
-import { signalAt } from '../../lib/radioPropagation';
+} from '../../lib/heatmap';
+import { resolveAntenna } from '../../lib/antennas';
+import { peakEirpDbm, signalAt } from '../../lib/radioPropagation';
 import type { Point, SimulatorConfig } from '../../types/wifi';
 import { HeatmapCanvas } from './HeatmapCanvas';
 import { ProbeResults } from './ProbeResults';
@@ -31,14 +32,19 @@ export function WifiHeatmapSimulator({ className = '' }: WifiHeatmapSimulatorPro
     [probeRaw, surface],
   );
 
+  const antenna = useMemo(
+    () => resolveAntenna(radio.antennaId, radio.frequencyMHz),
+    [radio.antennaId, radio.frequencyMHz],
+  );
+
   // Recalculé uniquement si la surface, la résolution, l'AP ou la radio changent.
   const grid = useMemo(
-    () => computeHeatmapGrid(surface, resolutionM, ap, radio),
-    [surface, resolutionM, ap, radio],
+    () => computeHeatmapGrid(surface, resolutionM, ap, radio, antenna),
+    [surface, resolutionM, ap, radio, antenna],
   );
   const sample = useMemo(
-    () => (probe ? signalAt(probe, ap, radio) : null),
-    [probe, ap, radio],
+    () => (probe ? signalAt(probe, ap, radio, antenna) : null),
+    [probe, ap, radio, antenna],
   );
 
   const handleReset = useCallback(() => {
@@ -49,7 +55,7 @@ export function WifiHeatmapSimulator({ className = '' }: WifiHeatmapSimulatorPro
   }, []);
 
   return (
-    <div className={`bg-slate-950 p-4 text-slate-100 ${className}`}>
+    <div className={`bg-slate-950 pt-20 p-4 text-slate-100 ${className}`}>
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Simulateur de propagation Wi-Fi</h2>
@@ -81,6 +87,7 @@ export function WifiHeatmapSimulator({ className = '' }: WifiHeatmapSimulatorPro
             grid={grid}
             colorStops={colorStops}
             ap={ap}
+            apRotationDeg={radio.apRotationDeg}
             probe={probe}
             onApMove={setApRaw}
             onProbeMove={setProbeRaw}
@@ -92,9 +99,9 @@ export function WifiHeatmapSimulator({ className = '' }: WifiHeatmapSimulatorPro
               Hypothèses et limites du modèle
             </summary>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-400">
-              <li>FSPL(dB) = 32,44 + 20·log10(f en MHz) + 20·log10(d en km) ; Pr = EIRP − FSPL + Gr.</li>
-              <li>L'EIRP inclut déjà le gain de l'antenne d'émission : il n'est pas ajouté deux fois.</li>
-              <li>Antennes isotropes, un seul AP, pas de murs, d'obstacles, de fading ni d'interférences.</li>
+              <li>FSPL(dB) = 32,44 + 20·log10(f en MHz) + 20·log10(d en km), d = distance 3D ; Pr = Ptx + Gtx(direction) − FSPL + Gr.</li>
+              <li>Le gain d'émission dépend de la direction (diagramme simulé par Ubiquiti, 2 coupes) : il n'est compté qu'une fois, l'EIRP est un résultat.</li>
+              <li>Un seul AP, pas de murs, d'obstacles, de fading ni d'interférences. Le diagramme en élévation est supposé symétrique autour de la verticale.</li>
               <li>Distance plancher configurée (0,1 m) pour éviter la singularité à l'AP.</li>
               <li>Le modèle log-distance est ancré sur le FSPL à d0 ; n = 2 redonne le FSPL.</li>
             </ul>
@@ -103,6 +110,7 @@ export function WifiHeatmapSimulator({ className = '' }: WifiHeatmapSimulatorPro
         <SimulatorControls
           config={config}
           effectiveResolutionM={effectiveResolutionM(surface, resolutionM)}
+          peakEirpDbm={peakEirpDbm(radio, antenna)}
           onConfigChange={setConfig}
           onReset={handleReset}
         />
