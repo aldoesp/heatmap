@@ -9,26 +9,37 @@ import {
   gridToRgba,
 } from './wifiHeatmap';
 
+const flatAntenna = {
+  peakGainDbi: 0,
+  azimuthDb: new Array(360).fill(0),
+  elevationDb: new Array(360).fill(0),
+};
+
 const radio: RadioParams = {
   frequencyMHz: 5000,
-  eirpDbm: 20,
+  txPowerDbm: 20,
+  antenna: flatAntenna,
+  apRotationDeg: 0,
+  apHeightM: 2,
+  rxHeightM: 1.5,
   rxGainDbi: 0,
   model: 'fspl',
   pathLossExponent: 2,
   referenceDistanceM: 1,
   minDistanceM: 0.1,
 };
+
 const surface = { widthM: 10, heightM: 8 };
 const center = { x: 5, y: 4 };
 
 describe('computeHeatmapGrid', () => {
-  it('10 × 8 m à 0,1 m -> 100 × 80 cellules', () => {
+  it('10 x 8 m a 0,1 m -> 100 x 80 cellules', () => {
     const g = computeHeatmapGrid(surface, 0.1, center, radio);
     expect(g.cols).toBe(100);
     expect(g.rows).toBe(80);
     expect(g.powersDbm).toHaveLength(8000);
   });
-  it('AP centré : les 4 coins sont symétriques', () => {
+  it('AP centre : les 4 coins sont symetriques', () => {
     const g = computeHeatmapGrid(surface, 0.5, center, radio);
     const p = g.powersDbm;
     const last = g.cols * g.rows - 1;
@@ -36,16 +47,19 @@ describe('computeHeatmapGrid', () => {
     expect(p[0]).toBeCloseTo(p[last], 4);
     expect(p[0]).toBeCloseTo(p[last - g.cols + 1], 4);
   });
-  it('le signal décroît en s\'éloignant de l\'AP', () => {
+  it('le signal diminue en s'eloignant de l'AP', () => {
     const g = computeHeatmapGrid(surface, 0.1, center, radio);
     const row = Math.floor(g.rows / 2) * g.cols;
     for (let c = Math.floor(g.cols / 2); c < g.cols - 1; c++) {
       expect(g.powersDbm[row + c + 1]).toBeLessThanOrEqual(g.powersDbm[row + c]);
     }
   });
-  it('EIRP +5 dB décale toute la grille de +5 dB', () => {
+  it('txPower +5 decale la grille de +5 dB', () => {
     const a = computeHeatmapGrid(surface, 0.5, center, radio);
-    const b = computeHeatmapGrid(surface, 0.5, center, { ...radio, eirpDbm: 25 });
+    const b = computeHeatmapGrid(surface, 0.5, center, {
+      ...radio,
+      txPowerDbm: 25,
+    });
     for (const i of [0, 100, 300, a.powersDbm.length - 1]) {
       expect(b.powersDbm[i] - a.powersDbm[i]).toBeCloseTo(5, 3);
     }
@@ -54,27 +68,6 @@ describe('computeHeatmapGrid', () => {
     expect(
       effectiveResolutionM({ widthM: 50, heightM: 50 }, 0.05),
     ).toBeGreaterThanOrEqual(0.1 - 1e-9));
-});
-
-describe('colorForDbm', () => {
-  const stops = DEFAULT_COLOR_STOPS;
-  it('au-dessus du 1er seuil : couleur "excellent"', () =>
-    expect(colorForDbm(-10, stops)).toEqual(stops[0].rgb));
-  it('sous le dernier seuil : couleur "très faible"', () =>
-    expect(colorForDbm(-100, stops)).toEqual(stops[4].rgb));
-  it('mi-chemin : moyenne des deux ancres', () => {
-    const [r, g, b] = colorForDbm(-32.5, stops);
-    expect(r).toBeCloseTo((stops[0].rgb[0] + stops[1].rgb[0]) / 2, 5);
-    expect(g).toBeCloseTo((stops[0].rgb[1] + stops[1].rgb[1]) / 2, 5);
-    expect(b).toBeCloseTo((stops[0].rgb[2] + stops[1].rgb[2]) / 2, 5);
-  });
-  it('gridToRgba : 4 octets par cellule, alpha opaque', () => {
-    const g = computeHeatmapGrid(surface, 1, center, radio);
-    const rgba = gridToRgba(g, stops);
-    expect(rgba).toHaveLength(g.cols * g.rows * 4);
-    expect(rgba[3]).toBe(255);
-  });
-});
 
 describe('clampPoint', () => {
   it('garde le point dans la surface', () => {

@@ -7,7 +7,7 @@ import type {
   Rgb,
   Surface,
 } from '../types/wifi';
-import { receivedPowerDbm } from './radioPropagation';
+import { receivedPowerDbm, txGainDbi } from './radioPropagation';
 
 export const MAX_CELLS = 250_000;
 
@@ -47,7 +47,13 @@ export function computeHeatmapGrid(
     const dy = (r + 0.5) * cellHeightM - ap.y;
     for (let c = 0; c < cols; c++) {
       const dx = (c + 0.5) * cellWidthM - ap.x;
-      powersDbm[r * cols + c] = receivedPowerDbm(Math.hypot(dx, dy), radio);
+      const dxy = Math.hypot(dx, dy);
+      const dz = radio.apHeightM - radio.rxHeightM;
+      const d3 = Math.hypot(dxy, dz);
+      const az = Math.atan2(dy, dx) * 180 / Math.PI - radio.apRotationDeg;
+      const el = Math.atan2(-dz, dxy) * 180 / Math.PI;   // négatif = vers le bas
+      const g = txGainDbi(radio.antenna, az, el);
+      powersDbm[r * cols + c] = receivedPowerDbm(d3, radio, g);
     }
   }
   return { cols, rows, cellWidthM, cellHeightM, powersDbm };
@@ -58,6 +64,7 @@ export function computeHeatmapGrid(
  * `stops` doit être trié par seuil décroissant.
  */
 export function colorForDbm(dbm: number, stops: readonly ColorStop[]): Rgb {
+  if (!Number.isFinite(dbm)) return stops[stops.length - 1].rgb;
   const first = stops[0];
   const last = stops[stops.length - 1];
   if (dbm >= first.thresholdDbm) return first.rgb;

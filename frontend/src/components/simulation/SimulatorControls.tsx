@@ -157,12 +157,24 @@ export function SimulatorControls({
             ))}
           </select>
         </div>
-        <SliderField id="eirp" label="EIRP" unit="dBm" step={0.5} value={radio.eirpDbm} min={-10} max={40}
-          onCommit={(v) => setRadio({ eirpDbm: v })} />
-        <SliderField id="rxgain" label="Gain réception" unit="dBi" step={0.5} value={radio.rxGainDbi} min={-10} max={15}
-          onCommit={(v) => setRadio({ rxGainDbi: v })} />
+        <SliderField id="power" label="Puissance d'émission" unit="dBm" step={0.5} value={radio.txPowerDbm} min={-10} max={40}
+          onCommit={(v) => setRadio({ txPowerDbm: v })} />
+        <SliderField id="ap-rotation" label="Rotation AP" unit="degrés" step={1} value={radio.apRotationDeg} min={-180} max={180}
+          onCommit={(v) => setRadio({ apRotationDeg: v })} />
+        <NumberField id="ap-height" label="Hauteur AP" unit="m" step={0.1} value={radio.apHeightM} min={0} max={50}
+          onCommit={(v) => setRadio({ apHeightM: v })} />
+        <NumberField id="rx-height" label="Hauteur récepteur" unit="m" step={0.1} value={radio.rxHeightM} min={0} max={10}
+          onCommit={(v) => setRadio({ rxHeightM: v })} />
       </Group>
 
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs text-slate-400">
+            EIRP de crête {radio.txPowerDbm + radio.antenna.peakGainDbi} dBm
+          </p>
+          <p className="text-xs text-slate-400">Puissance + gain maximal de l'antenne</p>
+        </div>
+      </div>
       <Group title="Modèle de propagation">
         <div className="flex items-center justify-between gap-3">
           <label htmlFor="model" className="text-sm text-slate-300">Modèle</label>

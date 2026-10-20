@@ -8,12 +8,12 @@
  *
  * Modèle FSPL (défaut) :
  *   FSPL(dB) = 32.44 + 20·log10(f_MHz) + 20·log10(d_km)
- *   Pr(dBm)  = EIRP(dBm) - FSPL(dB) + Gr(dBi)
- *   L'EIRP inclut déjà le gain d'émission : il n'est pas ajouté une 2e fois.
+ *   Pr(dBm)  = Ptx(dBm) + Gtx(direction)(dBi) - FSPL(dB) + Gr(dBi)
+ *   L'EIRP est un résultat : Ptx + peakGainDbi, pas un paramètre entrant.
  *
  * Modèle log-distance (optionnel) :
  *   Pr(d) = Pr(d0) - 10·n·log10(d / d0)
- *   Pr(d0) est ancré sur le FSPL à d0 : EIRP - FSPL(d0) + Gr.
+ *   Pr(d0) est ancré sur le FSPL à d0 avec le même gain directionnel.
  *   Avec n = 2, il coïncide donc exactement avec le FSPL.
  *
  * Limites : espace libre isotrope, un seul AP, ni murs, ni obstacles, ni
@@ -21,6 +21,7 @@
  * d'antenne. Les valeurs sont simulées, pas mesurées.
  */
 import type { Point, RadioParams, SignalSample } from '../types/wifi';
+import type { AntennaPattern } from '../types/wifi';
 
 export const FSPL_CONSTANT_DB = 32.44;
 export const DEFAULT_MIN_DISTANCE_M = 0.1;
@@ -33,6 +34,19 @@ export const metersToKilometers = (m: number): number =>
   m / METERS_PER_KILOMETER;
 export const dbmToMilliwatts = (dbm: number): number => Math.pow(10, dbm / 10);
 export const milliwattsToDbm = (mw: number): number => 10 * Math.log10(mw);
+
+function sampleDb(table: readonly number[], deg: number): number {
+  const n = table.length;
+  const x = (((deg % 360) + 360) % 360) * (n / 360);
+  const i0 = Math.floor(x) % n;
+  const i1 = (i0 + 1) % n;
+  const t = x - Math.floor(x);
+  return table[i0] * (1 - t) + table[i1] * t;
+}
+
+export function txGainDbi(a: AntennaPattern, azDeg: number, elDeg: number): number {
+  return a.peakGainDbi + sampleDb(a.azimuthDb, azDeg) + sampleDb(a.elevationDb, elDeg);
+}
 
 export function distanceBetween(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -59,11 +73,10 @@ export function fsplDb(
 export function receivedPowerFsplDbm(
   distanceM: number,
   radio: RadioParams,
+  txGain: number = 0,
 ): number {
   return (
-    radio.eirpDbm -
-    fsplDb(distanceM, radio.frequencyMHz, radio.minDistanceM) +
-    radio.rxGainDbi
+    radio.txPowerDbm + txGain - fsplDb(distanceM, radio.frequencyMHz, radio.minDistanceM) + radio.rxGainDbi
   );
 }
 
@@ -73,30 +86,36 @@ export function effectiveReferenceDistanceM(radio: RadioParams): number {
 }
 
 /** Pr(d0) en dBm, ancré sur le FSPL à d0. */
-export function referencePowerDbm(radio: RadioParams): number {
+export function referencePowerDbm(
+  radio: RadioParams,
+  txGain: number = 0,
+): number {
   const d0 = effectiveReferenceDistanceM(radio);
   return (
-    radio.eirpDbm -
-    fsplDb(d0, radio.frequencyMHz, radio.minDistanceM) +
-    radio.rxGainDbi
+    radio.txPowerDbm + txGain - fsplDb(d0, radio.frequencyMHz, radio.minDistanceM) + radio.rxGainDbi
   );
 }
 
 export function receivedPowerLogDistanceDbm(
   distanceM: number,
   radio: RadioParams,
+  txGain: number = 0,
 ): number {
   const d0 = effectiveReferenceDistanceM(radio);
   const d = clampDistance(distanceM, radio.minDistanceM);
   return (
-    referencePowerDbm(radio) - 10 * radio.pathLossExponent * Math.log10(d / d0)
+    referencePowerDbm(radio, txGain) - 10 * radio.pathLossExponent * Math.log10(d / d0)
   );
 }
 
-export function receivedPowerDbm(distanceM: number, radio: RadioParams): number {
+export function receivedPowerDbm(
+  distanceM: number,
+  radio: RadioParams,
+  txGain: number = 0,
+): number {
   return radio.model === 'log-distance'
-    ? receivedPowerLogDistanceDbm(distanceM, radio)
-    : receivedPowerFsplDbm(distanceM, radio);
+    ? receivedPowerLogDistanceDbm(distanceM, radio, txGain)
+    : receivedPowerFsplDbm(distanceM, radio, txGain);
 }
 
 export function signalAt(

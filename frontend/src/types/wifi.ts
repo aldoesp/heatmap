@@ -14,12 +14,21 @@ export interface Surface {
   heightM: number;
 }
 
+export interface AntennaPattern {
+  peakGainDbi: number;    // gain max de l'antenne
+  azimuthDb: number[];    // 360 valeurs, gain relatif au pic (≤ 0 dB), index = degré
+  elevationDb: number[];  // 360 valeurs, 0° = horizontal, 270° = vers le bas
+}
+
 export type Rgb = readonly [number, number, number];
 
 export interface RadioParams {
   frequencyMHz: FrequencyMHz;
-  /** EIRP de l'AP en dBm (gain d'antenne d'émission déjà inclus). */
-  eirpDbm: number;
+  txPowerDbm: number;     // puissance conduite à l'entrée de l'antenne
+  antenna: AntennaPattern;
+  apRotationDeg: number;  // orientation de l'AP
+  apHeightM: number;      // hauteur de l'AP
+  rxHeightM: number;      // hauteur du récepteur
   /** Gain de l'antenne de réception en dBi. */
   rxGainDbi: number;
   model: PropagationModelId;

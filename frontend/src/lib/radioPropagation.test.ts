@@ -8,11 +8,19 @@ import {
   receivedPowerDbm,
   receivedPowerFsplDbm,
   signalAt,
+  txGainDbi,
 } from './radioPropagation';
+
+const flatAntenna: AntennaPattern = {
+  peakGainDbi: 0,
+  azimuthDb: new Array(360).fill(0),
+  elevationDb: new Array(360).fill(0),
+};
 
 const makeRadio = (o: Partial<RadioParams> = {}): RadioParams => ({
   frequencyMHz: 5000,
-  eirpDbm: 20,
+  txPowerDbm: 20,
+  antenna: flatAntenna,
   rxGainDbi: 0,
   model: 'fspl',
   pathLossExponent: 2,
@@ -27,6 +35,20 @@ describe('conversions', () => {
     expect(dbmToMilliwatts(0)).toBeCloseTo(1, 9);
     expect(dbmToMilliwatts(20)).toBeCloseTo(100, 9);
     expect(milliwattsToDbm(1000)).toBeCloseTo(30, 9);
+  });
+});
+
+describe('txGainDbi', () => {
+  it('diagramme plat -> gain nul', () => {
+    expect(txGainDbi(flatAntenna, 0, 0)).toBeCloseTo(0, 9);
+  });
+  it('gain avec peakGainDbi', () => {
+    const antenna: AntennaPattern = {
+      peakGainDbi: 10,
+      azimuthDb: new Array(360).fill(0),
+      elevationDb: new Array(360).fill(0),
+    };
+    expect(txGainDbi(antenna, 0, 0)).toBeCloseTo(10, 9);
   });
 });
 
@@ -50,7 +72,7 @@ describe('fsplDb (valeurs de référence)', () => {
 });
 
 describe('puissance reçue', () => {
-  it('FSPL : 20 dBm EIRP, 5 GHz, 1 m, 0 dBi -> -26,42 dBm', () =>
+  it('FSPL : 20 dBm txPower, 5 GHz, 1 m, 0 dBi -> -26,42 dBm', () =>
     expect(receivedPowerFsplDbm(1, makeRadio())).toBeCloseTo(-26.419, 2));
   it('le gain de réception s\'ajoute 1 fois', () =>
     expect(receivedPowerFsplDbm(1, makeRadio({ rxGainDbi: 3 }))).toBeCloseTo(
@@ -62,17 +84,27 @@ describe('puissance reçue', () => {
     expect(receivedPowerDbm(2, r)).toBeLessThan(receivedPowerDbm(1, r));
     expect(receivedPowerDbm(8, r)).toBeLessThan(receivedPowerDbm(2, r));
   });
-  it('EIRP +5 dB -> +5 dBm', () => {
+  it('txPower +5 dB -> +5 dBm', () => {
     const d = 4;
     expect(
-      receivedPowerDbm(d, makeRadio({ eirpDbm: 25 })) -
-        receivedPowerDbm(d, makeRadio({ eirpDbm: 20 })),
+      receivedPowerDbm(d, makeRadio({ txPowerDbm: 25 })) -
+        receivedPowerDbm(d, makeRadio({ txPowerDbm: 20 })),
     ).toBeCloseTo(5, 9);
   });
   it('fréquence plus haute -> puissance plus faible', () =>
     expect(receivedPowerDbm(3, makeRadio({ frequencyMHz: 6000 }))).toBeLessThan(
       receivedPowerDbm(3, makeRadio({ frequencyMHz: 2400 })),
     ));
+
+  it('txGain compute from antenna pattern', () => {
+    const antenna: AntennaPattern = {
+      peakGainDbi: 5,
+      azimuthDb: new Array(360).fill(0),
+      elevationDb: new Array(360).fill(0),
+    };
+    const radio = makeRadio({ antenna });
+    expect(receivedPowerFsplDbm(1, radio, 5)).toBeCloseTo(-21.419, 2);
+  });
 });
 
 describe('modèle log-distance', () => {

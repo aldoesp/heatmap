@@ -40,7 +40,15 @@ export function createDefaultConfig(): SimulatorConfig {
     resolutionM: 0.1,
     radio: {
       frequencyMHz: 5000,
-      eirpDbm: 20,
+      txPowerDbm: 20,
+      antenna: {
+        peakGainDbi: 0,
+        azimuthDb: new Array(360).fill(0),
+        elevationDb: new Array(360).fill(0),
+      },
+      apRotationDeg: 0,
+      apHeightM: 2.8,
+      rxHeightM: 1,
       rxGainDbi: 0,
       model: 'fspl',
       pathLossExponent: 2,
