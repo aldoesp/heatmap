@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS scans (
   rejected_count INTEGER NOT NULL DEFAULT 0,
   gateway_ip TEXT DEFAULT NULL,
   gateway_rtt_ms REAL DEFAULT NULL,
+  gateway_jitter_ms REAL DEFAULT NULL,
   gateway_loss_percent REAL DEFAULT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -131,3 +132,18 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE INDEX IF NOT EXISTS idx_obs_scan ON observations(scan_id);
 CREATE INDEX IF NOT EXISTS idx_obs_bssid ON observations(bssid);
 CREATE INDEX IF NOT EXISTS idx_obs_ssid_band ON observations(ssid, band);
+
+CREATE TABLE IF NOT EXISTS ping_stats (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  host        TEXT    NOT NULL,
+  measured_at TEXT    NOT NULL,
+  loss_pct    REAL    NOT NULL,
+  rtt_min     REAL,
+  rtt_avg     REAL,
+  rtt_max     REAL,
+  jitter      REAL,
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ping_stats_host_ts
+  ON ping_stats (host, measured_at DESC);

@@ -48,6 +48,9 @@ function migrate(db) {
   if (!scans.includes('gateway_loss_percent')) {
     db.exec('ALTER TABLE scans ADD COLUMN gateway_loss_percent REAL DEFAULT NULL');
   }
+  if (!scans.includes('gateway_jitter_ms')) {
+    db.exec('ALTER TABLE scans ADD COLUMN gateway_jitter_ms REAL DEFAULT NULL');
+  }
   const observations = columnsOf('observations');
   if (!observations.includes('unreliable_bssid')) {
     db.exec('ALTER TABLE observations ADD COLUMN unreliable_bssid INTEGER NOT NULL DEFAULT 0');

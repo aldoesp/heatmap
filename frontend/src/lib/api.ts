@@ -1,5 +1,6 @@
 import {
   ApiError,
+  type GatewayHeatmapRow,
   type HeatmapRow,
   type NetworkInfo,
   type PlanResponse,
@@ -276,6 +277,12 @@ export async function getHeatmap(
 export async function getHeatmapSpeed(planId: string): Promise<SpeedHeatmapRow[]> {
   return apiFetch<SpeedHeatmapRow[]>(
     `/api/v1/plans/${encodeURIComponent(planId)}/heatmap-speed`
+  );
+}
+
+export async function getHeatmapGateway(planId: string): Promise<GatewayHeatmapRow[]> {
+  return apiFetch<GatewayHeatmapRow[]>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/heatmap-gateway`
   );
 }
 

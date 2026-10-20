@@ -27,7 +27,7 @@ import {
   deleteScanPoint,
   updateScanPoint,
 } from '../repositories/scanPoints.repository.js';
-import { heatmapByPlan, getHistoryByPlan, listNetworksByPlan, exportPlanCsv, speedByPlan } from '../repositories/scans.repository.js';
+import { heatmapByPlan, getHistoryByPlan, listNetworksByPlan, exportPlanCsv, speedByPlan, heatmapGatewayByPlan } from '../repositories/scans.repository.js';
 import {
   listMappingsByPlan,
   insertMapping,
@@ -279,6 +279,11 @@ export const getHeatmap = (req, res, next) => {
 export const getHeatmapSpeed = (req, res, next) => {
   if (!findPlanById(req.params.id)) return next(new AppError('Plan introuvable.', 404));
   res.json(speedByPlan(req.params.id));
+};
+
+export const getHeatmapGateway = (req, res, next) => {
+  if (!findPlanById(req.params.id)) return next(new AppError('Plan introuvable.', 404));
+  res.json(heatmapGatewayByPlan(req.params.id));
 };
 
 export const getHistory = (req, res, next) => {

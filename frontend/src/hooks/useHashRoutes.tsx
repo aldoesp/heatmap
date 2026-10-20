@@ -7,7 +7,8 @@ export type Route =
   | 'releves'
   | 'analyse'
   | 'heatmap'
-  | 'settings';
+  | 'settings'
+  | 'simulation';
 
 const DEFAULT_ROUTE: Route = 'scan';
 const VALID_ROUTES: Route[] = [
@@ -18,6 +19,7 @@ const VALID_ROUTES: Route[] = [
   'analyse',
   'heatmap',
   'settings',
+  'simulation',
 ];
 
 function parseHash(hash: string): Route {

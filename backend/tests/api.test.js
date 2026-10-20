@@ -455,6 +455,21 @@ describe('relevés Wi-Fi (mode test)', () => {
     assert.equal(nets.status, 200);
     assert.ok(nets.json.length > 0);
   });
+
+  it('expose les métriques de passerelle par point (heatmap-gateway)', async () => {
+    const gw = await api('GET', `/api/v1/plans/${planId}/heatmap-gateway`);
+    assert.equal(gw.status, 200);
+    assert.ok(Array.isArray(gw.json));
+    // Une ligne par point de scan mesuré (une seule valeur par point).
+    const points = gw.json.map((r) => r.scan_point_id);
+    assert.equal(new Set(points).size, points.length);
+    for (const row of gw.json) {
+      assert.ok('gateway_rtt_ms' in row);
+      assert.ok('gateway_jitter_ms' in row);
+      assert.ok('gateway_loss_percent' in row);
+      assert.ok(typeof row.x === 'number' && typeof row.y === 'number');
+    }
+  });
   it('enregistre la note du point', async () => {
     const { status, json } = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
       note: 'Entrée du bureau, porte ouverte.',

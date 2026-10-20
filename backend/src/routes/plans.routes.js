@@ -23,6 +23,7 @@ import {
   patchScanPoint,
   getHeatmap,
   getHeatmapSpeed,
+  getHeatmapGateway,
   getHistory,
   getNetworks,
   exportCsv,
@@ -78,6 +79,7 @@ router.patch('/:id/scan-points/:pointId', patchScanPoint);
 
 router.get('/:id/heatmap', getHeatmap);
 router.get('/:id/heatmap-speed', getHeatmapSpeed);
+router.get('/:id/heatmap-gateway', getHeatmapGateway);
 router.get('/:id/history', getHistory);
 router.get('/:id/networks', getNetworks);
 router.get('/:id/export.csv', exportCsv);

@@ -57,6 +57,7 @@ export interface NetworkObservation {
 export interface GatewayInfo {
   gatewayIp: string | null;
   medianRttMs: number | null;
+  jitterMs: number | null;
   packetLossPercent: number | null;
   probesSent: number;
   probesReceived: number;
@@ -112,6 +113,7 @@ export interface ScanHistoryEntry {
     rejected_count: number;
     gateway_ip: string | null;
     gateway_rtt_ms: number | null;
+    gateway_jitter_ms: number | null;
     gateway_loss_percent: number | null;
     tcp_down_bps: number | null;
     tcp_up_bps: number | null;
@@ -136,6 +138,16 @@ export interface HeatmapRow {
   ssid: string | null;
   rssi: number;
   quality: number;
+}
+
+export interface GatewayHeatmapRow {
+  scan_point_id: string;
+  x: number;
+  y: number;
+  gateway_ip: string | null;
+  gateway_rtt_ms: number | null;
+  gateway_jitter_ms: number | null;
+  gateway_loss_percent: number | null;
 }
 
 export interface NetworkInfo {
