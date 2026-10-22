@@ -27,6 +27,17 @@ export function renamePlan(id, name) {
   return r.changes > 0 ? findPlanById(id) : null;
 }
 
+/** Enregistre l'échelle calibrée du plan (mètres par pixel de l'image). */
+export function setPlanCalibration(id, metersPerPixel) {
+  const db = getDb();
+  const r = db
+    .prepare(
+      `UPDATE plans SET meters_per_pixel = ?, updated_at = datetime('now') WHERE id = ?`
+    )
+    .run(metersPerPixel, id);
+  return r.changes > 0 ? findPlanById(id) : null;
+}
+
 export function deletePlan(id) {
   return getDb().prepare('DELETE FROM plans WHERE id = ?').run(id).changes > 0;
 }

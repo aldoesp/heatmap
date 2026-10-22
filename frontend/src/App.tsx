@@ -23,6 +23,9 @@ const SettingsPage = lazy(() =>
 const SimulationPage = lazy(() =>
   import("./components/simulation/WifiHeatmapSimulator").then(({ WifiHeatmapSimulator }) => ({ default: WifiHeatmapSimulator }))
 )
+const SimulationPlanPage = lazy(() =>
+  import("./components/simulation/SimulationPlanPage").then(({ SimulationPlanPage }) => ({ default: SimulationPlanPage }))
+)
 
 function App() {
   const route = useHashRoute()
@@ -51,6 +54,7 @@ function App() {
           {route === 'heatmap' && <HeatmapPage />}
           {route === 'settings' && <SettingsPage />}
           {route === 'simulation' && <SimulationPage className="min-h-screen" />}
+          {route === 'simulation-plan' && <SimulationPlanPage />}
         </Suspense>
         {route === 'upload' && <UploadPage />}
         {route === 'analyse' && <AnalysePage />}

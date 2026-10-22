@@ -55,7 +55,7 @@ export function WifiHeatmapSimulator({ className = '' }: WifiHeatmapSimulatorPro
   }, []);
 
   return (
-    <div className={`bg-slate-950 pt-20 p-4 text-slate-100 ${className}`}>
+    <div className={`bg-slate-950 pt-44 p-4 text-slate-100 ${className}`}>
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Simulateur de propagation Wi-Fi</h2>

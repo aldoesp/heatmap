@@ -29,5 +29,6 @@ export function elevationGainDb(p: AntennaPattern, nadirDeg: number): number {
 }
 
 export function txGainDbi(p: AntennaPattern, azimuthDeg: number, nadirDeg: number): number {
-  return p.peakGainDbi + azimuthGainDb(p, azimuthDeg) + elevationGainDb(p, nadirDeg);
+  const nadirRad = Math.min(Math.max(nadirDeg, 0), 180) * Math.PI / 180;
+  return p.peakGainDbi + azimuthGainDb(p, azimuthDeg) * Math.sin(nadirRad) + elevationGainDb(p, nadirDeg);
 }

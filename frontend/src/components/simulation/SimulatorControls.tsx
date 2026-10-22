@@ -18,6 +18,11 @@ interface SimulatorControlsProps {
   peakEirpDbm: number;
   onConfigChange: (next: SimulatorConfig) => void;
   onReset: () => void;
+  /**
+   * Masque l'édition de la largeur/hauteur (simulation sur plan : la surface
+   * est fixée par la calibration mètres/pixel, pas par l'utilisateur).
+   */
+  disableSurfaceEditing?: boolean;
 }
 
 const inputCls =
@@ -120,6 +125,7 @@ export function SimulatorControls({
   peakEirpDbm,
   onConfigChange,
   onReset,
+  disableSurfaceEditing = false,
 }: SimulatorControlsProps) {
   const { surface, radio, colorStops, resolutionM } = config;
   const setRadio = (patch: Partial<RadioParams>) =>
@@ -137,10 +143,20 @@ export function SimulatorControls({
   return (
     <div className="space-y-3">
       <Group title="Surface">
-        <NumberField id="width" label="Largeur" unit="m" value={surface.widthM} min={SURFACE_LIMITS_M.min} max={SURFACE_LIMITS_M.max}
-          onCommit={(v) => onConfigChange({ ...config, surface: { ...surface, widthM: v } })} />
-        <NumberField id="height" label="Hauteur" unit="m" value={surface.heightM} min={SURFACE_LIMITS_M.min} max={SURFACE_LIMITS_M.max}
-          onCommit={(v) => onConfigChange({ ...config, surface: { ...surface, heightM: v } })} />
+        {disableSurfaceEditing ? (
+          <p className="text-xs text-slate-400">
+            Surface imposée par la calibration du plan :{' '}
+            {surface.widthM.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} ×{' '}
+            {surface.heightM.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m.
+          </p>
+        ) : (
+          <>
+            <NumberField id="width" label="Largeur" unit="m" value={surface.widthM} min={SURFACE_LIMITS_M.min} max={SURFACE_LIMITS_M.max}
+              onCommit={(v) => onConfigChange({ ...config, surface: { ...surface, widthM: v } })} />
+            <NumberField id="height" label="Hauteur" unit="m" value={surface.heightM} min={SURFACE_LIMITS_M.min} max={SURFACE_LIMITS_M.max}
+              onCommit={(v) => onConfigChange({ ...config, surface: { ...surface, heightM: v } })} />
+          </>
+        )}
         <div className="flex items-center justify-between gap-3">
           <label htmlFor="resolution" className="text-sm text-slate-300">Résolution</label>
           <select id="resolution" className={`${inputCls} w-28`} value={resolutionM}

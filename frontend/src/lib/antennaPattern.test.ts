@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FrequencyMHz } from '../types/wifi';
-import { flatPattern, txGainDbi } from './antennaPattern';
+import { flatPattern, azimuthGainDb, elevationGainDb, txGainDbi } from './antennaPattern';
 import { U7_PRO_XGS_PATTERNS } from '../data/u7ProXgsPatterns';
 import { resolveAntenna } from './antennas';
 
@@ -65,5 +65,25 @@ describe('U7_PRO_XGS_PATTERNS', () => {
     const antenna = flatPattern(6);
     const result = txGainDbi(antenna, 123, 45);
     expect(result).toBe(6);
+  });
+
+  it('U7_PRO_XGS_PATTERNS[5000] : à nadirDeg = 0, txGainDbi identique pour azimuth 0, 90, 180, 270', () => {
+    const pattern = U7_PRO_XGS_PATTERNS[5000];
+    const result0 = txGainDbi(pattern, 0, 0);
+    const result90 = txGainDbi(pattern, 90, 0);
+    const result180 = txGainDbi(pattern, 180, 0);
+    const result270 = txGainDbi(pattern, 270, 0);
+    expect(result0).toBe(result90);
+    expect(result0).toBe(result180);
+    expect(result0).toBe(result270);
+  });
+
+  it('U7_PRO_XGS_PATTERNS[5000] : à nadirDeg = 90, txGainDbi = peakGainDbi + azimuthGainDb + elevationGainDb', () => {
+    const pattern = U7_PRO_XGS_PATTERNS[5000];
+    const azimuthAt0 = azimuthGainDb(pattern, 0);
+    const elevationAt90 = elevationGainDb(pattern, 90);
+    const expected = pattern.peakGainDbi + azimuthAt0 + elevationAt90;
+    const result = txGainDbi(pattern, 0, 90);
+    expect(result).toBe(expected);
   });
 });

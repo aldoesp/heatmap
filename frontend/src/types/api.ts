@@ -17,8 +17,28 @@ export interface PlanResponse {
   width: number;
   height: number;
   sizeBytes: number;
+  /** Échelle du plan en mètres par pixel ; null tant que le plan n'est pas calibré. */
+  metersPerPixel: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Scénario de simulation : copie indépendante d'un AP réel sur un plan. */
+export interface SimulationScenario {
+  id: string;
+  plan_id: string;
+  source_access_point_id: string;
+  name: string;
+  /** Position restaurée par la réinitialisation (normalisée, y = 0 en bas). */
+  initial: { x: number; y: number };
+  /** Position courante simulée (normalisée, y = 0 en bas). */
+  current: { x: number; y: number };
+  /** Paramètres radio courants de la simulation (RadioParams, types/wifi). */
+  radio: Record<string, unknown>;
+  /** Paramètres radio du scénario à sa création. */
+  initialRadio: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ScanPointResponse {

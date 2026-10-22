@@ -12,6 +12,7 @@ import {
   getPlans,
   getPlan,
   patchPlan,
+  patchPlanCalibration,
   removePlan,
   createAccessPoint,
   getAccessPoints,
@@ -65,6 +66,7 @@ router.get('/', getPlans);
 router.post('/', upload.single('image'), createPlan);
 router.get('/:id', getPlan);
 router.patch('/:id', patchPlan);
+router.patch('/:id/calibration', patchPlanCalibration);
 router.delete('/:id', removePlan);
 router.get('/:planId/surveys', listSurveys);
 router.post('/:planId/surveys', validateCreateSurvey, createSurveyForPlan);

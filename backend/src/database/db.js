@@ -28,6 +28,10 @@ export function getDb() {
 function migrate(db) {
   const columnsOf = (table) =>
     db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  const plans = columnsOf('plans');
+  if (!plans.includes('meters_per_pixel')) {
+    db.exec('ALTER TABLE plans ADD COLUMN meters_per_pixel REAL DEFAULT NULL');
+  }
   const scanPoints = columnsOf('scan_points');
   if (!scanPoints.includes('survey_id')) {
     db.exec('ALTER TABLE scan_points ADD COLUMN survey_id TEXT REFERENCES surveys(id) ON DELETE CASCADE');

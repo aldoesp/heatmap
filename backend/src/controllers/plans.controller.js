@@ -12,6 +12,7 @@ import {
   listPlans,
   findPlanById,
   renamePlan as renamePlanRow,
+  setPlanCalibration,
   deletePlan as deletePlanRow,
 } from '../repositories/plans.repository.js';
 import {
@@ -96,6 +97,8 @@ const toPlanResponse = (row) => ({
   width: row.width,
   height: row.height,
   sizeBytes: row.size_bytes,
+  // Échelle calibrée en m/pixel (NULL tant que l'utilisateur n'a pas calibré).
+  metersPerPixel: row.meters_per_pixel ?? null,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -116,6 +119,35 @@ export const patchPlan = (req, res, next) => {
     return next(new AppError('Nom de plan invalide.', 400));
   }
   const row = renamePlanRow(req.params.id, name);
+  if (!row) return next(new AppError('Plan introuvable.', 404));
+  res.json(toPlanResponse(row));
+};
+
+/*
+ * PATCH /api/v1/plans/:id/calibration — enregistre l'échelle du plan.
+ * Bornes : 0,0005 m/px (0,5 mm/px, plan très détaillé) à 10 m/px (plan miniature).
+ * Au-delà (0, négatif, aberrant), la simulation serait physiquement absurde.
+ */
+export const MIN_METERS_PER_PIXEL = 0.0005;
+export const MAX_METERS_PER_PIXEL = 10;
+
+export const patchPlanCalibration = (req, res, next) => {
+  const raw = req.body?.metersPerPixel;
+  const value = typeof raw === 'string' ? Number(raw) : raw;
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < MIN_METERS_PER_PIXEL ||
+    value > MAX_METERS_PER_PIXEL
+  ) {
+    return next(
+      new AppError(
+        `metersPerPixel doit être un nombre entre ${MIN_METERS_PER_PIXEL} et ${MAX_METERS_PER_PIXEL} (m/pixel).`,
+        400
+      )
+    );
+  }
+  const row = setPlanCalibration(req.params.id, value);
   if (!row) return next(new AppError('Plan introuvable.', 404));
   res.json(toPlanResponse(row));
 };

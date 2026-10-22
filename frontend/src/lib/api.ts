@@ -8,9 +8,11 @@ import {
   type ScanDetailResponse,
   type ScanHistoryEntry,
   type ScanPointResponse,
+  type SimulationScenario,
   type SpeedHeatmapRow,
   type UploadPlanResponse,
 } from '../types/api';
+import type { RadioParams } from '../types/wifi';
 import type { AccessPoint } from '../types/plan';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
@@ -139,6 +141,21 @@ export async function deletePlan(id: string): Promise<void> {
   });
 }
 
+/** Enregistre (ou remplace) l'échelle du plan, en mètres par pixel. */
+export async function calibratePlan(
+  id: string,
+  metersPerPixel: number,
+): Promise<PlanResponse> {
+  return apiFetch<PlanResponse>(
+    `/api/v1/plans/${encodeURIComponent(id)}/calibration`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metersPerPixel }),
+    },
+  );
+}
+
 /* ==========================================================================
    Points d'accès
    ========================================================================== */
@@ -181,6 +198,67 @@ export async function deleteAccessPoint(apId: string): Promise<void> {
   await apiFetch<void>(
     `/api/v1/plans/access-points/${encodeURIComponent(apId)}`,
     { method: 'DELETE' }
+  );
+}
+
+/* ==========================================================================
+   Scénarios de simulation (copie indépendante d'un AP réel)
+   ========================================================================== */
+
+export async function listSimulationScenarios(
+  planId: string,
+): Promise<SimulationScenario[]> {
+  return apiFetch<SimulationScenario[]>(
+    `/api/v1/simulation-scenarios?plan_id=${encodeURIComponent(planId)}`,
+  );
+}
+
+export async function createSimulationScenario(input: {
+  plan_id: string;
+  sourceAccessPointId: string;
+  name?: string;
+  radio: RadioParams;
+}): Promise<SimulationScenario> {
+  return apiFetch<SimulationScenario>('/api/v1/simulation-scenarios', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateSimulationScenario(
+  id: string,
+  patch: {
+    name?: string;
+    currentX?: number;
+    currentY?: number;
+    radio?: RadioParams;
+  },
+): Promise<SimulationScenario> {
+  return apiFetch<SimulationScenario>(
+    `/api/v1/simulation-scenarios/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    },
+  );
+}
+
+/** Restaure la position et la radio initiales du scénario (jamais l'AP réel). */
+export async function resetSimulationScenario(
+  id: string,
+): Promise<SimulationScenario> {
+  return apiFetch<SimulationScenario>(
+    `/api/v1/simulation-scenarios/${encodeURIComponent(id)}/reset`,
+    { method: 'POST' },
+  );
+}
+
+export async function deleteSimulationScenario(id: string): Promise<void> {
+  await apiFetch<void>(
+    `/api/v1/simulation-scenarios/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
   );
 }
 

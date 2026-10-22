@@ -7,7 +7,7 @@ import {
   Settings,
   Wifi,
   Radio,
-  
+  Map,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useHashRoute, type Route } from '../../hooks/useHashRoutes';
@@ -26,7 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { route: 'heatmap', label: 'Heatmap', Icon: Flame },
   { route: 'settings', label: 'Settings', Icon: Settings },
   { route: 'simulation', label: 'Simulation', Icon: Radio },
-
+  { route: 'simulation-plan', label: 'Simulation plan', Icon: Map },
 ];
 
 export function Navbar() {
