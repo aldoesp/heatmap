@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "tests-build",
+    "rootDir": ".",
+    "declaration": false,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": [
+    "src/lib/triangulation.ts",
+    "src/lib/coords.ts",
+    "src/lib/heatmapRssi.ts",
+    "src/lib/heatmapRaster.ts",
+    "src/lib/signal.ts",
+    "src/types/plan.ts",
+    "src/types/api.ts",
+    "tests/**/*.test.ts"
+  ]
+}

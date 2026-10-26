@@ -1,0 +1,366 @@
+┌─────────┬─────────────────────┬──────────────┬──────────┬─────────┬───────────────┬──────┬─────────┬─────────────┬────────────────────┬───────────────┐
+│ (index) │ bssid               │ ssid         │ band     │ channel │ bandwidth_mhz │ rssi │ quality │ security    │ standard           │ virtual_bssid │
+├─────────┼─────────────────────┼──────────────┼──────────┼─────────┼───────────────┼──────┼─────────┼─────────────┼────────────────────┼───────────────┤
+│ 0       │ '8c:30:66:74:50:83' │ 'WF_ZOMATEL' │ '5GHz'   │ 40      │ 80            │ -42  │ 100     │ 'OPEN'      │ 'wifi6 (802.11ax)' │ false         │
+│ 1       │ '9a:30:66:74:50:83' │ 'ZMTL_GUEST' │ '5GHz'   │ 40      │ 80            │ -47  │ 100     │ 'WPA2/WPA3' │ 'wifi6 (802.11ax)' │ true          │
+│ 2       │ '8c:30:66:74:51:d8' │ 'WF_ZOMATEL' │ '2.4GHz' │ 11      │ 20            │ -82  │ 36      │ 'OPEN'      │ 'wifi4 (802.11n)'  │ false         │
+│ 3       │ '22:0b:8b:0c:cb:60' │ 'ZMTL_BOX'   │ '5GHz'   │ 128     │ 80            │ -83  │ 34      │ 'WPA2/WPA3' │ 'wifi6 (802.11ax)' │ true          │
+│ 4       │ '26:0b:8b:0c:cb:60' │ null         │ '5GHz'   │ 128     │ 80            │ -83  │ 34      │ 'WPA2'      │ 'wifi6 (802.11ax)' │ true          │
+│ 5       │ '2a:0b:8b:0c:cb:60' │ 'ZMTL_GUEST' │ '5GHz'   │ 128     │ 80            │ -83  │ 34      │ 'WPA2/WPA3' │ 'wifi6 (802.11ax)' │ true          │
+│ 6       │ '8c:30:66:74:51:d7' │ 'WF_ZOMATEL' │ '5GHz'   │ 48      │ 80            │ -83  │ 34      │ 'OPEN'      │ 'wifi6 (802.11ax)' │ false         │
+│ 7       │ '1c:0b:8b:0c:cb:60' │ 'WF_ZOMATEL' │ '5GHz'   │ 128     │ 80            │ -84  │ 32      │ 'OPEN'      │ 'wifi6 (802.11ax)' │ false         │
+│ 8       │ '92:30:66:74:51:d7' │ 'ZMTL_BOX'   │ '5GHz'   │ 48      │ 80            │ -84  │ 32      │ 'WPA2/WPA3' │ 'wifi6 (802.11ax)' │ true          │
+│ 9       │ '9a:30:66:74:51:d7' │ 'ZMTL_GUEST' │ '5GHz'   │ 48      │ 80            │ -84  │ 32      │ 'WPA2/WPA3' │ 'wifi6 (802.11ax)' │ true          │
+│ 10      │ '80:2a:a8:da:da:99' │ 'WF_ZOMATEL' │ '2.4GHz' │ 6       │ 20            │ -85  │ 30      │ 'OPEN'      │ 'wifi4 (802.11n)'  │ false         │
+│ 11      │ '96:30:66:74:51:d7' │ null         │ '5GHz'   │ 48      │ 80            │ -85  │ 30      │ 'WPA2'      │ 'wifi6 (802.11ax)' │ true          │
+│ 12      │ '8e:2a:a8:da:da:99' │ 'ZMTL_GUEST' │ '2.4GHz' │ 6       │ 20            │ -86  │ 28      │ 'WPA2/WPA3' │ 'wifi4 (802.11n)'  │ true          │
+│ 13      │ '8c:30:66:74:50:56' │ 'WF_ZOMATEL' │ '5GHz'   │ 40      │ 80            │ -87  │ 26      │ 'OPEN'      │ 'wifi6 (802.11ax)' │ false         │
+└─────────┴─────────────────────┴──────────────┴──────────┴─────────┴───────────────┴──────┴─────────┴─────────────┴────────────────────┴───────────────┘
+[
+  {
+    "bssid": "8c:30:66:74:50:83",
+    "ssid": "WF_ZOMATEL",
+    "hidden": false,
+    "band": "5GHz",
+    "frequency_mhz": 5200,
+    "channel": 40,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5210,
+    "center_channel": 42,
+    "rssi": -42,
+    "quality": 100,
+    "level": "excellent",
+    "security": "OPEN",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": false,
+    "capabilities": [
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283216205244
+  },
+  {
+    "bssid": "9a:30:66:74:50:83",
+    "ssid": "ZMTL_GUEST",
+    "hidden": false,
+    "band": "5GHz",
+    "frequency_mhz": 5200,
+    "channel": 40,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5210,
+    "center_channel": 42,
+    "rssi": -47,
+    "quality": 100,
+    "level": "excellent",
+    "security": "WPA2/WPA3",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": true,
+    "capabilities": [
+      "WPA2-PSK-CCMP",
+      "RSN-PSK+SAE-CCMP",
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283220288980
+  },
+  {
+    "bssid": "8c:30:66:74:51:d8",
+    "ssid": "WF_ZOMATEL",
+    "hidden": false,
+    "band": "2.4GHz",
+    "frequency_mhz": 2462,
+    "channel": 11,
+    "bandwidth_mhz": 20,
+    "center_frequency_mhz": null,
+    "center_channel": null,
+    "rssi": -82,
+    "quality": 36,
+    "level": "weak",
+    "security": "OPEN",
+    "standard": "wifi4 (802.11n)",
+    "virtual_bssid": false,
+    "capabilities": [
+      "ESS",
+      "WFA-HT"
+    ],
+    "timestamp_us": 283215737658
+  },
+  {
+    "bssid": "22:0b:8b:0c:cb:60",
+    "ssid": "ZMTL_BOX",
+    "hidden": false,
+    "band": "5GHz",
+    "frequency_mhz": 5640,
+    "channel": 128,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5610,
+    "center_channel": 122,
+    "rssi": -83,
+    "quality": 34,
+    "level": "weak",
+    "security": "WPA2/WPA3",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": true,
+    "capabilities": [
+      "WPA2-PSK-CCMP",
+      "RSN-PSK+SAE-CCMP",
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283218690993
+  },
+  {
+    "bssid": "26:0b:8b:0c:cb:60",
+    "ssid": null,
+    "hidden": true,
+    "band": "5GHz",
+    "frequency_mhz": 5640,
+    "channel": 128,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5610,
+    "center_channel": 122,
+    "rssi": -83,
+    "quality": 34,
+    "level": "weak",
+    "security": "WPA2",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": true,
+    "capabilities": [
+      "WPA2-PSK-CCMP",
+      "RSN-PSK-CCMP",
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283218691043
+  },
+  {
+    "bssid": "2a:0b:8b:0c:cb:60",
+    "ssid": "ZMTL_GUEST",
+    "hidden": false,
+    "band": "5GHz",
+    "frequency_mhz": 5640,
+    "channel": 128,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5610,
+    "center_channel": 122,
+    "rssi": -83,
+    "quality": 34,
+    "level": "weak",
+    "security": "WPA2/WPA3",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": true,
+    "capabilities": [
+      "WPA2-PSK-CCMP",
+      "RSN-PSK+SAE-CCMP",
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283218696451
+  },
+  {
+    "bssid": "8c:30:66:74:51:d7",
+    "ssid": "WF_ZOMATEL",
+    "hidden": false,
+    "band": "5GHz",
+    "frequency_mhz": 5240,
+    "channel": 48,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5210,
+    "center_channel": 42,
+    "rssi": -83,
+    "quality": 34,
+    "level": "weak",
+    "security": "OPEN",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": false,
+    "capabilities": [
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283216575865
+  },
+  {
+    "bssid": "1c:0b:8b:0c:cb:60",
+    "ssid": "WF_ZOMATEL",
+    "hidden": false,
+    "band": "5GHz",
+    "frequency_mhz": 5640,
+    "channel": 128,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5610,
+    "center_channel": 122,
+    "rssi": -84,
+    "quality": 32,
+    "level": "weak",
+    "security": "OPEN",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": false,
+    "capabilities": [
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283218695498
+  },
+  {
+    "bssid": "92:30:66:74:51:d7",
+    "ssid": "ZMTL_BOX",
+    "hidden": false,
+    "band": "5GHz",
+    "frequency_mhz": 5240,
+    "channel": 48,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5210,
+    "center_channel": 42,
+    "rssi": -84,
+    "quality": 32,
+    "level": "weak",
+    "security": "WPA2/WPA3",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": true,
+    "capabilities": [
+      "WPA2-PSK-CCMP",
+      "RSN-PSK+SAE-CCMP",
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283216570873
+  },
+  {
+    "bssid": "9a:30:66:74:51:d7",
+    "ssid": "ZMTL_GUEST",
+    "hidden": false,
+    "band": "5GHz",
+    "frequency_mhz": 5240,
+    "channel": 48,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5210,
+    "center_channel": 42,
+    "rssi": -84,
+    "quality": 32,
+    "level": "weak",
+    "security": "WPA2/WPA3",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": true,
+    "capabilities": [
+      "WPA2-PSK-CCMP",
+      "RSN-PSK+SAE-CCMP",
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283216577696
+  },
+  {
+    "bssid": "80:2a:a8:da:da:99",
+    "ssid": "WF_ZOMATEL",
+    "hidden": false,
+    "band": "2.4GHz",
+    "frequency_mhz": 2437,
+    "channel": 6,
+    "bandwidth_mhz": 20,
+    "center_frequency_mhz": null,
+    "center_channel": null,
+    "rssi": -85,
+    "quality": 30,
+    "level": "weak",
+    "security": "OPEN",
+    "standard": "wifi4 (802.11n)",
+    "virtual_bssid": false,
+    "capabilities": [
+      "ESS",
+      "WFA-HT"
+    ],
+    "timestamp_us": 283215333352
+  },
+  {
+    "bssid": "96:30:66:74:51:d7",
+    "ssid": null,
+    "hidden": true,
+    "band": "5GHz",
+    "frequency_mhz": 5240,
+    "channel": 48,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5210,
+    "center_channel": 42,
+    "rssi": -85,
+    "quality": 30,
+    "level": "weak",
+    "security": "WPA2",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": true,
+    "capabilities": [
+      "WPA2-PSK-CCMP",
+      "RSN-PSK-CCMP",
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283216571377
+  },
+  {
+    "bssid": "8e:2a:a8:da:da:99",
+    "ssid": "ZMTL_GUEST",
+    "hidden": false,
+    "band": "2.4GHz",
+    "frequency_mhz": 2437,
+    "channel": 6,
+    "bandwidth_mhz": 20,
+    "center_frequency_mhz": null,
+    "center_channel": null,
+    "rssi": -86,
+    "quality": 28,
+    "level": "very_weak",
+    "security": "WPA2/WPA3",
+    "standard": "wifi4 (802.11n)",
+    "virtual_bssid": true,
+    "capabilities": [
+      "WPA2-PSK-CCMP",
+      "RSN-PSK+SAE-CCMP",
+      "ESS",
+      "WFA-HT"
+    ],
+    "timestamp_us": 283215323943
+  },
+  {
+    "bssid": "8c:30:66:74:50:56",
+    "ssid": "WF_ZOMATEL",
+    "hidden": false,
+    "band": "5GHz",
+    "frequency_mhz": 5200,
+    "channel": 40,
+    "bandwidth_mhz": 80,
+    "center_frequency_mhz": 5210,
+    "center_channel": 42,
+    "rssi": -87,
+    "quality": 26,
+    "level": "very_weak",
+    "security": "OPEN",
+    "standard": "wifi6 (802.11ax)",
+    "virtual_bssid": false,
+    "capabilities": [
+      "ESS",
+      "WFA-HT",
+      "WFA-VHT",
+      "WFA-HE-READY"
+    ],
+    "timestamp_us": 283216205495
+  }
+]

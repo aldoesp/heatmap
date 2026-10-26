@@ -1,0 +1,25 @@
+import { Router } from 'express';
+import scanRoutes from '../routes/scan.routes.js';
+import plansRoutes from '../routes/plans.routes.js';
+import surveysRoutes from '../routes/surveys.routes.js';
+import bssidRulesRoutes from '../routes/bssidRules.routes.js';
+import simulationScenariosRoutes from '../routes/simulationScenarios.routes.js';
+import { scanLimiter } from '../middleware/rateLimit.js';
+import { getStatus, getIperfStatus, getSettings, patchSettings } from '../controllers/settings.controller.js';
+import { exportAll } from '../controllers/export.controller.js';
+
+const api = Router();
+
+api.get('/health', (_req, res) => res.json({ status: 'ok' }));
+api.get('/export', exportAll);
+api.get('/status', getStatus);
+api.get('/settings/iperf-status', getIperfStatus);
+api.get('/settings', getSettings);
+api.patch('/settings', patchSettings);
+api.use('/scan', scanLimiter, scanRoutes);
+api.use('/plans', plansRoutes);
+api.use('/surveys', surveysRoutes);
+api.use('/bssid-rules', bssidRulesRoutes);
+api.use('/simulation-scenarios', simulationScenariosRoutes);
+
+export default api;

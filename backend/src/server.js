@@ -1,16 +1,20 @@
-import cors from "cors";
-import express from "express";
-
-const app = express();
-const port = 3001;
-
-app.use(cors({ origin: "http://localhost:5173" }));
-app.use(express.json());
-
-app.get("/api/health", (_request, response) => {
-  response.json({ status: "ok", message: "Backend WiFi Heatmapper actif" });
+import dotenv from 'dotenv';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+// Charge backend/.env quel que soit le dossier depuis lequel on lance node
+// (sous Termux on démarre souvent depuis la racine du dépôt).
+dotenv.config({
+  path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'),
 });
+import { getDb } from './database/db.js';
+import app from './app.js';
 
-app.listen(port, "127.0.0.1", () => {
-  console.log(`Backend actif sur http://127.0.0.1:${port}`);
+getDb(); // crée data/heatmap.db + tables si besoin
+
+const PORT = Number(process.env.PORT) || 3001;
+
+app.listen(PORT, () => {
+  console.log(
+    `API sur http://localhost:${PORT}/api/v1 — mode : ${process.env.SCAN_MODE === 'test' ? 'test' : 'live'}`
+  );
 });
