@@ -3,6 +3,7 @@ import {
   createSurveyScanPoint,
   getSurvey,
   getSurveyCsv,
+  getSurveyGateway,
   getSurveyHeatmap,
   getSurveyHistory,
   getSurveyNetworks,
@@ -54,6 +55,10 @@ export const readSurveyHeatmap = run((req, res) => {
 
 export const readSurveySpeed = run((req, res) => {
   res.json(getSurveySpeed(req.params.surveyId));
+});
+
+export const readSurveyGateway = run((req, res) => {
+  res.json(getSurveyGateway(req.params.surveyId));
 });
 
 export const readSurveyNetworks = run((req, res) => {

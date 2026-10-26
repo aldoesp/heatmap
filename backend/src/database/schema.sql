@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS plans (
   width INTEGER NOT NULL CHECK(width > 0),
   height INTEGER NOT NULL CHECK(height > 0),
   size_bytes INTEGER NOT NULL CHECK(size_bytes > 0),
+  -- Échelle réelle calibrée : mètres par pixel de l'image (NULL = non calibré).
+  meters_per_pixel REAL DEFAULT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -98,6 +100,7 @@ CREATE TABLE IF NOT EXISTS scans (
   rejected_count INTEGER NOT NULL DEFAULT 0,
   gateway_ip TEXT DEFAULT NULL,
   gateway_rtt_ms REAL DEFAULT NULL,
+  gateway_jitter_ms REAL DEFAULT NULL,
   gateway_loss_percent REAL DEFAULT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -131,3 +134,37 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE INDEX IF NOT EXISTS idx_obs_scan ON observations(scan_id);
 CREATE INDEX IF NOT EXISTS idx_obs_bssid ON observations(bssid);
 CREATE INDEX IF NOT EXISTS idx_obs_ssid_band ON observations(ssid, band);
+
+CREATE TABLE IF NOT EXISTS ping_stats (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  host        TEXT    NOT NULL,
+  measured_at TEXT    NOT NULL,
+  loss_pct    REAL    NOT NULL,
+  rtt_min     REAL,
+  rtt_avg     REAL,
+  rtt_max     REAL,
+  jitter      REAL,
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ping_stats_host_ts
+  ON ping_stats (host, measured_at DESC);
+
+-- Scénario de simulation : une COPIE indépendante d'un AP réel sur un plan.
+-- La position courante et les paramètres radio simulés ne touchent jamais la
+-- ligne access_points ni les observations. initial_* est restauré par /reset.
+CREATE TABLE IF NOT EXISTS simulation_scenarios (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+  source_access_point_id TEXT REFERENCES access_points(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  initial_x REAL NOT NULL CHECK(initial_x BETWEEN 0 AND 1),
+  initial_y REAL NOT NULL CHECK(initial_y BETWEEN 0 AND 1),
+  initial_radio TEXT NOT NULL,
+  current_x REAL NOT NULL CHECK(current_x BETWEEN 0 AND 1),
+  current_y REAL NOT NULL CHECK(current_y BETWEEN 0 AND 1),
+  radio TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sim_scenario_plan ON simulation_scenarios(plan_id);

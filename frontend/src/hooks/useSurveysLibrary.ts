@@ -125,6 +125,8 @@ export function useSurveysLibrary() {
         width: created.width,
         height: created.height,
         sizeBytes: created.sizeBytes,
+        // Un plan fraîchement importé n'est jamais encore calibré.
+        metersPerPixel: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });

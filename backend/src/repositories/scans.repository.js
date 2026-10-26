@@ -8,14 +8,15 @@ export function insertScanWithObservations({ scan_point_id, plan_id, mode, scann
   const db = getDb();
   const scan_id = randomUUID();
   const insert = db.transaction(() => {
-    db.prepare(
+db.prepare(
       `INSERT INTO scans (id, scan_point_id, plan_id, mode, scanned_at, rejected_count,
-                          gateway_ip, gateway_rtt_ms, gateway_loss_percent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                          gateway_ip, gateway_rtt_ms, gateway_jitter_ms, gateway_loss_percent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       scan_id, scan_point_id, plan_id, mode, scanned_at, rejected_count,
       gateway?.gatewayIp ?? null,
       gateway?.medianRttMs ?? null,
+      gateway?.jitterMs ?? null,
       gateway?.packetLossPercent ?? null
     );
 
@@ -105,10 +106,50 @@ export function speedBySurvey(survey_id) {
     .all(survey_id);
 }
 
-export function listScansByPoint(scan_point_id) {
+// Métriques de la passerelle (latence, perte, jitter) : une valeur par
+// point de scan, la plus récente. Les scans sans mesure (NULL) sont ignorés.
+export function heatmapGatewayByPlan(plan_id) {
   return getDb()
-    .prepare('SELECT * FROM scans WHERE scan_point_id = ? ORDER BY created_at ASC')
-    .all(scan_point_id);
+    .prepare(
+      `WITH ranked AS (
+         SELECT sp.id AS scan_point_id, sp.x, sp.y,
+                s.gateway_ip, s.gateway_rtt_ms, s.gateway_jitter_ms, s.gateway_loss_percent,
+                ROW_NUMBER() OVER (
+                  PARTITION BY sp.id
+                  ORDER BY s.scanned_at DESC, s.created_at DESC
+                ) AS rank
+         FROM scan_points sp
+         JOIN scans s ON s.scan_point_id = sp.id
+         WHERE sp.plan_id = ? AND sp.is_enabled = 1
+       )
+       SELECT scan_point_id, x, y, gateway_ip,
+              gateway_rtt_ms, gateway_jitter_ms, gateway_loss_percent
+       FROM ranked
+       WHERE rank = 1`
+    )
+    .all(plan_id);
+}
+
+export function heatmapGatewayBySurvey(survey_id) {
+  return getDb()
+    .prepare(
+      `WITH ranked AS (
+         SELECT sp.id AS scan_point_id, sp.x, sp.y,
+                s.gateway_ip, s.gateway_rtt_ms, s.gateway_jitter_ms, s.gateway_loss_percent,
+                ROW_NUMBER() OVER (
+                  PARTITION BY sp.id
+                  ORDER BY s.scanned_at DESC, s.created_at DESC
+                ) AS rank
+         FROM scan_points sp
+         JOIN scans s ON s.scan_point_id = sp.id
+         WHERE sp.survey_id = ? AND sp.is_enabled = 1
+       )
+       SELECT scan_point_id, x, y, gateway_ip,
+              gateway_rtt_ms, gateway_jitter_ms, gateway_loss_percent
+       FROM ranked
+       WHERE rank = 1`
+    )
+    .all(survey_id);
 }
 
 export function listScansByPlan(plan_id) {
@@ -237,12 +278,12 @@ export function exportSurveyCsv(survey_id) {
 function exportCsvFor(scope, scope_id) {
   const rows = getDb()
     .prepare(
-      `SELECT sp.id AS point_id, sp.x, sp.y, sp.note, sp.is_enabled,
-              s.id AS scan_id, s.scanned_at, s.mode,
-              s.gateway_ip, s.gateway_rtt_ms, s.gateway_loss_percent,
-              st.tcp_down_bps, st.tcp_up_bps,
-              o.ssid, o.bssid, br.name AS ap_name, o.rssi, o.quality, o.level, o.band,
-              o.frequency_mhz, o.channel, o.security, o.standard
+`SELECT sp.id AS point_id, sp.x, sp.y, sp.note, sp.is_enabled,
+               s.id AS scan_id, s.scanned_at, s.mode,
+               s.gateway_ip, s.gateway_rtt_ms, s.gateway_jitter_ms, s.gateway_loss_percent,
+               st.tcp_down_bps, st.tcp_up_bps,
+               o.ssid, o.bssid, br.name AS ap_name, o.rssi, o.quality, o.level, o.band,
+               o.frequency_mhz, o.channel, o.security, o.standard
        FROM scan_points sp
        JOIN scans s ON s.scan_point_id = sp.id
        JOIN observations o ON o.scan_id = s.id
@@ -260,7 +301,7 @@ function exportCsvFor(scope, scope_id) {
   };
   const header = [
     'point_id', 'x', 'y', 'note', 'enabled', 'scan_id', 'scanned_at', 'mode',
-    'gateway_ip', 'gateway_rtt_ms', 'gateway_loss_percent',
+    'gateway_ip', 'gateway_rtt_ms', 'gateway_jitter_ms', 'gateway_loss_percent',
     'tcp_down_mbps', 'tcp_up_mbps',
     'ssid', 'bssid', 'ap_name', 'rssi_dbm', 'quality', 'level', 'band',
     'frequency_mhz', 'channel', 'security', 'standard',
@@ -271,7 +312,7 @@ function exportCsvFor(scope, scope_id) {
     [
       r.point_id, r.x, r.y, r.note, r.is_enabled ? 'yes' : 'no',
       r.scan_id, r.scanned_at, r.mode,
-      r.gateway_ip, r.gateway_rtt_ms, r.gateway_loss_percent,
+      r.gateway_ip, r.gateway_rtt_ms, r.gateway_jitter_ms, r.gateway_loss_percent,
       toMbps(r.tcp_down_bps), toMbps(r.tcp_up_bps),
       r.ssid, r.bssid, r.ap_name ?? '',
       r.rssi, r.quality, r.level, r.band,

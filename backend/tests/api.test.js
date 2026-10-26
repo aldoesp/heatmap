@@ -459,6 +459,21 @@ describe('relevés Wi-Fi (mode test)', () => {
     assert.equal(nets.status, 200);
     assert.ok(nets.json.length > 0);
   });
+
+  it('expose les métriques de passerelle par point (heatmap-gateway)', async () => {
+    const gw = await api('GET', `/api/v1/plans/${planId}/heatmap-gateway`);
+    assert.equal(gw.status, 200);
+    assert.ok(Array.isArray(gw.json));
+    // Une ligne par point de scan mesuré (une seule valeur par point).
+    const points = gw.json.map((r) => r.scan_point_id);
+    assert.equal(new Set(points).size, points.length);
+    for (const row of gw.json) {
+      assert.ok('gateway_rtt_ms' in row);
+      assert.ok('gateway_jitter_ms' in row);
+      assert.ok('gateway_loss_percent' in row);
+      assert.ok(typeof row.x === 'number' && typeof row.y === 'number');
+    }
+  });
   it('enregistre la note du point', async () => {
     const { status, json } = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
       note: 'Entrée du bureau, porte ouverte.',
@@ -686,5 +701,251 @@ describe('suppressions', () => {
 
     const gone = await api('GET', `/api/v1/plans/${planId}`);
     assert.equal(gone.status, 404);
+  });
+});
+
+/* ==========================================================================
+   MVP simulation : calibration du plan + scénarios de simulation.
+   Ces tests doivent impérativement rester exécutés APRÈS les précédents
+   (ordres de déclaration du fichier), car ils créent leurs propres plans.
+   ========================================================================== */
+
+async function createTestPlan(fileName) {
+  const fs = await import('node:fs/promises');
+  const buf = await fs.readFile(SOURCE_PNG);
+  const form = new FormData();
+  form.append('image', new Blob([buf], { type: 'image/png' }), fileName);
+  const res = await fetch(`${base}/api/v1/plans`, { method: 'POST', body: form });
+  assert.equal(res.status, 201);
+  const json = await res.json();
+  createdPlans.push(json.id);
+  return json.id;
+}
+
+const SIM_RADIO = {
+  frequencyMHz: 2400,
+  txPowerDbm: 20,
+  antennaId: 'isotropic',
+  apRotationDeg: 0,
+  apHeightM: 2.5,
+  rxHeightM: 1,
+  rxGainDbi: 0,
+  model: 'fspl',
+  pathLossExponent: 2,
+  referenceDistanceM: 1,
+  minDistanceM: 0.1,
+};
+
+describe('calibration du plan (metersPerPixel)', () => {
+  let planId;
+
+  before(async () => {
+    planId = await createTestPlan('calibration.png');
+  });
+
+  it('renvoie metersPerPixel = null sur un plan non calibré', async () => {
+    const { status, json } = await api('GET', `/api/v1/plans/${planId}`);
+    assert.equal(status, 200);
+    assert.equal(json.metersPerPixel, null);
+  });
+
+  it('enregistre une échelle valide et la relit', async () => {
+    const patched = await api('PATCH', `/api/v1/plans/${planId}/calibration`, {
+      metersPerPixel: 0.02,
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.json.metersPerPixel, 0.02);
+    const plan = await api('GET', `/api/v1/plans/${planId}`);
+    assert.equal(plan.json.metersPerPixel, 0.02);
+  });
+
+  it('accepte une chaîne numérique tolérante', async () => {
+    const patched = await api('PATCH', `/api/v1/plans/${planId}/calibration`, {
+      metersPerPixel: '0.005',
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.json.metersPerPixel, 0.005);
+  });
+
+  it('rejette les calibrations invalides ou aberrantes', async () => {
+    for (const value of [0, -0.1, 'abc', 100, null, '']) {
+      const res = await api('PATCH', `/api/v1/plans/${planId}/calibration`, {
+        metersPerPixel: value,
+      });
+      assert.equal(res.status, 400, `valeur ${String(value)}`);
+    }
+    // Absente complètement
+    const missing = await api('PATCH', `/api/v1/plans/${planId}/calibration`, {});
+    assert.equal(missing.status, 400);
+  });
+
+  it('404 sur plan inexistant', async () => {
+    const res = await api('PATCH', '/api/v1/plans/calibration-inexistante/calibration', {
+      metersPerPixel: 0.02,
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+describe('scénarios de simulation', () => {
+  let planId;
+  let apId;
+  let apSnapshot;
+  let scenarioId;
+
+  before(async () => {
+    planId = await createTestPlan('simulation.png');
+    const ap = await api('POST', `/api/v1/plans/${planId}/access-points`, {
+      name: 'AP-SIM',
+      x: 0.2,
+      y: 0.3,
+    });
+    assert.equal(ap.status, 201);
+    apId = ap.json.id;
+    // État AVANT tout scénario : l'AP réel doit rester identique ensuite.
+    apSnapshot = structuredClone((await api('GET', `/api/v1/plans/${planId}/access-points`)).json);
+  });
+
+  const assertApUnchanged = async (label) => {
+    const list = (await api('GET', `/api/v1/plans/${planId}/access-points`)).json;
+    assert.deepEqual(list, apSnapshot, `l'AP réel ne doit pas bouger : ${label}`);
+  };
+
+  it('400 sans AP source', async () => {
+    const res = await api('POST', '/api/v1/simulation-scenarios', {
+      plan_id: planId,
+      radio: SIM_RADIO,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('404 si le plan est inconnu ou si l’AP source ne lui appartient pas', async () => {
+    const missingPlan = await api('POST', '/api/v1/simulation-scenarios', {
+      plan_id: 'plan-inexistant',
+      sourceAccessPointId: apId,
+      radio: SIM_RADIO,
+    });
+    assert.equal(missingPlan.status, 404);
+    const foreignAp = await api('POST', '/api/v1/simulation-scenarios', {
+      plan_id: planId,
+      sourceAccessPointId: 'ap-inexistant',
+      radio: SIM_RADIO,
+    });
+    assert.equal(foreignAp.status, 404);
+  });
+
+  it('400 sur configuration radio invalide', async () => {
+    const cases = [
+      { ...SIM_RADIO, frequencyMHz: 700 },
+      { ...SIM_RADIO, txPowerDbm: 31 },
+      { ...SIM_RADIO, antennaId: 'machin' },
+      { ...SIM_RADIO, pathLossExponent: 0.5 },
+      { ...SIM_RADIO, referenceDistanceM: 0.05 },
+      { ...SIM_RADIO, minDistanceM: 0 },
+      'pas-un-objet',
+      null,
+    ];
+    for (const radio of cases) {
+      const res = await api('POST', '/api/v1/simulation-scenarios', {
+        plan_id: planId,
+        sourceAccessPointId: apId,
+        radio,
+      });
+      assert.equal(res.status, 400, `radio ${JSON.stringify(radio)}`);
+    }
+  });
+
+  it('crée une copie sur la position de l’AP source (initial = current)', async () => {
+    const res = await api('POST', '/api/v1/simulation-scenarios', {
+      plan_id: planId,
+      sourceAccessPointId: apId,
+      name: 'Copie A',
+      radio: SIM_RADIO,
+    });
+    assert.equal(res.status, 201);
+    const scenario = res.json;
+    scenarioId = scenario.id;
+    assert.deepEqual(scenario.initial, { x: 0.2, y: 0.3 });
+    assert.deepEqual(scenario.current, { x: 0.2, y: 0.3 });
+    assert.equal(scenario.source_access_point_id, apId);
+    assert.equal(scenario.name, 'Copie A');
+    assert.deepEqual(scenario.radio, SIM_RADIO);
+    assert.deepEqual(scenario.initialRadio, SIM_RADIO);
+  });
+
+  it('déplace la copie sans toucher à l’AP réel', async () => {
+    const patched = await api('PATCH', `/api/v1/simulation-scenarios/${scenarioId}`, {
+      currentX: 0.6,
+      currentY: 0.7,
+    });
+    assert.equal(patched.status, 200);
+    assert.deepEqual(patched.json.current, { x: 0.6, y: 0.7 });
+    assert.deepEqual(patched.json.initial, { x: 0.2, y: 0.3 }, 'initial inchangé');
+    await assertApUnchanged('après déplacement de la copie');
+  });
+
+  it('change la radio courante sans toucher à la radio initiale', async () => {
+    const radio = { ...SIM_RADIO, txPowerDbm: 14, model: 'log-distance', pathLossExponent: 3 };
+    const patched = await api('PATCH', `/api/v1/simulation-scenarios/${scenarioId}`, { radio });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.json.radio.txPowerDbm, 14);
+    assert.equal(patched.json.radio.pathLossExponent, 3);
+    assert.equal(patched.json.initialRadio.txPowerDbm, 20, 'radio initiale inchangée');
+    await assertApUnchanged('après changement de radio');
+  });
+
+  it('renomme le scénario', async () => {
+    const patched = await api('PATCH', `/api/v1/simulation-scenarios/${scenarioId}`, {
+      name: 'Position B',
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.json.name, 'Position B');
+  });
+
+  it('400 sur PATCH vide ou coordonnée hors bornes', async () => {
+    const empty = await api('PATCH', `/api/v1/simulation-scenarios/${scenarioId}`, {});
+    assert.equal(empty.status, 400);
+    const out = await api('PATCH', `/api/v1/simulation-scenarios/${scenarioId}`, {
+      currentX: 2,
+    });
+    assert.equal(out.status, 400);
+  });
+
+  it('404 sur scénario inconnu (lecture, patch, reset, suppression)', async () => {
+    assert.equal((await api('GET', '/api/v1/simulation-scenarios/scenario-inconnu')).status, 404);
+    assert.equal(
+      (await api('PATCH', '/api/v1/simulation-scenarios/scenario-inconnu', { currentX: 0.5 })).status,
+      404
+    );
+    assert.equal((await api('POST', '/api/v1/simulation-scenarios/scenario-inconnu/reset')).status, 404);
+    assert.equal((await api('DELETE', '/api/v1/simulation-scenarios/scenario-inconnu')).status, 404);
+  });
+
+  it('réinitialise le scénario sur sa configuration initiale', async () => {
+    const reset = await api('POST', `/api/v1/simulation-scenarios/${scenarioId}/reset`);
+    assert.equal(reset.status, 200);
+    assert.deepEqual(reset.json.current, { x: 0.2, y: 0.3 });
+    assert.equal(reset.json.radio.txPowerDbm, 20, 'radio restaurée sur initialRadio');
+    assert.equal(reset.json.radio.model, 'fspl');
+    await assertApUnchanged('après réinitialisation');
+  });
+
+  it('liste les scénarios du plan', async () => {
+    const list = await api('GET', `/api/v1/simulation-scenarios?plan_id=${planId}`);
+    assert.equal(list.status, 200);
+    assert.equal(list.json.length, 1);
+    assert.equal(list.json[0].id, scenarioId);
+    const noPlan = await api('GET', '/api/v1/simulation-scenarios');
+    assert.equal(noPlan.status, 400);
+    const unknown = await api('GET', '/api/v1/simulation-scenarios?plan_id=inexistant');
+    assert.equal(unknown.status, 404);
+  });
+
+  it('supprime le scénario et laisse l’AP réel intact', async () => {
+    const del = await api('DELETE', `/api/v1/simulation-scenarios/${scenarioId}`);
+    assert.equal(del.status, 204);
+    const list = (await api('GET', `/api/v1/simulation-scenarios?plan_id=${planId}`)).json;
+    assert.equal(list.length, 0);
+    await assertApUnchanged('après suppression du scénario');
   });
 });
