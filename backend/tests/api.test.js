@@ -450,6 +450,10 @@ describe('relevés Wi-Fi (mode test)', () => {
     assert.equal(hm.status, 200);
     assert.ok(hm.json.length > 0);
     assert.ok('rssi' in hm.json[0]);
+    assert.equal(hm.json[0].plan_id, planId);
+    assert.ok(['2.4GHz', '5GHz', '6GHz'].includes(hm.json[0].band));
+    assert.ok(Number.isInteger(hm.json[0].frequency_mhz));
+    assert.ok('survey_id' in hm.json[0]);
 
     const nets = await api('GET', `/api/v1/plans/${planId}/networks`);
     assert.equal(nets.status, 200);

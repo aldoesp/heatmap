@@ -129,11 +129,15 @@ export interface ScanDetailResponse extends ScanHistoryRecord {
 
 export interface HeatmapRow {
   scan_point_id: string;
+  plan_id: string;
+  survey_id: string | null;
   x: number;
   y: number;
   bssid: string;
   bssid_name: string;
   ssid: string | null;
+  band: string;
+  frequency_mhz: number | null;
   rssi: number;
   quality: number;
 }

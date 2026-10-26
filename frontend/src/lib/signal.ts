@@ -4,11 +4,28 @@
    Source frontend : HeatmapPage.tsx et ScanConfirmDialog.tsx (rssiColor).
    ========================================================================== */
 
+export interface RssiBand {
+  /** Seuil inclus : la première bande avec `rssi >= min` gagne. */
+  min: number;
+  color: string;
+}
+
+/**
+ * Échelle RSSI unique du projet (dBm). Elle reprend exactement les seuils du
+ * backend (`rssiToLevel`) et de `rssiColor`.
+ */
+export const RSSI_BANDS: RssiBand[] = [
+  { min: -55, color: '#10b981' },
+  { min: -67, color: '#a3e635' },
+  { min: -75, color: '#f59e0b' },
+  { min: -85, color: '#f97316' },
+  { min: Number.NEGATIVE_INFINITY, color: '#ef4444' },
+];
+
 export function rssiColor(rssi: number): string {
-  if (rssi >= -55) return '#10b981';
-  if (rssi >= -67) return '#a3e635';
-  if (rssi >= -75) return '#f59e0b';
-  if (rssi >= -85) return '#f97316';
+  for (const band of RSSI_BANDS) {
+    if (rssi >= band.min) return band.color;
+  }
   return '#ef4444';
 }
 

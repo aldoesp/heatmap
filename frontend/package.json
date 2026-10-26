@@ -7,10 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "tsc -p tsconfig.test.json && node --test tests-build/tests/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "delaunator": "^5.1.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.50.0",
     "ogl": "^1.0.11",

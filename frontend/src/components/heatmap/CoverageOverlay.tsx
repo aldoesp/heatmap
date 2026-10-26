@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { ImageOverlay } from 'react-leaflet';
 import type { LatLngBoundsExpression } from 'leaflet';
+import { chooseRasterSize, rasterizeRssiMeshes } from '../../lib/heatmapRaster';
+import type { InterpolationMesh } from '../../lib/triangulation';
 
 export interface CoveragePoint {
   /** Coordonnées normalisées 0-1 (comme HeatmapRow.x / .y). */
@@ -17,11 +19,15 @@ export interface CoverageBand {
 }
 
 interface CoverageOverlayProps {
-  points: CoveragePoint[];
+  /** Mode IDW, réservé aux métriques sans triangulation (débit). */
+  points?: CoveragePoint[];
+  /** Maillages Delaunay RSSI, un par périmètre BSSID/survey/bande/fréquence. */
+  meshes?: InterpolationMesh[];
+  interpolation?: 'idw' | 'triangulation';
   width: number;
   height: number;
-  /** Rayon de lissage en pixels du plan (échelle que la pastille de mesure). */
-  radius: number;
+  /** Rayon de lissage IDW en pixels du plan. */
+  radius?: number;
   bounds: LatLngBoundsExpression;
   /** Échelle triée du meilleur au plus faible ; la dernière bande attrape tout le reste. */
   bands: CoverageBand[];
@@ -118,8 +124,39 @@ function createCoverageImage(
   return canvas.toDataURL('image/png');
 }
 
+function createTriangulatedCoverageImage(
+  meshes: InterpolationMesh[],
+  width: number,
+  height: number,
+  bands: CoverageBand[],
+  opacity: number
+): string {
+  const size = chooseRasterSize(width, height);
+  const raster = rasterizeRssiMeshes(
+    meshes,
+    width,
+    height,
+    size.width,
+    size.height,
+    bands,
+    opacity
+  );
+  if (!raster || raster.coveredPixels === 0) return '';
+
+  const canvas = document.createElement('canvas');
+  canvas.width = raster.width;
+  canvas.height = raster.height;
+  const context = canvas.getContext('2d');
+  if (!context) return '';
+
+  context.putImageData(new ImageData(raster.data, raster.width, raster.height), 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
 export function CoverageOverlay({
   points,
+  meshes,
+  interpolation = 'idw',
   width,
   height,
   radius,
@@ -127,13 +164,16 @@ export function CoverageOverlay({
   bands,
   opacity = 0.75,
 }: CoverageOverlayProps) {
-  const imageUrl = useMemo(
-    () =>
-      points.length > 0
-        ? createCoverageImage(points, width, height, radius, bands, opacity)
-        : '',
-    [points, width, height, radius, bands, opacity]
-  );
+  const imageUrl = useMemo(() => {
+    if (interpolation === 'triangulation') {
+      return meshes && meshes.length > 0
+        ? createTriangulatedCoverageImage(meshes, width, height, bands, opacity)
+        : '';
+    }
+    return points && points.length > 0 && radius !== undefined
+      ? createCoverageImage(points, width, height, radius, bands, opacity)
+      : '';
+  }, [interpolation, points, meshes, width, height, radius, bands, opacity]);
 
   if (!imageUrl) return null;
   return <ImageOverlay url={imageUrl} bounds={bounds} />;

@@ -295,8 +295,8 @@ export function heatmapBySurvey(survey_id, { ssid, bssid, band, connected } = {}
 
 function heatmapByScope(scope, scope_id, { ssid, bssid, band, connected } = {}) {
   let sql = `
-    SELECT sp.id AS scan_point_id, sp.x, sp.y,
-           o.bssid, o.ssid, MAX(o.rssi) AS rssi
+    SELECT sp.id AS scan_point_id, sp.plan_id, sp.survey_id, sp.x, sp.y,
+           o.bssid, o.ssid, o.band, o.frequency_mhz, MAX(o.rssi) AS rssi
     FROM scan_points sp
     JOIN scans s ON s.scan_point_id = sp.id
     JOIN observations o ON o.scan_id = s.id

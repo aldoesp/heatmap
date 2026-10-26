@@ -12,15 +12,8 @@ import {
 import { CoverageOverlay, type CoverageBand, type CoveragePoint } from './CoverageOverlay';
 import { ApiError, type HeatmapRow, type NetworkInfo, type SpeedHeatmapRow } from '../../types/api';
 import { formatPercent, formatMbps } from '../../lib/format';
-import { average } from '../../lib/signal';
-
-function rssiColor(rssi: number): string {
-  if (rssi >= -55) return '#10b981';
-  if (rssi >= -67) return '#a3e635';
-  if (rssi >= -75) return '#f59e0b';
-  if (rssi >= -85) return '#f97316';
-  return '#ef4444';
-}
+import { average, RSSI_BANDS, rssiColor } from '../../lib/signal';
+import { buildRssiMeshes } from '../../lib/heatmapRssi';
 
 function speedColor(mbps: number): string {
   if (mbps >= 50) return '#10b981';
@@ -115,15 +108,8 @@ function ZoomControl() {
   );
 }
 
-/* Bandes du champ de couverture : mêmes seuils/réseaux que rssiColor et
-   le backend (rssiToLevel) — aucune valeur inventée ici. */
-const RSSI_BANDS: CoverageBand[] = [
-  { min: -55, color: '#10b981' },
-  { min: -67, color: '#a3e635' },
-  { min: -75, color: '#f59e0b' },
-  { min: -85, color: '#f97316' },
-  { min: Number.NEGATIVE_INFINITY, color: '#ef4444' },
-];
+/* La bande RSSI est centralisée dans lib/signal.ts, avec rssiColor et les
+   mêmes seuils que le backend (rssiToLevel). */
 
 const SPEED_BANDS: CoverageBand[] = [
   { min: 50, color: '#10b981' },
@@ -178,6 +164,7 @@ export function HeatmapPage() {
     () => getHeatmapRadius()
   );
   const recenterRef = useRef<(() => void) | null>(null);
+  const loadRequestRef = useRef(0);
 
   const registerRecenter = useCallback((fn: () => void) => {
     recenterRef.current = fn;
@@ -204,6 +191,9 @@ export function HeatmapPage() {
   }, [plan]);
 
   const load = useCallback(async () => {
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
+
     if (!plan) {
       setLoading(false);
       return;
@@ -220,15 +210,24 @@ export function HeatmapPage() {
         }),
         getHeatmapSpeed(plan.id).catch(() => [] as SpeedHeatmapRow[]),
       ]);
+      if (loadRequestRef.current !== requestId) return;
       setRows(data);
       setSpeedRows(speeds);
     } catch (err) {
+      if (loadRequestRef.current !== requestId) return;
       const apiErr = err instanceof ApiError ? err : null;
       setError(apiErr?.message ?? 'Impossible de charger la heatmap.');
     } finally {
-      setLoading(false);
+      if (loadRequestRef.current === requestId) setLoading(false);
     }
   }, [plan, ssid, bssid, onlyConnected, band]);
+
+  useEffect(
+    () => () => {
+      loadRequestRef.current += 1;
+    },
+    []
+  );
 
   useEffect(() => {
     if (planLoading) return;
@@ -272,12 +271,22 @@ export function HeatmapPage() {
     return [...best.values()];
   }, [rows]);
 
-  const coveragePoints = useMemo<CoveragePoint[]>(() => {
-    if (showingSpeed) {
-      return speedRows.map((r) => ({ x: r.x, y: r.y, value: r.speed_bps / 1_000_000 }));
-    }
-    return bestPerPoint.map((r) => ({ x: r.x, y: r.y, value: r.rssi }));
-  }, [showingSpeed, speedRows, bestPerPoint]);
+  const coveragePoints = useMemo<CoveragePoint[]>(
+    () => speedRows.map((r) => ({ x: r.x, y: r.y, value: r.speed_bps / 1_000_000 })),
+    [speedRows]
+  );
+
+  const rssiMeshModel = useMemo(
+    () =>
+      !showingSpeed && plan
+        ? buildRssiMeshes(rows, {
+            id: plan.id,
+            width: plan.width,
+            height: plan.height,
+          })
+        : null,
+    [showingSpeed, rows, plan]
+  );
 
   const stats = useMemo(() => {
     const values = showingSpeed
@@ -462,23 +471,25 @@ export function HeatmapPage() {
             Réinitialiser
           </button>
         )}
-        <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
-          <span className="whitespace-nowrap">Lissage {radius} px</span>
-          <input
-            type="range"
-            aria-label="Rayon de lissage du champ de couverture en pixels"
-            min={10}
-            max={120}
-            step={1}
-            value={radius}
-            onChange={(e) => {
-              const nextRadius = Number(e.target.value);
-              setSelectedRadius(nextRadius);
-              setHeatmapRadius(nextRadius);
-            }}
-            className="w-28 accent-[#10b981]"
-          />
-        </label>
+        {showingSpeed && (
+          <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
+            <span className="whitespace-nowrap">Lissage {radius} px</span>
+            <input
+              type="range"
+              aria-label="Rayon de lissage du champ de couverture en pixels"
+              min={10}
+              max={120}
+              step={1}
+              value={radius}
+              onChange={(e) => {
+                const nextRadius = Number(e.target.value);
+                setSelectedRadius(nextRadius);
+                setHeatmapRadius(nextRadius);
+              }}
+              className="w-28 accent-[#10b981]"
+            />
+          </label>
+        )}
       </div>
 
       {error && (
@@ -536,15 +547,28 @@ export function HeatmapPage() {
               />
               <ZoomControl />
               <ImageOverlay url={imageUrl} bounds={bounds} />
-              {/* Champ interpolé sous les points de mesure. */}
-              <CoverageOverlay
-                points={coveragePoints}
-                width={plan.width}
-                height={plan.height}
-                radius={radius}
-                bounds={bounds}
-                bands={activeBands}
-              />
+              {/* Champ interpolé sous les points de mesure. Le RSSI utilise
+                  Delaunay + barycentrique ; seul le débit garde l'IDW. */}
+              {showingSpeed ? (
+                <CoverageOverlay
+                  interpolation="idw"
+                  points={coveragePoints}
+                  width={plan.width}
+                  height={plan.height}
+                  radius={radius}
+                  bounds={bounds}
+                  bands={activeBands}
+                />
+              ) : (
+                <CoverageOverlay
+                  interpolation="triangulation"
+                  meshes={rssiMeshModel?.meshes ?? []}
+                  width={plan.width}
+                  height={plan.height}
+                  bounds={bounds}
+                  bands={RSSI_BANDS}
+                />
+              )}
               {!showingSpeed && bestPerPoint.map((r) => (
                 <CircleMarker
                   key={r.scan_point_id}
