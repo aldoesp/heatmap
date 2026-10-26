@@ -28,10 +28,6 @@ export function getDb() {
 function migrate(db) {
   const columnsOf = (table) =>
     db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
-  const plans = columnsOf('plans');
-  if (!plans.includes('meters_per_pixel')) {
-    db.exec('ALTER TABLE plans ADD COLUMN meters_per_pixel REAL DEFAULT NULL');
-  }
   const scanPoints = columnsOf('scan_points');
   if (!scanPoints.includes('survey_id')) {
     db.exec('ALTER TABLE scan_points ADD COLUMN survey_id TEXT REFERENCES surveys(id) ON DELETE CASCADE');
@@ -51,9 +47,6 @@ function migrate(db) {
   }
   if (!scans.includes('gateway_loss_percent')) {
     db.exec('ALTER TABLE scans ADD COLUMN gateway_loss_percent REAL DEFAULT NULL');
-  }
-  if (!scans.includes('gateway_jitter_ms')) {
-    db.exec('ALTER TABLE scans ADD COLUMN gateway_jitter_ms REAL DEFAULT NULL');
   }
   const observations = columnsOf('observations');
   if (!observations.includes('unreliable_bssid')) {

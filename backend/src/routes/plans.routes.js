@@ -12,7 +12,6 @@ import {
   getPlans,
   getPlan,
   patchPlan,
-  patchPlanCalibration,
   removePlan,
   createAccessPoint,
   getAccessPoints,
@@ -24,7 +23,6 @@ import {
   patchScanPoint,
   getHeatmap,
   getHeatmapSpeed,
-  getHeatmapGateway,
   getHistory,
   getNetworks,
   exportCsv,
@@ -66,7 +64,6 @@ router.get('/', getPlans);
 router.post('/', upload.single('image'), createPlan);
 router.get('/:id', getPlan);
 router.patch('/:id', patchPlan);
-router.patch('/:id/calibration', patchPlanCalibration);
 router.delete('/:id', removePlan);
 router.get('/:planId/surveys', listSurveys);
 router.post('/:planId/surveys', validateCreateSurvey, createSurveyForPlan);
@@ -81,7 +78,6 @@ router.patch('/:id/scan-points/:pointId', patchScanPoint);
 
 router.get('/:id/heatmap', getHeatmap);
 router.get('/:id/heatmap-speed', getHeatmapSpeed);
-router.get('/:id/heatmap-gateway', getHeatmapGateway);
 router.get('/:id/history', getHistory);
 router.get('/:id/networks', getNetworks);
 router.get('/:id/export.csv', exportCsv);

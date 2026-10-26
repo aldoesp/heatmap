@@ -10,7 +10,6 @@ import {
   updateBssidRule,
   deleteBssidRule,
   exportCsvUrl,
-  exportAllUrl,
   type BssidRule,
   type AppSettings,
   type AppStatus,
@@ -404,14 +403,6 @@ export function SettingsPage() {
           </section>
         )}
       </div>
-
-      <section className="glass-fallback bg-glass-bg-soft border border-glass-border-soft rounded-card p-4 lg:p-5">
-        <h2 className="text-sm font-medium mb-1">Export des données</h2>
-        <p className="text-[13px] text-text-dim mb-3">Télécharge toutes les données de l'application (base et plans).</p>
-        <a href={exportAllUrl()} className="inline-block px-4 py-2 rounded-xl border border-glass-border-soft text-sm font-medium hover:bg-glass-bg-soft">
-          Exporter tout
-        </a>
-      </section>
     </div>
   );
 }

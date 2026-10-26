@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 
-const PROBE_COUNT = 20;
+const PROBE_COUNT = 5;
 
 // BSSID factice renvoyé par Android quand il masque la vraie adresse
 // (même garde-fou que l'upstream wifi-heatmapper).
@@ -46,23 +46,14 @@ export function parsePingOutput(output, gatewayIp, probesSent = PROBE_COUNT) {
 
   const sorted = [...samples].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  const medianRttMs =
-    sorted.length === 0
-      ? null
-      : sorted.length % 2 === 0
-        ? (sorted[mid - 1] + sorted[mid]) / 2
-        : sorted[mid];
-  // Jitter = écart-type des RTT (ms), null si < 2 échantillons.
-  let jitterMs = null;
-  if (samples.length >= 2) {
-    const mean = samples.reduce((s, v) => s + v, 0) / samples.length;
-    const variance = samples.reduce((s, v) => s + (v - mean) ** 2, 0) / samples.length;
-    jitterMs = Math.sqrt(variance);
-  }
   return {
     gatewayIp,
-    medianRttMs,
-    jitterMs,
+    medianRttMs:
+      sorted.length === 0
+        ? null
+        : sorted.length % 2 === 0
+          ? (sorted[mid - 1] + sorted[mid]) / 2
+          : sorted[mid],
     packetLossPercent: lossMatch
       ? Number(lossMatch[1].replace(',', '.'))
       : ((probesSent - samples.length) / probesSent) * 100,
@@ -71,7 +62,7 @@ export function parsePingOutput(output, gatewayIp, probesSent = PROBE_COUNT) {
   };
 }
 
-// Ping de la passerelle par défaut (20 sondes). Ne lève jamais :
+// Ping de la passerelle par défaut (5 sondes). Ne lève jamais :
 // renvoie error explicite si ip/ping absent ou injoignable.
 export async function measureGatewayPing() {
   const route = await run('ip', ['-4', 'route', 'show', 'default'], 2000);
@@ -80,7 +71,6 @@ export async function measureGatewayPing() {
     return {
       gatewayIp: null,
       medianRttMs: null,
-      jitterMs: null,
       packetLossPercent: null,
       probesSent: 0,
       probesReceived: 0,
@@ -92,7 +82,6 @@ export async function measureGatewayPing() {
     parsePingOutput(`${result.stdout}\n${result.stderr}`, gatewayIp) ?? {
       gatewayIp,
       medianRttMs: null,
-      jitterMs: null,
       packetLossPercent: null,
       probesSent: 0,
       probesReceived: 0,

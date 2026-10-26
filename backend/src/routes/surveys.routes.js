@@ -8,7 +8,6 @@ import {
   patchSurvey,
   patchSurveyPoint,
   readSurvey,
-  readSurveyGateway,
   readSurveyHeatmap,
   readSurveyHistory,
   readSurveyNetworks,

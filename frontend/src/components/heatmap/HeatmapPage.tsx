@@ -3,14 +3,14 @@ import { MapContainer, ImageOverlay, CircleMarker, Tooltip, useMap } from 'react
 import { LocateFixed, Plus, Minus } from 'lucide-react';
 import L from 'leaflet';
 import { usePlanImage } from '../../hooks/usePlanImage';
-import { getHeatmap, getHeatmapSpeed, getHeatmapGateway, getNetworks } from '../../lib/api';
+import { getHeatmap, getHeatmapSpeed, getNetworks } from '../../lib/api';
 import {
   getHeatmapRadius,
   setHeatmapRadius,
   calculateAutoRadius,
 } from '../../lib/heatmap';
 import { CoverageOverlay, type CoverageBand, type CoveragePoint } from './CoverageOverlay';
-import { ApiError, type GatewayHeatmapRow, type HeatmapRow, type NetworkInfo, type SpeedHeatmapRow } from '../../types/api';
+import { ApiError, type HeatmapRow, type NetworkInfo, type SpeedHeatmapRow } from '../../types/api';
 import { formatPercent, formatMbps } from '../../lib/format';
 import { average, RSSI_BANDS, rssiColor } from '../../lib/signal';
 import { buildRssiMeshes } from '../../lib/heatmapRssi';
@@ -20,33 +20,6 @@ function speedColor(mbps: number): string {
   if (mbps >= 20) return '#a3e635';
   if (mbps >= 5) return '#f59e0b';
   if (mbps >= 1) return '#f97316';
-  return '#ef4444';
-}
-
-// Latence (ms) : < 30 vert, < 60 jaune, < 120 orange, >= 120 rouge.
-function latencyColor(ms: number): string {
-  if (ms < 30) return '#10b981';
-  if (ms < 60) return '#a3e635';
-  if (ms < 120) return '#f59e0b';
-  if (ms < 250) return '#f97316';
-  return '#ef4444';
-}
-
-// Perte (%) : 0 vert, < 5 jaune, < 20 orange, >= 20 rouge.
-function lossColor(pct: number): string {
-  if (pct === 0) return '#10b981';
-  if (pct < 5) return '#a3e635';
-  if (pct < 20) return '#f59e0b';
-  if (pct < 50) return '#f97316';
-  return '#ef4444';
-}
-
-// Jitter (ms) : < 5 vert, < 15 jaune, < 40 orange, >= 40 rouge.
-function jitterColor(ms: number): string {
-  if (ms < 5) return '#10b981';
-  if (ms < 15) return '#a3e635';
-  if (ms < 40) return '#f59e0b';
-  if (ms < 80) return '#f97316';
   return '#ef4444';
 }
 
@@ -162,50 +135,6 @@ const SPEED_LABELS: Record<string, string> = {
   '-inf': '< 1 Mb/s',
 };
 
-// Latence : < 30 ms excellent, < 60 bon, < 120 moyen, < 250 faible, ≥ 250 très faible.
-const LATENCY_BANDS: CoverageBand[] = [
-  { min: 30, color: '#10b981' },
-  { min: 60, color: '#a3e635' },
-  { min: 120, color: '#f59e0b' },
-  { min: 250, color: '#f97316' },
-  { min: Number.NEGATIVE_INFINITY, color: '#ef4444' },
-];
-const LATENCY_LABELS: Record<string, string> = {
-  '30': '< 30 ms · excellent',
-  '60': '< 60 ms · bon',
-  '120': '< 120 ms · moyen',
-  '250': '< 250 ms · faible',
-  '-inf': '≥ 250 ms · très faible',
-};
-
-// Perte : 0 % excellent, < 5 bon, < 20 moyen, < 50 faible, ≥ 50 très faible.
-const LOSS_BANDS: CoverageBand[] = [
-  { min: 5, color: '#10b981' },
-  { min: 20, color: '#a3e635' },
-  { min: 50, color: '#f59e0b' },
-  { min: Number.NEGATIVE_INFINITY, color: '#ef4444' },
-];
-const LOSS_LABELS: Record<string, string> = {
-  '5': '< 5 % · excellent',
-  '20': '< 20 % · bon',
-  '50': '< 50 % · moyen',
-  '-inf': '≥ 50 % · très faible',
-};
-
-// Jitter : < 5 ms excellent, < 15 bon, < 40 moyen, < 80 faible, ≥ 80 très faible.
-const JITTER_BANDS: CoverageBand[] = [
-  { min: 15, color: '#10b981' },
-  { min: 40, color: '#a3e635' },
-  { min: 80, color: '#f59e0b' },
-  { min: Number.NEGATIVE_INFINITY, color: '#ef4444' },
-];
-const JITTER_LABELS: Record<string, string> = {
-  '15': '< 15 ms · excellent',
-  '40': '< 40 ms · bon',
-  '80': '< 80 ms · moyen',
-  '-inf': '≥ 80 ms · très faible',
-};
-
 const bandKey = (min: number) =>
   min === Number.NEGATIVE_INFINITY ? '-inf' : String(min);
 
@@ -228,8 +157,7 @@ export function HeatmapPage() {
   const [onlyConnected, setOnlyConnected] = useState(true);
   const [rows, setRows] = useState<HeatmapRow[]>([]);
   const [speedRows, setSpeedRows] = useState<SpeedHeatmapRow[]>([]);
-  const [gatewayRows, setGatewayRows] = useState<GatewayHeatmapRow[]>([]);
-  const [metric, setMetric] = useState<'rssi' | 'latency' | 'loss' | 'jitter' | 'speed'>('rssi');
+  const [metric, setMetric] = useState<'rssi' | 'speed'>('rssi');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedRadius, setSelectedRadius] = useState<number | null>(
@@ -273,7 +201,7 @@ export function HeatmapPage() {
     setLoading(true);
     setError(null);
     try {
-      const [data, speeds, gateway] = await Promise.all([
+      const [data, speeds] = await Promise.all([
         getHeatmap(plan.id, {
           ssid: ssid || undefined,
           bssid: bssid || undefined,
@@ -281,12 +209,10 @@ export function HeatmapPage() {
           band: band || undefined,
         }),
         getHeatmapSpeed(plan.id).catch(() => [] as SpeedHeatmapRow[]),
-        getHeatmapGateway(plan.id).catch(() => [] as GatewayHeatmapRow[]),
       ]);
       if (loadRequestRef.current !== requestId) return;
       setRows(data);
       setSpeedRows(speeds);
-      setGatewayRows(gateway);
     } catch (err) {
       if (loadRequestRef.current !== requestId) return;
       const apiErr = err instanceof ApiError ? err : null;
@@ -332,13 +258,7 @@ export function HeatmapPage() {
   }, [rows, plan]);
   const radius = selectedRadius ?? autoRadius;
 
-  const isRssi = metric === 'rssi';
-  const isLatency = metric === 'latency';
-  const isLoss = metric === 'loss';
-  const isJitter = metric === 'jitter';
-  const isGatewayMetric = isLatency || isLoss || isJitter;
   const showingSpeed = metric === 'speed';
-  const wifiOnly = isRssi;
 
   // Une valeur par point de mesure : le meilleur RSSI (l'API renvoie une
   // ligne par BSSID, superposer toutes les pastilles n'apporte rien).
@@ -371,34 +291,17 @@ export function HeatmapPage() {
   const stats = useMemo(() => {
     const values = showingSpeed
       ? speedRows.map((r) => r.speed_bps / 1_000_000)
-      : isLatency
-        ? gatewayRows
-            .map((r) => r.gateway_rtt_ms)
-            .filter((v): v is number => v !== null)
-        : isLoss
-          ? gatewayRows
-              .map((r) => r.gateway_loss_percent)
-              .filter((v): v is number => v !== null)
-          : isJitter
-            ? gatewayRows
-                .map((r) => r.gateway_jitter_ms)
-                .filter((v): v is number => v !== null)
-            : bestPerPoint.map((r) => r.rssi);
+      : bestPerPoint.map((r) => r.rssi);
     const avg = average(values);
-    // Seuil « à améliorer » : RSSI < -75 dBm, débit < 5 Mb/s,
-    // latence ≥ 120 ms, perte ≥ 20 %, jitter ≥ 80 ms.
-    const weakThreshold = showingSpeed ? 5 : isRssi ? -75 : isLatency ? 120 : isLoss ? 20 : 80;
-    const weakCount = values.filter((v) =>
-      isRssi ? v < weakThreshold : showingSpeed ? v < weakThreshold : v >= weakThreshold
-    ).length;
     return {
       count: values.length,
       avg,
       best: values.length ? Math.max(...values) : null,
       worst: values.length ? Math.min(...values) : null,
-      weakCount,
+      // « À améliorer » = sous le seuil fair (< -75 dBm / < 5 Mb/s).
+      weakCount: values.filter((v) => (showingSpeed ? v < 5 : v < -75)).length,
     };
-  }, [showingSpeed, speedRows, bestPerPoint, isLatency, isLoss, isJitter, isRssi, gatewayRows]);
+  }, [showingSpeed, speedRows, bestPerPoint]);
 
   if (planLoading || loading) {
     return <div className="fixed inset-0 bg-bg" />;
@@ -440,69 +343,30 @@ export function HeatmapPage() {
 
   const hasFilter = !!ssid || !!bssid || !!band;
   const onlyDefaultFilter = onlyConnected && !ssid && !bssid && !band;
-  const visibleCount = showingSpeed
-    ? speedRows.length
-    : isGatewayMetric
-      ? coveragePoints.length
-      : rows.length;
-  const activeBands = showingSpeed
-    ? SPEED_BANDS
-    : isLatency
-      ? LATENCY_BANDS
-      : isLoss
-        ? LOSS_BANDS
-        : isJitter
-          ? JITTER_BANDS
-          : RSSI_BANDS;
-  const activeLabels = showingSpeed
-    ? SPEED_LABELS
-    : isLatency
-      ? LATENCY_LABELS
-      : isLoss
-        ? LOSS_LABELS
-        : isJitter
-          ? JITTER_LABELS
-          : RSSI_LABELS;
-  const isEmpty = showingSpeed
-    ? speedRows.length === 0
-    : isGatewayMetric
-      ? coveragePoints.length === 0
-      : rows.length === 0;
+  const visibleCount = showingSpeed ? speedRows.length : rows.length;
+  const activeBands = showingSpeed ? SPEED_BANDS : RSSI_BANDS;
+  const activeLabels = showingSpeed ? SPEED_LABELS : RSSI_LABELS;
+  const isEmpty = showingSpeed ? speedRows.length === 0 : rows.length === 0;
 
   const emptyMessage = showingSpeed
     ? 'Aucune mesure de débit : configure un serveur iperf3 dans Paramètres, puis effectue des scans.'
-    : isGatewayMetric
-      ? 'Aucune mesure de passerelle : effectue des scans en mode réel (le ping de la passerelle est désactivé en mode test).'
-      : onlyDefaultFilter
-        ? 'Aucune mesure du réseau connecté : décoche « Connecté » pour tout voir, ou refais des scans en mode réel (le marquage demande Termux:API).'
-        : hasFilter
-          ? 'Aucune mesure pour ce filtre : la carte serait vide.'
-          : 'Aucun relevé à afficher : effectue d’abord des scans.';
+    : onlyDefaultFilter
+      ? 'Aucune mesure du réseau connecté : décoche « Connecté » pour tout voir, ou refais des scans en mode réel (le marquage demande Termux:API).'
+      : hasFilter
+        ? 'Aucune mesure pour ce filtre : la carte serait vide.'
+        : 'Aucun relevé à afficher : effectue d’abord des scans.';
 
-  // stats.values sont en Mb/s (débit), ms (latence/jitter), % (perte) ou dBm (RSSI).
-  const formatValue = (v: number) => {
-    if (showingSpeed) return formatMbps(v * 1_000_000);
-    if (isLatency || isJitter) return `${Math.round(v)} ms`;
-    if (isLoss) return `${Math.round(v)} %`;
-    return `${Math.round(v)} dBm`;
-  };
-
-  const metricLabel = showingSpeed
-    ? 'Débit'
-    : isLatency
-      ? 'Latence'
-      : isLoss
-        ? 'Perte'
-        : isJitter
-          ? 'Jitter'
-          : 'Signal';
+  // stats.values sont en Mb/s (débit) ou dBm (RSSI) : formatMbps attend
+  // des bits/s, on reconvertit avant de formater.
+  const formatValue = (v: number) =>
+    showingSpeed ? formatMbps(v * 1_000_000) : `${Math.round(v)} dBm`;
 
   return (
     <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
       <div className="mb-4">
         <h1 className="text-[22px] font-medium tracking-tight mb-1">Heatmap</h1>
         <p className="text-text-dim text-sm">
-          {plan.name} · {visibleCount} mesure{visibleCount > 1 ? 's' : ''} · {metricLabel}
+          {plan.name} · {visibleCount} mesure{visibleCount > 1 ? 's' : ''}
         </p>
       </div>
 
@@ -512,28 +376,22 @@ export function HeatmapPage() {
           aria-label="Métrique affichée"
           className="flex h-11 rounded-xl border border-glass-border-soft overflow-hidden"
         >
-          {([
-            { value: 'rssi' as const, label: 'Signal' },
-            { value: 'latency' as const, label: 'Latence' },
-            { value: 'loss' as const, label: 'Perte' },
-            { value: 'jitter' as const, label: 'Jitter' },
-            { value: 'speed' as const, label: 'Débit' },
-          ].map((m) => (
+          {(['rssi', 'speed'] as const).map((m) => (
             <button
-              key={m.value}
+              key={m}
               type="button"
-              aria-pressed={metric === m.value}
-              onClick={() => setMetric(m.value)}
+              aria-pressed={metric === m}
+              onClick={() => setMetric(m)}
               className={[
-                'px-3 text-sm font-medium transition-colors whitespace-nowrap',
-                metric === m.value ? 'bg-accent-soft text-accent' : 'text-text-dim hover:text-text',
+                'px-4 text-sm font-medium transition-colors',
+                metric === m ? 'bg-accent-soft text-accent' : 'text-text-dim hover:text-text',
               ].join(' ')}
             >
-              {m.label}
+              {m === 'rssi' ? 'Signal' : 'Débit'}
             </button>
-          )))}
+          ))}
         </div>
-        {wifiOnly && (
+        {!showingSpeed && (
           <>
             <div
               role="group"
@@ -750,34 +608,6 @@ export function HeatmapPage() {
                   </CircleMarker>
                 );
               })}
-              {isGatewayMetric && gatewayRows.map((r) => {
-                const value = isLatency
-                  ? r.gateway_rtt_ms
-                  : isLoss
-                    ? r.gateway_loss_percent
-                    : r.gateway_jitter_ms;
-                if (value == null) return null;
-                const colorFn = isLatency ? latencyColor : isLoss ? lossColor : jitterColor;
-                return (
-                  <CircleMarker
-                    key={r.scan_point_id}
-                    center={[r.y * plan.height, r.x * plan.width]}
-                    radius={6}
-                    pathOptions={{
-                      color: '#0d1319',
-                      fillColor: colorFn(value),
-                      fillOpacity: 0.95,
-                      weight: 1.5,
-                    }}
-                  >
-                    <Tooltip>
-                      {r.gateway_ip ?? '(pas de passerelle)'} · {formatValue(value)}
-                      <br />
-                      x {formatPercent(r.x)} · y {formatPercent(r.y)}
-                    </Tooltip>
-                  </CircleMarker>
-                );
-              })}
             </MapContainer>
           </div>
 
@@ -798,7 +628,7 @@ export function HeatmapPage() {
                 ))}
             </div>
             <span className="text-[12px] text-text-dim font-mono">
-              {metricLabel} · meilleur relevé{' '}
+              {showingSpeed ? 'Débit' : 'Signal'} · meilleur relevé{' '}
               <span className="text-text font-medium">
                 {stats.best !== null ? formatValue(stats.best) : '—'}
               </span>

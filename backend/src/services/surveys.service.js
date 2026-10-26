@@ -18,7 +18,6 @@ import {
   exportSurveyCsv,
   getHistoryBySurvey,
   heatmapBySurvey,
-  heatmapGatewayBySurvey,
   listNetworksBySurvey,
   speedBySurvey,
 } from '../repositories/scans.repository.js';
@@ -66,11 +65,6 @@ export function getSurveyHeatmap(id, filters) {
 export function getSurveySpeed(id) {
   requireSurvey(id);
   return speedBySurvey(id);
-}
-
-export function getSurveyGateway(id) {
-  requireSurvey(id);
-  return heatmapGatewayBySurvey(id);
 }
 
 export function getSurveyNetworks(id) {

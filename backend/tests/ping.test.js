@@ -35,28 +35,27 @@ describe('parsePingOutput', () => {
 5 packets transmitted, 5 received, 0% packet loss, time 4006ms`;
 
   it('médiane + 0% perte (anglais)', () => {
-    const r = parsePingOutput(LINUX_PING, '192.168.1.1', 5);
+    const r = parsePingOutput(LINUX_PING, '192.168.1.1');
     assert.equal(r.gatewayIp, '192.168.1.1');
     assert.equal(r.medianRttMs, 3.42);
     assert.equal(r.packetLossPercent, 0);
     assert.equal(r.probesSent, 5);
     assert.equal(r.probesReceived, 5);
-    assert.ok(typeof r.jitterMs === 'number' && r.jitterMs >= 0);
   });
 
   it('perte partielle sans résumé (déduite des réponses)', () => {
     const out = `64 bytes from 192.168.1.1: icmp_seq=1 ttl=64 time=12,5 ms
 64 bytes from 192.168.1.1: icmp_seq=3 ttl=64 time=9,0 ms`;
-    const r = parsePingOutput(out, '192.168.1.1', 5);
+    const r = parsePingOutput(out, '192.168.1.1');
     assert.equal(r.medianRttMs, 10.75);
     assert.equal(r.packetLossPercent, 60);
     assert.equal(r.probesReceived, 2);
   });
 
-it('perte en français', () => {
+  it('perte en français', () => {
     const out = `5 packets transmitted, 3 received, 40% packet loss
 64 bytes from 192.168.1.1: time=5.0 ms`;
-    const r = parsePingOutput(out, '192.168.1.1', 5);
+    const r = parsePingOutput(out, '192.168.1.1');
     assert.equal(r.packetLossPercent, 40);
   });
 

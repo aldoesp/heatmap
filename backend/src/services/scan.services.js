@@ -16,8 +16,6 @@ import {
   isLocallyAdministered,
 } from '../utils/wifi.utils.js';
 
-
-
 export const normalizeEntry = (e) => {
   const bssid = normalizeBssid(e.bssid);
   const flags = parseCapabilities(e.capabilities);
@@ -98,7 +96,6 @@ export const getNormalizedScan = async (filters = {}) => {
     ? {
         gatewayIp: null,
         medianRttMs: null,
-        jitterMs: null,
         packetLossPercent: null,
         probesSent: 0,
         probesReceived: 0,
