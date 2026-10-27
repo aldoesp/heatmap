@@ -1,19 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, ImageOverlay, CircleMarker, Tooltip, useMap } from 'react-leaflet';
-import { LocateFixed, Plus, Minus } from 'lucide-react';
+import { Check, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, X } from 'lucide-react';
 import L from 'leaflet';
 import { usePlanImage } from '../../hooks/usePlanImage';
-import { getHeatmap, getHeatmapSpeed, getNetworks } from '../../lib/api';
+import {
+  createPolygon,
+  deletePolygon,
+  getHeatmap,
+  getHeatmapSpeed,
+  getNetworks,
+  listPolygons,
+  updatePolygon,
+} from '../../lib/api';
 import {
   getHeatmapRadius,
   setHeatmapRadius,
   calculateAutoRadius,
 } from '../../lib/heatmap';
 import { CoverageOverlay, type CoverageBand, type CoveragePoint } from './CoverageOverlay';
+import {
+  PolygonEditorLayer,
+  type PolygonEditingState,
+} from './PolygonEditorLayer';
 import { ApiError, type HeatmapRow, type NetworkInfo, type SpeedHeatmapRow } from '../../types/api';
+import type { NormalizedCoord } from '../../lib/coords';
+import { isValidPolygon, polygonSelfIntersects } from '../../lib/polygon';
+import type { PlanPolygon } from '../../types/polygon';
 import { formatPercent, formatMbps } from '../../lib/format';
 import { average, RSSI_BANDS, rssiColor } from '../../lib/signal';
-import { buildRssiMeshes } from '../../lib/heatmapRssi';
+import { buildRssiMeshes, findUncoveredZones } from '../../lib/heatmapRssi';
 
 function speedColor(mbps: number): string {
   if (mbps >= 50) return '#10b981';
@@ -138,6 +153,16 @@ const SPEED_LABELS: Record<string, string> = {
 const bandKey = (min: number) =>
   min === Number.NEGATIVE_INFINITY ? '-inf' : String(min);
 
+/** Numéro affiché d'une zone (1-indexé), null si elle n'existe pas. */
+function polygonNumber(
+  polygons: PlanPolygon[],
+  polygonId: string | null,
+): number | null {
+  if (!polygonId) return null;
+  const index = polygons.findIndex((polygon) => polygon.id === polygonId);
+  return index === -1 ? null : index + 1;
+}
+
 type BandChoice = '' | '2.4' | '5' | '6';
 const BAND_TABS: Array<{ value: BandChoice; label: string }> = [
   { value: '', label: 'Toutes' },
@@ -166,6 +191,16 @@ export function HeatmapPage() {
   const recenterRef = useRef<(() => void) | null>(null);
   const loadRequestRef = useRef(0);
 
+  // Mode dessin : polygones validés et tracé en cours, propres au plan actif.
+  const [drawing, setDrawing] = useState(false);
+  const [activeVertices, setActiveVertices] = useState<NormalizedCoord[]>([]);
+  const [polygons, setPolygons] = useState<PlanPolygon[]>([]);
+  const [polygonError, setPolygonError] = useState<string | null>(null);
+  const [selectedPolygonId, setSelectedPolygonId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<PolygonEditingState | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [polygonBusy, setPolygonBusy] = useState(false);
+
   const registerRecenter = useCallback((fn: () => void) => {
     recenterRef.current = fn;
   }, []);
@@ -173,6 +208,226 @@ export function HeatmapPage() {
   const handleRecenter = useCallback(() => {
     recenterRef.current?.();
   }, []);
+
+  const toggleDrawing = useCallback(() => {
+    setPolygonError(null);
+    setPendingDeleteId(null);
+    if (drawing) {
+      setDrawing(false);
+      setActiveVertices([]);
+    } else {
+      setDrawing(true);
+      setEditing(null);
+      setSelectedPolygonId(null);
+    }
+  }, [drawing]);
+
+  const handleAddVertex = useCallback((vertex: NormalizedCoord) => {
+    setPolygonError(null);
+    setActiveVertices((prev) => [...prev, vertex]);
+  }, []);
+
+  const handleUndoVertex = useCallback(() => {
+    setPolygonError(null);
+    setActiveVertices((prev) => prev.slice(0, -1));
+  }, []);
+
+  const handleCancelDrawing = useCallback(() => {
+    setPolygonError(null);
+    setActiveVertices([]);
+  }, []);
+
+  const handleFinishPolygon = useCallback(() => {
+    if (!plan || polygonBusy) return;
+    if (!isValidPolygon(activeVertices, plan.width, plan.height)) {
+      setPolygonError(
+        'Un polygone doit comporter au moins 3 sommets distincts et une aire non nulle.'
+      );
+      return;
+    }
+    if (polygonSelfIntersects(activeVertices, plan.width, plan.height)) {
+      setPolygonError(
+        'Le tracé se croise. Corrige les sommets avant de terminer la zone.'
+      );
+      return;
+    }
+
+    const vertices = activeVertices.map((vertex) => ({ x: vertex.x, y: vertex.y }));
+    setPolygonBusy(true);
+    createPolygon(plan.id, vertices)
+      .then((created) => {
+        setPolygons((prev) => [...prev, created]);
+        setActiveVertices([]);
+        setSelectedPolygonId(created.id);
+        setPolygonError(null);
+      })
+      .catch((err) => {
+        const apiErr = err instanceof ApiError ? err : null;
+        setPolygonError(apiErr?.message ?? 'Impossible d’enregistrer la zone.');
+      })
+      .finally(() => setPolygonBusy(false));
+  }, [plan, activeVertices, polygonBusy]);
+
+  const handleSelectPolygon = useCallback(
+    (polygonId: string | null) => {
+      if (drawing) return;
+      setPendingDeleteId(null);
+      setPolygonError(null);
+      setSelectedPolygonId(polygonId);
+      setEditing((prev) =>
+        prev && prev.polygonId !== polygonId ? null : prev
+      );
+    },
+    [drawing]
+  );
+
+  const handleStartEdit = useCallback(() => {
+    if (!selectedPolygonId) return;
+    const polygon = polygons.find((item) => item.id === selectedPolygonId);
+    if (!polygon) return;
+    setDrawing(false);
+    setActiveVertices([]);
+    setPendingDeleteId(null);
+    setPolygonError(null);
+    setEditing({
+      polygonId: polygon.id,
+      vertices: polygon.vertices.map((vertex) => ({ x: vertex.x, y: vertex.y })),
+    });
+  }, [selectedPolygonId, polygons]);
+
+  const handleMoveVertex = useCallback(
+    (index: number, moved: NormalizedCoord) => {
+      setEditing((prev) => {
+        if (!prev || index < 0 || index >= prev.vertices.length) return prev;
+        const vertices = prev.vertices.map((vertex, position) =>
+          position === index ? { x: moved.x, y: moved.y } : vertex
+        );
+        return { ...prev, vertices };
+      });
+    },
+    []
+  );
+
+  const handleCancelEdit = useCallback(() => {
+    setEditing(null);
+    setPolygonError(null);
+  }, []);
+
+  const handleSaveEdit = useCallback(() => {
+    if (!plan || !editing || polygonBusy) return;
+    const { polygonId, vertices } = editing;
+    if (!isValidPolygon(vertices, plan.width, plan.height)) {
+      setPolygonError(
+        'Un polygone doit comporter au moins 3 sommets distincts et une aire non nulle.'
+      );
+      return;
+    }
+    if (polygonSelfIntersects(vertices, plan.width, plan.height)) {
+      setPolygonError(
+        'Les arêtes se croisent. Corrige les sommets avant d’enregistrer.'
+      );
+      return;
+    }
+
+    setPolygonBusy(true);
+    updatePolygon(polygonId, vertices)
+      .then((updated) => {
+        setPolygons((prev) =>
+          prev.map((polygon) => (polygon.id === polygonId ? updated : polygon))
+        );
+        setEditing(null);
+        setSelectedPolygonId(polygonId);
+        setPolygonError(null);
+      })
+      .catch((err) => {
+        const apiErr = err instanceof ApiError ? err : null;
+        setPolygonError(apiErr?.message ?? 'Impossible d’enregistrer la zone.');
+      })
+      .finally(() => setPolygonBusy(false));
+  }, [plan, editing, polygonBusy]);
+
+  const handleRequestDelete = useCallback(() => {
+    if (!selectedPolygonId) return;
+    setEditing(null);
+    setPendingDeleteId(selectedPolygonId);
+    setPolygonError(null);
+  }, [selectedPolygonId]);
+
+  const handleConfirmDelete = useCallback(() => {
+    const polygonId = pendingDeleteId;
+    if (!polygonId || polygonBusy) return;
+    setPolygonBusy(true);
+    deletePolygon(polygonId)
+      .then(() => {
+        setPolygons((prev) => prev.filter((polygon) => polygon.id !== polygonId));
+        setSelectedPolygonId((prev) => (prev === polygonId ? null : prev));
+        setPendingDeleteId(null);
+        setPolygonError(null);
+      })
+      .catch((err) => {
+        const apiErr = err instanceof ApiError ? err : null;
+        setPolygonError(apiErr?.message ?? 'Impossible de supprimer la zone.');
+      })
+      .finally(() => setPolygonBusy(false));
+  }, [pendingDeleteId, polygonBusy]);
+
+  const handleCancelDelete = useCallback(() => {
+    setPendingDeleteId(null);
+  }, []);
+
+  // Chargement des zones persistées du plan actif (backend = source de vérité).
+  useEffect(() => {
+    if (!plan) return;
+    let alive = true;
+    listPolygons(plan.id)
+      .then((loaded) => {
+        if (!alive) return;
+        setPolygons(loaded.filter((polygon) => polygon.planId === plan.id));
+      })
+      .catch((err) => {
+        if (!alive) return;
+        const apiErr = err instanceof ApiError ? err : null;
+        setPolygonError(
+          apiErr?.message ?? 'Impossible de charger les zones de délimitation.'
+        );
+      });
+    return () => {
+      alive = false;
+    };
+  }, [plan]);
+
+  const visiblePolygons = useMemo(
+    () =>
+      plan ? polygons.filter((polygon) => polygon.planId === plan.id) : [],
+    [polygons, plan]
+  );
+
+  const selectedPolygon = useMemo(
+    () => polygons.find((polygon) => polygon.id === selectedPolygonId) ?? null,
+    [polygons, selectedPolygonId]
+  );
+
+  const selectedZoneNumber = polygonNumber(polygons, selectedPolygonId);
+  const editingZoneNumber = editing
+    ? polygonNumber(polygons, editing.polygonId)
+    : null;
+  const pendingDeleteZoneNumber = polygonNumber(polygons, pendingDeleteId);
+
+  const draftSelfIntersects = useMemo(
+    () =>
+      drawing && plan && activeVertices.length >= 4
+        ? polygonSelfIntersects(activeVertices, plan.width, plan.height)
+        : false,
+    [drawing, plan, activeVertices]
+  );
+
+  const editingSelfIntersects = useMemo(
+    () =>
+      editing && plan
+        ? polygonSelfIntersects(editing.vertices, plan.width, plan.height)
+        : false,
+    [editing, plan]
+  );
 
   // Liste des réseaux pour les filtres
   useEffect(() => {
@@ -279,14 +534,35 @@ export function HeatmapPage() {
   const rssiMeshModel = useMemo(
     () =>
       !showingSpeed && plan
-        ? buildRssiMeshes(rows, {
-            id: plan.id,
-            width: plan.width,
-            height: plan.height,
-          })
+        ? buildRssiMeshes(
+            rows,
+            {
+              id: plan.id,
+              width: plan.width,
+              height: plan.height,
+            },
+            { polygons: visiblePolygons }
+          )
         : null,
-    [showingSpeed, rows, plan]
+    [showingSpeed, rows, plan, visiblePolygons]
   );
+
+  // Retour discret sur les zones présentes sur le plan mais non couvertes :
+  // `findUncoveredZones` ne remonte que les zones réellement sans triangle
+  // (status + skipped[].polygonId) et renvoie une liste vide quand tout va
+  // bien — aucun message n'est alors affiché.
+  const zoneCoverageNotice = useMemo<string | null>(() => {
+    if (showingSpeed || !plan || !rssiMeshModel) return null;
+    const uncovered = findUncoveredZones(rssiMeshModel, visiblePolygons, plan);
+    if (uncovered.length === 0) return null;
+
+    const labels = uncovered.map(
+      (zone) => `Zone ${zone.zoneNumber} (${zone.reason})`
+    );
+    return labels.length === 1
+      ? `${labels[0]} : la zone reste transparente.`
+      : `${labels.join(' · ')} : ces zones restent transparentes.`;
+  }, [showingSpeed, plan, rssiMeshModel, visiblePolygons]);
 
   const stats = useMemo(() => {
     const values = showingSpeed
@@ -518,6 +794,172 @@ export function HeatmapPage() {
         </div>
       ) : (
         <>
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <button
+              type="button"
+              aria-pressed={drawing}
+              onClick={toggleDrawing}
+              disabled={!!editing || polygonBusy}
+              className={[
+                'inline-flex items-center gap-2 h-11 px-4 rounded-xl border text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                drawing
+                  ? 'bg-accent-soft text-accent border-accent-border'
+                  : 'text-text-dim border-glass-border-soft hover:text-text',
+              ].join(' ')}
+            >
+              <Pencil size={16} strokeWidth={1.75} aria-hidden />
+              {drawing ? 'Quitter le dessin' : 'Dessiner une zone'}
+            </button>
+
+            {drawing && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleUndoVertex}
+                  disabled={activeVertices.length === 0}
+                  className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Undo2 size={16} strokeWidth={1.75} aria-hidden />
+                  Annuler le sommet
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelDrawing}
+                  disabled={activeVertices.length === 0}
+                  className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <X size={16} strokeWidth={1.75} aria-hidden />
+                  Annuler le tracé
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFinishPolygon}
+                  disabled={
+                    activeVertices.length < 3 || polygonBusy || draftSelfIntersects
+                  }
+                  className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-accent-border bg-accent-soft text-sm font-medium text-accent disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Check size={16} strokeWidth={1.75} aria-hidden />
+                  Terminer le polygone
+                </button>
+                <span className="text-[12px] text-text-dim">
+                  {activeVertices.length === 0
+                    ? 'Clique sur le plan pour placer le premier sommet.'
+                    : `${activeVertices.length} sommet${activeVertices.length > 1 ? 's' : ''}`}
+                  {draftSelfIntersects ? ' · tracé qui se croise' : ''}
+                </span>
+              </>
+            )}
+
+            {!drawing && editing && (
+              <>
+                <span className="text-[12px] text-text-dim">
+                  Zone {editingZoneNumber ?? '?'} · glisse les sommets
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={polygonBusy}
+                  className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <X size={16} strokeWidth={1.75} aria-hidden />
+                  Annuler l’édition
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={polygonBusy || editingSelfIntersects}
+                  className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-accent-border bg-accent-soft text-sm font-medium text-accent disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Check size={16} strokeWidth={1.75} aria-hidden />
+                  Terminer l’édition
+                </button>
+              </>
+            )}
+
+            {!drawing && !editing && selectedPolygon && (
+              <>
+                <span className="text-[12px] text-text-dim">
+                  Zone {selectedZoneNumber ?? '?'} sélectionnée
+                </span>
+                <button
+                  type="button"
+                  onClick={handleStartEdit}
+                  disabled={polygonBusy}
+                  className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Pencil size={16} strokeWidth={1.75} aria-hidden />
+                  Modifier les sommets
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRequestDelete}
+                  disabled={polygonBusy}
+                  className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-danger text-danger text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Trash size={16} strokeWidth={1.75} aria-hidden />
+                  Supprimer la zone
+                </button>
+              </>
+            )}
+
+            {!drawing && !editing && !selectedPolygon && polygons.length > 0 && (
+              <span className="text-[12px] text-text-dim">
+                Clique sur une zone pour la sélectionner.
+              </span>
+            )}
+          </div>
+
+          {pendingDeleteId && (
+            <div className="mb-2 flex flex-wrap items-center gap-2 px-4 py-2.5 rounded-xl border border-danger bg-danger-soft text-sm text-text">
+              <span className="flex-1 min-w-[12rem]">
+                Supprimer la zone {pendingDeleteZoneNumber ?? '?'} ? Cette action est définitive.
+              </span>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={polygonBusy}
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-danger text-danger font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Check size={16} strokeWidth={1.75} aria-hidden />
+                Confirmer la suppression
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelDelete}
+                disabled={polygonBusy}
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-glass-border-soft text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <X size={16} strokeWidth={1.75} aria-hidden />
+                Annuler
+              </button>
+            </div>
+          )}
+
+          {drawing && draftSelfIntersects && (
+            <div className="mb-2 px-4 py-2.5 rounded-xl border border-[rgba(251,191,36,0.35)] bg-[rgba(251,191,36,0.12)] text-sm text-text">
+              Le tracé se croise : le polygone ne pourra pas être terminé tel quel.
+            </div>
+          )}
+
+          {editing && editingSelfIntersects && (
+            <div className="mb-2 px-4 py-2.5 rounded-xl border border-[rgba(251,191,36,0.35)] bg-[rgba(251,191,36,0.12)] text-sm text-text">
+              Les arêtes se croisent : corrige les sommets avant d’enregistrer.
+            </div>
+          )}
+
+          {polygonError && (
+            <div className="mb-2 px-4 py-2.5 rounded-xl border border-danger bg-danger-soft text-sm text-text">
+              {polygonError}
+            </div>
+          )}
+
+          {zoneCoverageNotice && (
+            <div className="mb-2 px-4 py-2.5 rounded-xl border border-glass-border-soft text-[13px] text-text-dim">
+              {zoneCoverageNotice}
+            </div>
+          )}
+
           <div className="relative rounded-2xl overflow-hidden border border-glass-border-soft">
             <button
               type="button"
@@ -548,7 +990,8 @@ export function HeatmapPage() {
               <ZoomControl />
               <ImageOverlay url={imageUrl} bounds={bounds} />
               {/* Champ interpolé sous les points de mesure. Le RSSI utilise
-                  Delaunay + barycentrique ; seul le débit garde l'IDW. */}
+                  Delaunay + barycentrique, contraint aux zones ; seul le débit
+                  garde l'IDW, masqué hors des zones. */}
               {showingSpeed ? (
                 <CoverageOverlay
                   interpolation="idw"
@@ -558,6 +1001,7 @@ export function HeatmapPage() {
                   radius={radius}
                   bounds={bounds}
                   bands={activeBands}
+                  polygons={visiblePolygons}
                 />
               ) : (
                 <CoverageOverlay
@@ -574,6 +1018,7 @@ export function HeatmapPage() {
                   key={r.scan_point_id}
                   center={[r.y * plan.height, r.x * plan.width]}
                   radius={6}
+                  bubblingMouseEvents={false}
                   pathOptions={{
                     color: '#0d1319',
                     fillColor: rssiColor(r.rssi),
@@ -595,6 +1040,7 @@ export function HeatmapPage() {
                     key={r.scan_point_id}
                     center={[r.y * plan.height, r.x * plan.width]}
                     radius={6}
+                    bubblingMouseEvents={false}
                     pathOptions={{
                       color: '#0d1319',
                       fillColor: speedColor(mbps),
@@ -608,6 +1054,19 @@ export function HeatmapPage() {
                   </CircleMarker>
                 );
               })}
+              <PolygonEditorLayer
+                width={plan.width}
+                height={plan.height}
+                drawing={drawing}
+                activeVertices={activeVertices}
+                polygons={visiblePolygons}
+                selectedPolygonId={selectedPolygonId}
+                editing={editing}
+                onAddVertex={handleAddVertex}
+                onFinish={handleFinishPolygon}
+                onSelectPolygon={handleSelectPolygon}
+                onMoveVertex={handleMoveVertex}
+              />
             </MapContainer>
           </div>
 

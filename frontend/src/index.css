@@ -111,6 +111,44 @@
   transform: translate(-50%, -50%);
 }
 
+/* Étiquettes « Zone N » et poignées de sommets des zones de délimitation */
+.polygon-zone-label {
+  background: rgba(11, 15, 20, 0.78);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 6px;
+  box-shadow: none;
+  color: #e6edf3;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  pointer-events: none;
+}
+
+.polygon-zone-label::before {
+  display: none;
+}
+
+.polygon-vertex-marker {
+  background: transparent;
+  border: none;
+}
+
+.polygon-vertex-marker span {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #0b0f14;
+  border-radius: 50%;
+  background: #22d3ee;
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.35);
+  cursor: grab;
+}
+
+.polygon-vertex-marker span:active {
+  cursor: grabbing;
+}
+
 /* Contrôles zoom → style glass */
 .leaflet-top.leaflet-right {
   top: var(--nav-top-offset, 12px);

@@ -33,6 +33,13 @@ import {
   insertMapping,
   deleteMapping,
 } from '../repositories/apMappings.repository.js';
+import {
+  insertPolygon,
+  listPolygonsByPlan,
+  findPolygonById,
+  updatePolygon,
+  deletePolygon,
+} from '../repositories/polygons.repository.js';
 
 const planNameFromFile = (originalname) =>
   path.parse(originalname).name.trim() || 'Plan';
@@ -330,6 +337,84 @@ export const createMapping = (req, res, next) => {
 export const removeMapping = (req, res, next) => {
   if (!deleteMapping(req.params.mappingId)) {
     return next(new AppError('Correspondance introuvable.', 404));
+  }
+  res.status(204).end();
+};
+
+/* ==========================================================================
+   Zones de délimitation (polygones dessinés sur le plan)
+   ========================================================================== */
+
+const polygonArea = (vertices) => {
+  let twiceArea = 0;
+  for (let index = 0; index < vertices.length; index += 1) {
+    const current = vertices[index];
+    const next = vertices[(index + 1) % vertices.length];
+    twiceArea += current.x * next.y - next.x * current.y;
+  }
+  return Math.abs(twiceArea) / 2;
+};
+
+/**
+ * Valide la forme minimale d'un polygone : au moins trois sommets distincts,
+ * coordonnées finies dans [0,1] et aire strictement positive. Les contrôles
+ * plus fins (auto-intersection, seuils d'aire en pixels) sont faits côté UI.
+ */
+const normalizePolygonVertices = (raw) => {
+  if (!Array.isArray(raw) || raw.length < 3) {
+    return { error: 'Un polygone doit comporter au moins 3 sommets.' };
+  }
+  const vertices = [];
+  for (const point of raw) {
+    const x = Number(point?.x);
+    const y = Number(point?.y);
+    if (!isValidCoord(x) || !isValidCoord(y)) {
+      return { error: 'Coordonnées x/y invalides (0-1 attendu).' };
+    }
+    vertices.push({ x, y });
+  }
+
+  const distinct = [];
+  for (const vertex of vertices) {
+    const seen = distinct.some(
+      (other) =>
+        Math.abs(other.x - vertex.x) <= 1e-9 && Math.abs(other.y - vertex.y) <= 1e-9
+    );
+    if (!seen) distinct.push(vertex);
+  }
+  if (distinct.length < 3) {
+    return { error: 'Un polygone doit comporter au moins 3 sommets distincts.' };
+  }
+  if (polygonArea(vertices) <= 1e-9) {
+    return { error: 'Un polygone doit avoir une aire non nulle.' };
+  }
+  return { vertices };
+};
+
+export const getPolygons = (req, res, next) => {
+  if (!findPlanById(req.params.id)) return next(new AppError('Plan introuvable.', 404));
+  res.json(listPolygonsByPlan(req.params.id));
+};
+
+export const createPolygon = (req, res, next) => {
+  const plan = findPlanById(req.params.id);
+  if (!plan) return next(new AppError('Plan introuvable.', 404));
+  const parsed = normalizePolygonVertices(req.body?.vertices);
+  if (parsed.error) return next(new AppError(parsed.error, 400));
+  res.status(201).json(insertPolygon({ plan_id: plan.id, vertices: parsed.vertices }));
+};
+
+export const patchPolygon = (req, res, next) => {
+  const existing = findPolygonById(req.params.polygonId);
+  if (!existing) return next(new AppError('Zone introuvable.', 404));
+  const parsed = normalizePolygonVertices(req.body?.vertices);
+  if (parsed.error) return next(new AppError(parsed.error, 400));
+  res.json(updatePolygon(existing.id, parsed.vertices));
+};
+
+export const removePolygon = (req, res, next) => {
+  if (!deletePolygon(req.params.polygonId)) {
+    return next(new AppError('Zone introuvable.', 404));
   }
   res.status(204).end();
 };
