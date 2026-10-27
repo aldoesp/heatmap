@@ -62,6 +62,8 @@ export interface InterpolationMesh {
   height: number;
   points: GeometryPoint[];
   triangles: Triangle[];
+  /** Zone de délimitation associée, si le maillage a été contraint. */
+  polygonId?: string | null;
 }
 
 /** Point de requête exprimé dans le repère pixel du plan. */

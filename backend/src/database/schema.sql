@@ -50,6 +50,17 @@ CREATE TABLE IF NOT EXISTS scan_points (
 );
 CREATE INDEX IF NOT EXISTS idx_sp_plan ON scan_points(plan_id);
 
+-- Zones de délimitation dessinées à la main sur un plan.
+-- `vertices` est un tableau JSON de sommets normalisés {x, y} (0-1, y=0 en bas).
+CREATE TABLE IF NOT EXISTS polygons (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+  vertices TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_polygons_plan ON polygons(plan_id);
+
 -- Noms conviviaux des bornes (BSSID -> nom), par plan (cf. ApMapping upstream)
 CREATE TABLE IF NOT EXISTS ap_mappings (
   id TEXT PRIMARY KEY,

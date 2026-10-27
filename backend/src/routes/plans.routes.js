@@ -29,6 +29,10 @@ import {
   getMappings,
   createMapping,
   removeMapping,
+  getPolygons,
+  createPolygon,
+  patchPolygon,
+  removePolygon,
 } from '../controllers/plans.controller.js';
 import { createSurveyForPlan, listSurveys } from '../controllers/surveys.controller.js';
 import { validateCreateSurvey } from '../middleware/surveys.middleware.js';
@@ -84,6 +88,11 @@ router.get('/:id/export.csv', exportCsv);
 
 router.get('/:id/ap-mappings', getMappings);
 router.post('/:id/ap-mappings', createMapping);
+
+router.get('/:id/polygons', getPolygons);
+router.post('/:id/polygons', createPolygon);
+router.patch('/polygons/:polygonId', patchPolygon);
+router.delete('/polygons/:polygonId', removePolygon);
 
 router.delete('/access-points/:apId', removeAccessPoint);
 router.patch('/access-points/:apId', patchAccessPoint);
