@@ -20,7 +20,7 @@ const HeatmapPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("./components/settings/SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage }))
 )
-
+ 
 function App() {
   const route = useHashRoute()
 
