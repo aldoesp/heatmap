@@ -125,6 +125,7 @@ export function useSurveysLibrary() {
         width: created.width,
         height: created.height,
         sizeBytes: created.sizeBytes,
+        metersPerPixel: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
