@@ -21,6 +21,7 @@
     "src/lib/coords.ts",
     "src/lib/heatmapRssi.ts",
     "src/lib/heatmapRaster.ts",
+    "src/lib/polygon.ts",
     "src/lib/signal.ts",
     "src/types/plan.ts",
     "src/types/api.ts",

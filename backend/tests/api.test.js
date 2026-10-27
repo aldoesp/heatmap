@@ -383,6 +383,99 @@ describe('points d’accès', () => {
   });
 });
 
+describe('polygones de délimitation', () => {
+  let planId;
+  let polygonId;
+  const TRIANGLE = [
+    { x: 0.1, y: 0.1 },
+    { x: 0.9, y: 0.1 },
+    { x: 0.5, y: 0.9 },
+  ];
+
+  before(async () => {
+    const { json } = await api('GET', '/api/v1/plans');
+    planId = json[0].id;
+  });
+
+  it('crée et liste une zone', async () => {
+    const { status, json } = await api(
+      'POST',
+      `/api/v1/plans/${planId}/polygons`,
+      { vertices: TRIANGLE }
+    );
+    assert.equal(status, 201);
+    assert.equal(json.plan_id, planId);
+    assert.deepEqual(json.vertices, TRIANGLE);
+    polygonId = json.id;
+
+    const list = await api('GET', `/api/v1/plans/${planId}/polygons`);
+    assert.equal(list.status, 200);
+    assert.ok(list.json.some((polygon) => polygon.id === polygonId));
+  });
+
+  it('refuse moins de trois sommets', async () => {
+    const { status } = await api('POST', `/api/v1/plans/${planId}/polygons`, {
+      vertices: TRIANGLE.slice(0, 2),
+    });
+    assert.equal(status, 400);
+  });
+
+  it('refuse des coordonnées hors [0,1]', async () => {
+    const { status } = await api('POST', `/api/v1/plans/${planId}/polygons`, {
+      vertices: [
+        { x: 0.1, y: 0.1 },
+        { x: 1.2, y: 0.1 },
+        { x: 0.5, y: 0.9 },
+      ],
+    });
+    assert.equal(status, 400);
+  });
+
+  it('refuse un polygone dégénéré', async () => {
+    const { status } = await api('POST', `/api/v1/plans/${planId}/polygons`, {
+      vertices: [
+        { x: 0.1, y: 0.1 },
+        { x: 0.5, y: 0.5 },
+        { x: 0.9, y: 0.9 },
+      ],
+    });
+    assert.equal(status, 400);
+  });
+
+  it('met à jour les sommets', async () => {
+    const updated = [
+      { x: 0.2, y: 0.2 },
+      { x: 0.8, y: 0.2 },
+      { x: 0.8, y: 0.8 },
+      { x: 0.2, y: 0.8 },
+    ];
+    const { status, json } = await api(
+      'PATCH',
+      `/api/v1/plans/polygons/${polygonId}`,
+      { vertices: updated }
+    );
+    assert.equal(status, 200);
+    assert.deepEqual(json.vertices, updated);
+  });
+
+  it('supprime une zone', async () => {
+    const del = await api('DELETE', `/api/v1/plans/polygons/${polygonId}`);
+    assert.equal(del.status, 204);
+    const list = await api('GET', `/api/v1/plans/${planId}/polygons`);
+    assert.ok(!list.json.some((polygon) => polygon.id === polygonId));
+  });
+
+  it('404 sur plan ou zone inexistants', async () => {
+    const noPlan = await api('POST', '/api/v1/plans/plan-inexistant/polygons', {
+      vertices: TRIANGLE,
+    });
+    assert.equal(noPlan.status, 404);
+
+    const noZone = await api('DELETE', '/api/v1/plans/polygons/zone-inexistante');
+    assert.equal(noZone.status, 404);
+  });
+});
+
 describe('relevés Wi-Fi (mode test)', () => {
   let planId;
   let pointId;

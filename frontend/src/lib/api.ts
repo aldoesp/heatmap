@@ -11,6 +11,8 @@ import {
   type UploadPlanResponse,
 } from '../types/api';
 import type { AccessPoint } from '../types/plan';
+import type { PlanPolygon } from '../types/polygon';
+import type { NormalizedCoord } from './coords';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
@@ -179,6 +181,72 @@ export async function updateAccessPoint(
 export async function deleteAccessPoint(apId: string): Promise<void> {
   await apiFetch<void>(
     `/api/v1/plans/access-points/${encodeURIComponent(apId)}`,
+    { method: 'DELETE' }
+  );
+}
+
+/* ==========================================================================
+   Zones de délimitation (polygones dessinés sur le plan)
+   ========================================================================== */
+
+interface PlanPolygonRow {
+  id: string;
+  plan_id: string;
+  vertices: Array<{ x: number; y: number }>;
+  created_at: string;
+  updated_at: string;
+}
+
+function toPlanPolygon(row: PlanPolygonRow): PlanPolygon {
+  return {
+    id: row.id,
+    planId: row.plan_id,
+    vertices: Array.isArray(row.vertices)
+      ? row.vertices.map(({ x, y }) => ({ x, y }))
+      : [],
+  };
+}
+
+export async function listPolygons(planId: string): Promise<PlanPolygon[]> {
+  const rows = await apiFetch<PlanPolygonRow[]>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/polygons`
+  );
+  return rows.map(toPlanPolygon);
+}
+
+export async function createPolygon(
+  planId: string,
+  vertices: NormalizedCoord[]
+): Promise<PlanPolygon> {
+  const row = await apiFetch<PlanPolygonRow>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/polygons`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vertices }),
+    }
+  );
+  return toPlanPolygon(row);
+}
+
+export async function updatePolygon(
+  polygonId: string,
+  vertices: NormalizedCoord[]
+): Promise<PlanPolygon> {
+  const row = await apiFetch<PlanPolygonRow>(
+    `/api/v1/plans/polygons/${encodeURIComponent(polygonId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vertices }),
+    }
+  );
+  return toPlanPolygon(row);
+}
+
+export async function deletePolygon(polygonId: string): Promise<void> {
+  await apiFetch<void>(
+    `/api/v1/plans/polygons/${encodeURIComponent(polygonId)}`,
     { method: 'DELETE' }
   );
 }

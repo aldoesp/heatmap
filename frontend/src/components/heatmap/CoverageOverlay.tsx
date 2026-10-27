@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { ImageOverlay } from 'react-leaflet';
 import type { LatLngBoundsExpression } from 'leaflet';
 import { chooseRasterSize, rasterizeRssiMeshes } from '../../lib/heatmapRaster';
+import type { NormalizedCoord } from '../../lib/coords';
+import { buildZoneMask, pointInPolygonPx, type ZoneMask } from '../../lib/polygon';
 import type { InterpolationMesh } from '../../lib/triangulation';
 
 export interface CoveragePoint {
@@ -33,6 +35,17 @@ interface CoverageOverlayProps {
   bands: CoverageBand[];
   /** Opacité maximale du champ (0-1). */
   opacity?: number;
+  /**
+   * Zones autorisées (coordonnées normalisées, y en bas). En mode IDW, les
+   * pixels hors de toutes les zones restent transparents. En mode
+   * triangulation, le filtrage est déjà fait sur les triangles.
+   *
+   * Les zones sont filtrées par `buildZoneMask` : mêmes règles de validité que
+   * `buildRssiMeshes`, pour que les couches RSSI et débit affichent
+   * exactement les mêmes périmètres. Une liste non vide dont aucune zone n'est
+   * valide masque tout le champ au lieu de le laisser s'afficher librement.
+   */
+  polygons?: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }>;
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -55,7 +68,8 @@ function createCoverageImage(
   height: number,
   radius: number,
   bands: CoverageBand[],
-  opacity: number
+  opacity: number,
+  polygons: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }> | undefined
 ): string {
   const rgbBands = bands.map((band) => ({ min: band.min, rgb: hexToRgb(band.color) }));
   const fallback = rgbBands[rgbBands.length - 1].rgb;
@@ -79,10 +93,40 @@ function createCoverageImage(
   const supportDistance = Math.max(radius * 3, Math.min(width, height) * 0.12);
   const maxAlpha = Math.round(255 * opacity);
 
+  // Zones utilisables, en pixels du plan (y en bas) : même filtre que la
+  // contrainte de triangulation. `hasZones` signale qu'une liste de zones a
+  // bien été fournie, même si aucune n'est valide.
+  const zoneList = polygons ?? [];
+  const hasZones = zoneList.length > 0;
+  const masks: ZoneMask[] = [];
+  for (const zone of zoneList) {
+    const mask = buildZoneMask(zone.vertices, width, height);
+    if (mask) masks.push(mask);
+  }
+
   for (let y = 0; y < imageHeight; y += 1) {
     for (let x = 0; x < imageWidth; x += 1) {
       const planX = (x / (imageWidth - 1)) * width;
       const planY = (y / (imageHeight - 1)) * height;
+      // La boucle est en repère image (y vers le bas) : on ramène y dans le
+      // repère du plan pour l'inclusion dans les masques.
+      const planYPx = height - planY;
+
+      if (hasZones) {
+        // Zones fournies mais toutes invalides : rien ne doit s'afficher,
+        // comme côté RSSI où `constrained` interdit le maillage global.
+        if (masks.length === 0) continue;
+        const allowed = masks.some(
+          (mask) =>
+            planX >= mask.minX &&
+            planX <= mask.maxX &&
+            planYPx >= mask.minY &&
+            planYPx <= mask.maxY &&
+            pointInPolygonPx(planX, planYPx, mask.pixels)
+        );
+        if (!allowed) continue;
+      }
+
       let weightedValue = 0;
       let totalWeight = 0;
       let nearestDistance = Infinity;
@@ -163,6 +207,7 @@ export function CoverageOverlay({
   bounds,
   bands,
   opacity = 0.75,
+  polygons,
 }: CoverageOverlayProps) {
   const imageUrl = useMemo(() => {
     if (interpolation === 'triangulation') {
@@ -171,9 +216,17 @@ export function CoverageOverlay({
         : '';
     }
     return points && points.length > 0 && radius !== undefined
-      ? createCoverageImage(points, width, height, radius, bands, opacity)
+      ? createCoverageImage(
+          points,
+          width,
+          height,
+          radius,
+          bands,
+          opacity,
+          polygons
+        )
       : '';
-  }, [interpolation, points, meshes, width, height, radius, bands, opacity]);
+  }, [interpolation, points, meshes, width, height, radius, bands, opacity, polygons]);
 
   if (!imageUrl) return null;
   return <ImageOverlay url={imageUrl} bounds={bounds} />;
