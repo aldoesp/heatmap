@@ -54,6 +54,8 @@ export interface Triangle {
   c: GeometryPoint;
   /** Aire doublée, toujours positive après orientation canonique. */
   area2: number;
+  /** Vrai si le plus long côté du triangle <= seuil de support. */
+  supported: boolean;
 }
 
 export interface InterpolationMesh {
@@ -64,6 +66,8 @@ export interface InterpolationMesh {
   triangles: Triangle[];
   /** Zone de délimitation associée, si le maillage a été contraint. */
   polygonId?: string | null;
+  /** Seuil (px) au-delà duquel un triangle est considéré non supporté. */
+  supportThresholdPx: number;
 }
 
 /** Point de requête exprimé dans le repère pixel du plan. */
@@ -143,6 +147,7 @@ export type SampleResult =
       lambdaB: number;
       lambdaC: number;
       rssi: number;
+      supported: boolean;
     }
   | {
       status: 'OUTSIDE';
@@ -353,7 +358,10 @@ function coordinateKey(x: number, y: number): string {
  * Les mesures invalides sont écartées avec un diagnostic. Un mélange de
  * périmètres est une erreur globale et ne produit aucun triangle partiel.
  */
-export function triangulateRssi(input: TriangulationInput): TriangulationResult {
+export function triangulateRssi(
+  input: TriangulationInput,
+  options?: { supportFactor?: number }
+): TriangulationResult {
   const scopeIssues = validateScope(input);
   if (scopeIssues.length > 0) {
     return { status: 'INVALID_INPUT', issues: scopeIssues };
@@ -442,6 +450,8 @@ export function triangulateRssi(input: TriangulationInput): TriangulationResult 
   );
   const planArea = input.plan.width * input.plan.height;
   const epsilonArea = AREA_FACTOR * Math.max(1, planArea);
+  const supportFactor = options?.supportFactor ?? 3;
+  const supportThresholdPx = supportFactor * medianNearestNeighborDistancePx(points);
   const triangles: Triangle[] = [];
 
   for (let index = 0; index < delaunay.triangles.length; index += 3) {
@@ -465,12 +475,18 @@ export function triangulateRssi(input: TriangulationInput): TriangulationResult 
       area2 = -area2;
     }
 
+    const sideA = Math.hypot(second.xPx - a.xPx, second.yPx - a.yPx);
+    const sideB = Math.hypot(third.xPx - second.xPx, third.yPx - second.yPx);
+    const sideC = Math.hypot(a.xPx - third.xPx, a.yPx - third.yPx);
+    const longestSide = Math.max(sideA, sideB, sideC);
+
     triangles.push({
       id: `t${triangles.length}`,
       a,
       b: second,
       c: third,
       area2,
+      supported: longestSide <= supportThresholdPx,
     });
   }
 
@@ -490,6 +506,7 @@ export function triangulateRssi(input: TriangulationInput): TriangulationResult 
       height: input.plan.height,
       points,
       triangles,
+      supportThresholdPx,
     },
     dropped,
   };
@@ -753,6 +770,7 @@ export function sampleTriangleMesh(
         lambdaB: result.lambdaB,
         lambdaC: result.lambdaC,
         rssi: result.rssi,
+        supported: triangle.supported,
       };
     }
 
@@ -762,4 +780,24 @@ export function sampleTriangleMesh(
   }
 
   return { status: 'OUTSIDE', rssi: null };
+}
+
+export function medianNearestNeighborDistancePx(points: GeometryPoint[]): number {
+  if (points.length < 2) return 0;
+  const nearest: number[] = [];
+  for (let i = 0; i < points.length; i += 1) {
+    let min = Infinity;
+    for (let j = 0; j < points.length; j += 1) {
+      if (i === j) continue;
+      const d = Math.hypot(points[i].xPx - points[j].xPx, points[i].yPx - points[j].yPx);
+      if (d < min) min = d;
+    }
+    nearest.push(min);
+  }
+  nearest.sort((a, b) => a - b);
+  const mid = Math.floor(nearest.length / 2);
+  if (nearest.length % 2 === 0) {
+    return (nearest[mid - 1] + nearest[mid]) / 2;
+  }
+  return nearest[mid];
 }

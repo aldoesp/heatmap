@@ -412,7 +412,9 @@ export async function getHeatmap(
   const params = new URLSearchParams();
   if (filter?.ssid) params.set('ssid', filter.ssid);
   if (filter?.bssid) params.set('bssid', filter.bssid);
-  if (filter?.connected) params.set('connected', '1');
+  if (filter?.connected !== undefined) {
+    params.set('connected', filter.connected ? '1' : '0');
+  }
   if (filter?.band) params.set('band', filter.band);
   const qs = params.toString();
   return apiFetch<HeatmapRow[]>(
@@ -565,4 +567,54 @@ export function exportCsvUrl(planId: string): string {
 export function exportAllUrl(): string {
   const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
   return `${base}/api/v1/export`;
+}
+
+
+export interface ApPositionDto {
+  bssid: string;
+  x: number;
+  y: number;
+}
+
+interface ApPositionRow {
+  plan_id: string;
+  bssid: string;
+  x: number;
+  y: number;
+  updated_at: string;
+}
+
+function toApPosition(row: ApPositionRow): ApPositionDto {
+  return { bssid: row.bssid, x: row.x, y: row.y };
+}
+
+export async function fetchApPositions(planId: string): Promise<ApPositionDto[]> {
+  const rows = await apiFetch<ApPositionRow[]>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/aps`
+  );
+  return rows.map(toApPosition);
+}
+
+export async function saveApPosition(
+  planId: string,
+  bssid: string,
+  x: number,
+  y: number
+): Promise<ApPositionDto> {
+  const row = await apiFetch<ApPositionRow>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/aps/${encodeURIComponent(bssid)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x, y }),
+    }
+  );
+  return toApPosition(row);
+}
+
+export async function removeApPosition(planId: string, bssid: string): Promise<void> {
+  await apiFetch<void>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/aps/${encodeURIComponent(bssid)}`,
+    { method: 'DELETE' }
+  );
 }

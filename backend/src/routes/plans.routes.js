@@ -33,6 +33,9 @@ import {
   createPolygon,
   patchPolygon,
   removePolygon,
+  getApPositions,
+  putApPosition,
+  removeApPosition,
 } from '../controllers/plans.controller.js';
 import { createSurveyForPlan, listSurveys } from '../controllers/surveys.controller.js';
 import { validateCreateSurvey } from '../middleware/surveys.middleware.js';
@@ -93,6 +96,9 @@ router.get('/:id/polygons', getPolygons);
 router.post('/:id/polygons', createPolygon);
 router.patch('/polygons/:polygonId', patchPolygon);
 router.delete('/polygons/:polygonId', removePolygon);
+router.get('/:id/aps', getApPositions);
+router.put('/:id/aps/:bssid', putApPosition);
+router.delete('/:id/aps/:bssid', removeApPosition);
 
 router.delete('/access-points/:apId', removeAccessPoint);
 router.patch('/access-points/:apId', patchAccessPoint);
