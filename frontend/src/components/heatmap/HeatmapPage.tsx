@@ -9,6 +9,7 @@ import {
   getHeatmap,
   getHeatmapSpeed,
   getNetworks,
+  listAccessPoints,
   listPolygons,
   updatePolygon,
 } from '../../lib/api';
@@ -23,20 +24,13 @@ import {
   type PolygonEditingState,
 } from './PolygonEditorLayer';
 import { ApiError, type HeatmapRow, type NetworkInfo, type SpeedHeatmapRow } from '../../types/api';
-import type { NormalizedCoord } from '../../lib/coords';
+import { dataToLatLng, type NormalizedCoord } from '../../lib/coords';
 import { isValidPolygon, polygonSelfIntersects } from '../../lib/polygon';
 import type { PlanPolygon } from '../../types/polygon';
 import { formatPercent, formatMbps } from '../../lib/format';
-import { average, RSSI_BANDS, rssiColor } from '../../lib/signal';
+import { average, RSSI_BANDS } from '../../lib/signal';
+import type { AccessPoint } from '../../types/plan';
 import { buildRssiMeshes, findUncoveredZones } from '../../lib/heatmapRssi';
-
-function speedColor(mbps: number): string {
-  if (mbps >= 50) return '#10b981';
-  if (mbps >= 20) return '#a3e635';
-  if (mbps >= 5) return '#f59e0b';
-  if (mbps >= 1) return '#f97316';
-  return '#ef4444';
-}
 
 function MapSetup({
   width,
@@ -182,6 +176,10 @@ export function HeatmapPage() {
   const [onlyConnected, setOnlyConnected] = useState(true);
   const [rows, setRows] = useState<HeatmapRow[]>([]);
   const [speedRows, setSpeedRows] = useState<SpeedHeatmapRow[]>([]);
+  const [accessPoints, setAccessPoints] = useState<{
+    planId: string;
+    items: AccessPoint[];
+  } | null>(null);
   const [metric, setMetric] = useState<'rssi' | 'speed'>('rssi');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -445,6 +443,22 @@ export function HeatmapPage() {
     };
   }, [plan]);
 
+  // AP placés sur le plan (page Import) : seuls repères affichés sur la carte.
+  useEffect(() => {
+    if (!plan) return;
+    let alive = true;
+    listAccessPoints(plan.id)
+      .then((aps) => {
+        if (alive) setAccessPoints({ planId: plan.id, items: aps });
+      })
+      .catch(() => {
+        /* AP indisponibles : la heatmap reste affichable sans eux */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [plan]);
+
   const load = useCallback(async () => {
     const requestId = loadRequestRef.current + 1;
     loadRequestRef.current = requestId;
@@ -623,6 +637,8 @@ export function HeatmapPage() {
   const activeBands = showingSpeed ? SPEED_BANDS : RSSI_BANDS;
   const activeLabels = showingSpeed ? SPEED_LABELS : RSSI_LABELS;
   const isEmpty = showingSpeed ? speedRows.length === 0 : rows.length === 0;
+  const visibleAccessPoints =
+    accessPoints?.planId === plan.id ? accessPoints.items : [];
 
   const emptyMessage = showingSpeed
     ? 'Aucune mesure de débit : configure un serveur iperf3 dans Paramètres, puis effectue des scans.'
@@ -1013,47 +1029,31 @@ export function HeatmapPage() {
                   bands={RSSI_BANDS}
                 />
               )}
-              {!showingSpeed && bestPerPoint.map((r) => (
+              {/* Les points de mesure ne sont pas affichés : seuls les AP
+                  ajoutés au plan servent de repère sur la carte. */}
+              {visibleAccessPoints.map((ap) => (
                 <CircleMarker
-                  key={r.scan_point_id}
-                  center={[r.y * plan.height, r.x * plan.width]}
+                  key={ap.id}
+                  center={dataToLatLng(ap.x, ap.y, plan.width, plan.height)}
                   radius={6}
                   bubblingMouseEvents={false}
                   pathOptions={{
                     color: '#0d1319',
-                    fillColor: rssiColor(r.rssi),
+                    fillColor: '#10b981',
                     fillOpacity: 0.95,
                     weight: 1.5,
                   }}
                 >
-                  <Tooltip>
-                    {r.ssid ?? '(réseau masqué)'} · {r.bssid_name}
-                    <br />
-                    {r.rssi} dBm · x {formatPercent(r.x)} · y {formatPercent(r.y)}
+                  <Tooltip
+                    permanent
+                    direction="right"
+                    offset={[8, 0]}
+                    className="heatmap-ap-label"
+                  >
+                    {ap.name}
                   </Tooltip>
                 </CircleMarker>
               ))}
-              {showingSpeed && speedRows.map((r) => {
-                const mbps = r.speed_bps / 1_000_000;
-                return (
-                  <CircleMarker
-                    key={r.scan_point_id}
-                    center={[r.y * plan.height, r.x * plan.width]}
-                    radius={6}
-                    bubblingMouseEvents={false}
-                    pathOptions={{
-                      color: '#0d1319',
-                      fillColor: speedColor(mbps),
-                      fillOpacity: 0.95,
-                      weight: 1.5,
-                    }}
-                  >
-                    <Tooltip>
-                      {formatMbps(r.speed_bps)} · x {formatPercent(r.x)} · y {formatPercent(r.y)}
-                    </Tooltip>
-                  </CircleMarker>
-                );
-              })}
               <PolygonEditorLayer
                 width={plan.width}
                 height={plan.height}
