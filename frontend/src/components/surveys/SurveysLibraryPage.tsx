@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Upload } from 'lucide-react';
+import { Search, Upload, FileUp } from 'lucide-react';
 import { useSurveysLibrary, type SurveySummary } from '../../hooks/useSurveysLibrary';
 import { getHeatmap, getHistory } from '../../lib/api';
 import { SurveyCard } from './SurveyCard';
@@ -11,6 +11,7 @@ type SortMode = 'recent' | 'name' | 'rssi';
 
 const ERR_IMPORT =
   'Impossible d’importer ce fichier. Utilise une image JPG, PNG ou WebP.';
+const ERR_IMPORT_CSV = 'Impossible d’importer ce fichier CSV. Vérifie le format.';
 
 export function SurveysLibraryPage() {
   const {
@@ -21,6 +22,7 @@ export function SurveysLibraryPage() {
     busyId,
     load,
     importImage,
+    importCsv,
     rename,
     remove,
     exportCsv,
@@ -38,6 +40,7 @@ export function SurveysLibraryPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const csvRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
 
   useEffect(
@@ -75,6 +78,19 @@ export function SurveysLibraryPage() {
       showToast('Survey importé.');
     } catch {
       setImportError(ERR_IMPORT);
+    }
+  };
+
+  const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportError(null);
+    try {
+      await importCsv(file);
+      showToast('CSV importé.');
+    } catch {
+      setImportError(ERR_IMPORT_CSV);
     }
   };
 
@@ -142,12 +158,31 @@ export function SurveysLibraryPage() {
           <Upload className="w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
           {importing ? 'Import…' : 'Importer'}
         </button>
+        <button
+          type="button"
+          onClick={() => csvRef.current?.click()}
+          disabled={importing}
+          aria-label="Importer un CSV"
+          className="inline-flex items-center gap-2 h-11 px-4 rounded-[14px] border border-glass-border-soft text-text-dim text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+        >
+          <FileUp className="w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
+          Importer CSV
+        </button>
         <input
           ref={fileRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
           className="hidden"
           onChange={onPickFile}
+          aria-hidden="true"
+          tabIndex={-1}
+        />
+        <input
+          ref={csvRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={onPickCsv}
           aria-hidden="true"
           tabIndex={-1}
         />

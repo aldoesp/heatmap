@@ -1,9 +1,19 @@
 import { useMemo } from 'react';
 import { ImageOverlay } from 'react-leaflet';
 import type { LatLngBoundsExpression } from 'leaflet';
-import { chooseRasterSize, rasterizeRssiMeshes } from '../../lib/heatmapRaster';
-import type { NormalizedCoord } from '../../lib/coords';
+import {
+  chooseRasterSize,
+  rasterizeRssiHybrid,
+  rasterizeRssiMeshes,
+} from '../../lib/heatmapRaster';
+import { normalizedToPlanPixel, type NormalizedCoord } from '../../lib/coords';
+import type { ApPosition } from '../../lib/pathLossModel';
 import { buildZoneMask, pointInPolygonPx, type ZoneMask } from '../../lib/polygon';
+import {
+  createHybridField,
+  type HybridField,
+  type HybridSample,
+} from '../../lib/rssiHybridField';
 import type { InterpolationMesh } from '../../lib/triangulation';
 
 export interface CoveragePoint {
@@ -46,6 +56,10 @@ interface CoverageOverlayProps {
    * valide masque tout le champ au lieu de le laisser s'afficher librement.
    */
   polygons?: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }>;
+  /** Positions d'AP normalisées 0-1, une par BSSID. */
+  apPositions?: ReadonlyArray<{ bssid: string; x: number; y: number }>;
+  /** Affiche les valeurs extrapolées par le modèle de propagation. */
+  showEstimated?: boolean;
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -168,23 +182,104 @@ function createCoverageImage(
   return canvas.toDataURL('image/png');
 }
 
+function findApForMesh(
+  mesh: InterpolationMesh,
+  apPositions: readonly { bssid: string; x: number; y: number }[]
+): ApPosition | null {
+  const bssid = mesh.scope.bssid.trim().toLowerCase();
+  const position = apPositions.find(
+    (ap) => ap.bssid.trim().toLowerCase() === bssid
+  );
+  if (!position) return null;
+  if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
+  return normalizedToPlanPixel(position.x, position.y, mesh.width, mesh.height);
+}
+
+function createZoneMaskPredicate(
+  polygons: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }>,
+  width: number,
+  height: number
+): (xPx: number, yPx: number) => boolean {
+  const masks: ZoneMask[] = [];
+  for (const zone of polygons) {
+    const mask = buildZoneMask(zone.vertices, width, height);
+    if (mask) masks.push(mask);
+  }
+  if (masks.length === 0) return () => false;
+
+  return (xPx, yPx) =>
+    masks.some(
+      (mask) =>
+        xPx >= mask.minX &&
+        xPx <= mask.maxX &&
+        yPx >= mask.minY &&
+        yPx <= mask.maxY &&
+        pointInPolygonPx(xPx, yPx, mask.pixels)
+    );
+}
+
+function combineHybridFields(fields: HybridField[]): HybridField {
+  return {
+    model: null,
+    sample(xPx: number, yPx: number): HybridSample {
+      let best: HybridSample | null = null;
+      let bestRssi = Number.NEGATIVE_INFINITY;
+      for (const field of fields) {
+        const sample = field.sample(xPx, yPx);
+        if (sample.status === 'NO_DATA') continue;
+        if (sample.rssi > bestRssi) {
+          bestRssi = sample.rssi;
+          best = sample;
+        }
+      }
+      return best ?? { status: 'NO_DATA', rssi: null };
+    },
+  };
+}
+
 function createTriangulatedCoverageImage(
   meshes: InterpolationMesh[],
   width: number,
   height: number,
   bands: CoverageBand[],
-  opacity: number
+  opacity: number,
+  polygons: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }> | undefined,
+  apPositions: readonly { bssid: string; x: number; y: number }[],
+  showEstimated: boolean
 ): string {
   const size = chooseRasterSize(width, height);
-  const raster = rasterizeRssiMeshes(
-    meshes,
-    width,
-    height,
-    size.width,
-    size.height,
-    bands,
-    opacity
-  );
+  const hasZones = (polygons?.length ?? 0) > 0;
+  const apForMesh = hasZones
+    ? meshes.map((mesh) => findApForMesh(mesh, apPositions))
+    : [];
+
+  let raster;
+  if (hasZones && apForMesh.every((ap) => ap !== null)) {
+    const fields = meshes.map((mesh, index) =>
+      createHybridField(mesh, { ap: apForMesh[index] })
+    );
+    raster = rasterizeRssiHybrid(
+      combineHybridFields(fields),
+      createZoneMaskPredicate(polygons ?? [], width, height),
+      width,
+      height,
+      size.width,
+      size.height,
+      bands,
+      opacity,
+      showEstimated
+    );
+  } else {
+    raster = rasterizeRssiMeshes(
+      meshes,
+      width,
+      height,
+      size.width,
+      size.height,
+      bands,
+      opacity
+    );
+  }
   if (!raster || raster.coveredPixels === 0) return '';
 
   const canvas = document.createElement('canvas');
@@ -208,11 +303,22 @@ export function CoverageOverlay({
   bands,
   opacity = 0.75,
   polygons,
+  apPositions,
+  showEstimated = true,
 }: CoverageOverlayProps) {
   const imageUrl = useMemo(() => {
     if (interpolation === 'triangulation') {
       return meshes && meshes.length > 0
-        ? createTriangulatedCoverageImage(meshes, width, height, bands, opacity)
+        ? createTriangulatedCoverageImage(
+            meshes,
+            width,
+            height,
+            bands,
+            opacity,
+            polygons,
+            apPositions ?? [],
+            showEstimated
+          )
         : '';
     }
     return points && points.length > 0 && radius !== undefined
@@ -226,7 +332,19 @@ export function CoverageOverlay({
           polygons
         )
       : '';
-  }, [interpolation, points, meshes, width, height, radius, bands, opacity, polygons]);
+  }, [
+    interpolation,
+    points,
+    meshes,
+    width,
+    height,
+    radius,
+    bands,
+    opacity,
+    polygons,
+    apPositions,
+    showEstimated,
+  ]);
 
   if (!imageUrl) return null;
   return <ImageOverlay url={imageUrl} bounds={bounds} />;

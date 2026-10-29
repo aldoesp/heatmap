@@ -142,3 +142,13 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE INDEX IF NOT EXISTS idx_obs_scan ON observations(scan_id);
 CREATE INDEX IF NOT EXISTS idx_obs_bssid ON observations(bssid);
 CREATE INDEX IF NOT EXISTS idx_obs_ssid_band ON observations(ssid, band);
+
+CREATE TABLE IF NOT EXISTS ap_positions (
+  plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+  bssid TEXT NOT NULL,
+  x REAL NOT NULL,
+  y REAL NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (plan_id, bssid)
+);
+CREATE INDEX IF NOT EXISTS idx_ap_positions_plan ON ap_positions(plan_id);

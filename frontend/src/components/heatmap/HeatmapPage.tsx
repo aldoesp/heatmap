@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, ImageOverlay, CircleMarker, Tooltip, useMap } from 'react-leaflet';
+import {
+  MapContainer,
+  ImageOverlay,
+  CircleMarker,
+  Tooltip,
+  useMap,
+  useMapEvents,
+} from 'react-leaflet';
 import { Check, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, X } from 'lucide-react';
 import L from 'leaflet';
+import { useApPositions } from '../../hooks/useApPositions';
 import { usePlanImage } from '../../hooks/usePlanImage';
 import {
   createPolygon,
@@ -9,6 +17,7 @@ import {
   getHeatmap,
   getHeatmapSpeed,
   getNetworks,
+  listAccessPoints,
   listPolygons,
   updatePolygon,
 } from '../../lib/api';
@@ -23,20 +32,19 @@ import {
   type PolygonEditingState,
 } from './PolygonEditorLayer';
 import { ApiError, type HeatmapRow, type NetworkInfo, type SpeedHeatmapRow } from '../../types/api';
-import type { NormalizedCoord } from '../../lib/coords';
+import {
+  clampCoord,
+  dataToLatLng,
+  latlngToData,
+  type NormalizedCoord,
+} from '../../lib/coords';
+import { ApMarkersLayer } from '../scan/markers/ApMarkersLayer';
 import { isValidPolygon, polygonSelfIntersects } from '../../lib/polygon';
 import type { PlanPolygon } from '../../types/polygon';
 import { formatPercent, formatMbps } from '../../lib/format';
-import { average, RSSI_BANDS, rssiColor } from '../../lib/signal';
+import { average, RSSI_BANDS } from '../../lib/signal';
+import type { AccessPoint } from '../../types/plan';
 import { buildRssiMeshes, findUncoveredZones } from '../../lib/heatmapRssi';
-
-function speedColor(mbps: number): string {
-  if (mbps >= 50) return '#10b981';
-  if (mbps >= 20) return '#a3e635';
-  if (mbps >= 5) return '#f59e0b';
-  if (mbps >= 1) return '#f97316';
-  return '#ef4444';
-}
 
 function MapSetup({
   width,
@@ -123,6 +131,29 @@ function ZoomControl() {
   );
 }
 
+function ApPlacementClickCatcher({
+  active,
+  onPlace,
+}: {
+  active: boolean;
+  onPlace: (latlng: L.LatLng) => void;
+}) {
+  useMapEvents({
+    click(event) {
+      if (!active) return;
+      const target = event.originalEvent.target;
+      if (
+        target instanceof Element &&
+        target.closest('button, a, input, select, textarea, .leaflet-control')
+      ) {
+        return;
+      }
+      onPlace(event.latlng);
+    },
+  });
+  return null;
+}
+
 /* La bande RSSI est centralisée dans lib/signal.ts, avec rssiColor et les
    mêmes seuils que le backend (rssiToLevel). */
 
@@ -173,6 +204,11 @@ const BAND_TABS: Array<{ value: BandChoice; label: string }> = [
 
 export function HeatmapPage() {
   const { plan, imageUrl, loading: planLoading, imageMissing, error: planError } = usePlanImage();
+  const { positions: apPositions, save: saveApPosition } = useApPositions(
+    plan?.id ?? null
+  );
+  const [placingAp, setPlacingAp] = useState(false);
+  const [showEstimated, setShowEstimated] = useState(true);
   const [networks, setNetworks] = useState<NetworkInfo[]>([]);
   const [ssid, setSsid] = useState('');
   const [bssid, setBssid] = useState('');
@@ -182,6 +218,10 @@ export function HeatmapPage() {
   const [onlyConnected, setOnlyConnected] = useState(true);
   const [rows, setRows] = useState<HeatmapRow[]>([]);
   const [speedRows, setSpeedRows] = useState<SpeedHeatmapRow[]>([]);
+  const [accessPoints, setAccessPoints] = useState<{
+    planId: string;
+    items: AccessPoint[];
+  } | null>(null);
   const [metric, setMetric] = useState<'rssi' | 'speed'>('rssi');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -210,6 +250,7 @@ export function HeatmapPage() {
   }, []);
 
   const toggleDrawing = useCallback(() => {
+    setPlacingAp(false);
     setPolygonError(null);
     setPendingDeleteId(null);
     if (drawing) {
@@ -445,6 +486,22 @@ export function HeatmapPage() {
     };
   }, [plan]);
 
+  // AP placés sur le plan (page Import) : seuls repères affichés sur la carte.
+  useEffect(() => {
+    if (!plan) return;
+    let alive = true;
+    listAccessPoints(plan.id)
+      .then((aps) => {
+        if (alive) setAccessPoints({ planId: plan.id, items: aps });
+      })
+      .catch(() => {
+        /* AP indisponibles : la heatmap reste affichable sans eux */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [plan]);
+
   const load = useCallback(async () => {
     const requestId = loadRequestRef.current + 1;
     loadRequestRef.current = requestId;
@@ -547,6 +604,42 @@ export function HeatmapPage() {
     [showingSpeed, rows, plan, visiblePolygons]
   );
 
+  const displayedBssid = useMemo(() => {
+    if (bssid) return bssid;
+    const visible = [
+      ...new Set((rssiMeshModel?.meshes ?? []).map((mesh) => mesh.scope.bssid)),
+    ];
+    return visible.length === 1 ? visible[0] : null;
+  }, [bssid, rssiMeshModel]);
+
+  const selectedApPositions = useMemo(() => {
+    if (!displayedBssid) return [];
+    const target = displayedBssid.trim().toLowerCase();
+    return apPositions.filter(
+      (position) => position.bssid.trim().toLowerCase() === target
+    );
+  }, [apPositions, displayedBssid]);
+
+  const handlePlaceAp = useCallback(
+    (latlng: L.LatLng) => {
+      if (!plan || !displayedBssid) return;
+      const clamped = clampCoord(latlngToData(latlng, plan.width, plan.height));
+      saveApPosition(displayedBssid, clamped.x, clamped.y).catch(
+        () => undefined
+      );
+    },
+    [plan, displayedBssid, saveApPosition]
+  );
+
+  const handleApDragEnd = useCallback(
+    (draggedBssid: string, latlng: L.LatLng) => {
+      if (!plan) return;
+      const clamped = clampCoord(latlngToData(latlng, plan.width, plan.height));
+      saveApPosition(draggedBssid, clamped.x, clamped.y).catch(() => undefined);
+    },
+    [plan, saveApPosition]
+  );
+
   // Retour discret sur les zones présentes sur le plan mais non couvertes :
   // `findUncoveredZones` ne remonte que les zones réellement sans triangle
   // (status + skipped[].polygonId) et renvoie une liste vide quand tout va
@@ -622,7 +715,12 @@ export function HeatmapPage() {
   const visibleCount = showingSpeed ? speedRows.length : rows.length;
   const activeBands = showingSpeed ? SPEED_BANDS : RSSI_BANDS;
   const activeLabels = showingSpeed ? SPEED_LABELS : RSSI_LABELS;
+  const estimatedColor = RSSI_BANDS[0]?.color ?? '#10b981';
+  const showEstimatedControls =
+    !showingSpeed && selectedApPositions.length > 0;
   const isEmpty = showingSpeed ? speedRows.length === 0 : rows.length === 0;
+  const visibleAccessPoints =
+    accessPoints?.planId === plan.id ? accessPoints.items : [];
 
   const emptyMessage = showingSpeed
     ? 'Aucune mesure de débit : configure un serveur iperf3 dans Paramètres, puis effectue des scans.'
@@ -811,6 +909,25 @@ export function HeatmapPage() {
               {drawing ? 'Quitter le dessin' : 'Dessiner une zone'}
             </button>
 
+            {displayedBssid && (
+              <button
+                type="button"
+                aria-pressed={placingAp}
+                onClick={() => setPlacingAp((prev) => !prev)}
+                disabled={drawing || !!editing || polygonBusy}
+                title={`Placer l’AP ${displayedBssid}`}
+                className={[
+                  'inline-flex items-center gap-2 h-11 px-4 rounded-xl border text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  placingAp
+                    ? 'bg-accent-soft text-accent border-accent-border'
+                    : 'text-text-dim border-glass-border-soft hover:text-text',
+                ].join(' ')}
+              >
+                <LocateFixed size={16} strokeWidth={1.75} aria-hidden />
+                Placer l'AP
+              </button>
+            )}
+
             {drawing && (
               <>
                 <button
@@ -988,6 +1105,10 @@ export function HeatmapPage() {
                 registerRecenter={registerRecenter}
               />
               <ZoomControl />
+              <ApPlacementClickCatcher
+                active={placingAp && !drawing && !editing}
+                onPlace={handlePlaceAp}
+              />
               <ImageOverlay url={imageUrl} bounds={bounds} />
               {/* Champ interpolé sous les points de mesure. Le RSSI utilise
                   Delaunay + barycentrique, contraint aux zones ; seul le débit
@@ -1011,49 +1132,45 @@ export function HeatmapPage() {
                   height={plan.height}
                   bounds={bounds}
                   bands={RSSI_BANDS}
+                  apPositions={apPositions}
+                  polygons={visiblePolygons}
+                  showEstimated={showEstimated}
                 />
               )}
-              {!showingSpeed && bestPerPoint.map((r) => (
+              {/* Les points de mesure ne sont pas affichés : seuls les AP
+                  ajoutés au plan servent de repère sur la carte. */}
+              {visibleAccessPoints.map((ap) => (
                 <CircleMarker
-                  key={r.scan_point_id}
-                  center={[r.y * plan.height, r.x * plan.width]}
+                  key={ap.id}
+                  center={dataToLatLng(ap.x, ap.y, plan.width, plan.height)}
                   radius={6}
                   bubblingMouseEvents={false}
                   pathOptions={{
                     color: '#0d1319',
-                    fillColor: rssiColor(r.rssi),
+                    fillColor: '#10b981',
                     fillOpacity: 0.95,
                     weight: 1.5,
                   }}
                 >
-                  <Tooltip>
-                    {r.ssid ?? '(réseau masqué)'} · {r.bssid_name}
-                    <br />
-                    {r.rssi} dBm · x {formatPercent(r.x)} · y {formatPercent(r.y)}
+                  <Tooltip
+                    permanent
+                    direction="right"
+                    offset={[8, 0]}
+                    className="heatmap-ap-label"
+                  >
+                    {ap.name}
                   </Tooltip>
                 </CircleMarker>
               ))}
-              {showingSpeed && speedRows.map((r) => {
-                const mbps = r.speed_bps / 1_000_000;
-                return (
-                  <CircleMarker
-                    key={r.scan_point_id}
-                    center={[r.y * plan.height, r.x * plan.width]}
-                    radius={6}
-                    bubblingMouseEvents={false}
-                    pathOptions={{
-                      color: '#0d1319',
-                      fillColor: speedColor(mbps),
-                      fillOpacity: 0.95,
-                      weight: 1.5,
-                    }}
-                  >
-                    <Tooltip>
-                      {formatMbps(r.speed_bps)} · x {formatPercent(r.x)} · y {formatPercent(r.y)}
-                    </Tooltip>
-                  </CircleMarker>
-                );
-              })}
+              {selectedApPositions.length > 0 && (
+                <ApMarkersLayer
+                  positions={selectedApPositions}
+                  width={plan.width}
+                  height={plan.height}
+                  draggable={placingAp}
+                  onDragEnd={handleApDragEnd}
+                />
+              )}
               <PolygonEditorLayer
                 width={plan.width}
                 height={plan.height}
@@ -1106,6 +1223,50 @@ export function HeatmapPage() {
                 {activeLabels[bandKey(bandDef.min)]}
               </span>
             ))}
+            {showEstimatedControls && (
+              <>
+                <span className="inline-flex items-center gap-1.5 text-[12px] text-text-dim font-mono">
+                  <span
+                    className="inline-block w-3 h-3 rounded-full border border-white/20"
+                    style={{
+                      backgroundImage: `repeating-conic-gradient(${estimatedColor} 0% 25%, transparent 0% 50%)`,
+                      backgroundSize: '6px 6px',
+                    }}
+                    aria-hidden
+                  />
+                  estimé
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={showEstimated}
+                  onClick={() => setShowEstimated((prev) => !prev)}
+                  className="inline-flex items-center gap-2 text-[12px] text-text-dim font-mono rounded-md cursor-pointer select-none transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                >
+                  <span
+                    className={[
+                      'relative inline-flex h-4 w-7 items-center rounded-full border transition-colors',
+                      showEstimated
+                        ? 'bg-accent-soft border-accent-border'
+                        : 'bg-white/5 border-glass-border-soft',
+                    ].join(' ')}
+                    aria-hidden
+                  >
+                    <span
+                      className={[
+                        'inline-block h-2.5 w-2.5 rounded-full transition-transform',
+                        showEstimated
+                          ? 'translate-x-[14px] bg-accent'
+                          : 'translate-x-[3px] bg-text-dim',
+                      ].join(' ')}
+                    />
+                  </span>
+                  <span className={showEstimated ? 'text-text' : undefined}>
+                    Afficher les zones estimées
+                  </span>
+                </button>
+              </>
+            )}
           </div>
 
           {/* Panneau de synthèse : l'état du parc en un coup d'œil. */}

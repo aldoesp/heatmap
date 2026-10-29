@@ -40,6 +40,7 @@ import {
   updatePolygon,
   deletePolygon,
 } from '../repositories/polygons.repository.js';
+import { listApPositionsByPlan, upsertApPosition, deleteApPosition } from '../repositories/apPositions.repository.js';
 
 const planNameFromFile = (originalname) =>
   path.parse(originalname).name.trim() || 'Plan';
@@ -415,6 +416,34 @@ export const patchPolygon = (req, res, next) => {
 export const removePolygon = (req, res, next) => {
   if (!deletePolygon(req.params.polygonId)) {
     return next(new AppError('Zone introuvable.', 404));
+  }
+  res.status(204).end();
+};
+
+
+export const getApPositions = (req, res, next) => {
+  res.json(listApPositionsByPlan(req.params.id));
+};
+
+export const putApPosition = (req, res, next) => {
+  const plan = findPlanById(req.params.id);
+  if (!plan) return next(new AppError('Plan introuvable.', 404));
+  const bssid = String(req.params.bssid || '').trim().toLowerCase();
+  if (!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(bssid)) {
+    return next(new AppError('BSSID invalide.', 400));
+  }
+  const x = Number(req.body?.x);
+  const y = Number(req.body?.y);
+  if (!Number.isFinite(x) || x < 0 || x > 1 || !Number.isFinite(y) || y < 0 || y > 1) {
+    return next(new AppError('Coordonnées invalides.', 400));
+  }
+  res.json(upsertApPosition({ plan_id: plan.id, bssid, x, y }));
+};
+
+export const removeApPosition = (req, res, next) => {
+  const bssid = String(req.params.bssid || '').trim().toLowerCase();
+  if (!deleteApPosition(req.params.id, bssid)) {
+    return next(new AppError('Position introuvable.', 404));
   }
   res.status(204).end();
 };

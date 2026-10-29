@@ -54,6 +54,21 @@ export interface Triangle {
   c: GeometryPoint;
   /** Aire doublée, toujours positive après orientation canonique. */
   area2: number;
+  /** Vrai si le plus long côté du triangle <= seuil de support. */
+  supported: boolean;
+}
+
+/**
+ * Grille spatiale régulière couvrant le plan. Chaque cellule contient les
+ * indices des triangles dont la boîte englobante touche la cellule.
+ */
+export interface TriangleSpatialGrid {
+  columns: number;
+  rows: number;
+  cellWidth: number;
+  cellHeight: number;
+  /** Indexée par `row * columns + column`, chaque entrée triée par index. */
+  cells: number[][];
 }
 
 export interface InterpolationMesh {
@@ -62,8 +77,16 @@ export interface InterpolationMesh {
   height: number;
   points: GeometryPoint[];
   triangles: Triangle[];
+  /**
+   * Index construit une fois avec le maillage. Optionnel pour les maillages
+   * construits hors de `triangulateRssi` ; `sampleTriangleMesh` retombe alors
+   * sur le parcours complet.
+   */
+  spatialGrid?: TriangleSpatialGrid;
   /** Zone de délimitation associée, si le maillage a été contraint. */
   polygonId?: string | null;
+  /** Seuil (px) au-delà duquel un triangle est considéré non supporté. */
+  supportThresholdPx: number;
 }
 
 /** Point de requête exprimé dans le repère pixel du plan. */
@@ -143,6 +166,7 @@ export type SampleResult =
       lambdaB: number;
       lambdaC: number;
       rssi: number;
+      supported: boolean;
     }
   | {
       status: 'OUTSIDE';
@@ -353,7 +377,10 @@ function coordinateKey(x: number, y: number): string {
  * Les mesures invalides sont écartées avec un diagnostic. Un mélange de
  * périmètres est une erreur globale et ne produit aucun triangle partiel.
  */
-export function triangulateRssi(input: TriangulationInput): TriangulationResult {
+export function triangulateRssi(
+  input: TriangulationInput,
+  options?: { supportFactor?: number }
+): TriangulationResult {
   const scopeIssues = validateScope(input);
   if (scopeIssues.length > 0) {
     return { status: 'INVALID_INPUT', issues: scopeIssues };
@@ -442,6 +469,8 @@ export function triangulateRssi(input: TriangulationInput): TriangulationResult 
   );
   const planArea = input.plan.width * input.plan.height;
   const epsilonArea = AREA_FACTOR * Math.max(1, planArea);
+  const supportFactor = options?.supportFactor ?? 3;
+  const supportThresholdPx = supportFactor * medianNearestNeighborDistancePx(points);
   const triangles: Triangle[] = [];
 
   for (let index = 0; index < delaunay.triangles.length; index += 3) {
@@ -465,12 +494,18 @@ export function triangulateRssi(input: TriangulationInput): TriangulationResult 
       area2 = -area2;
     }
 
+    const sideA = Math.hypot(second.xPx - a.xPx, second.yPx - a.yPx);
+    const sideB = Math.hypot(third.xPx - second.xPx, third.yPx - second.yPx);
+    const sideC = Math.hypot(a.xPx - third.xPx, a.yPx - third.yPx);
+    const longestSide = Math.max(sideA, sideB, sideC);
+
     triangles.push({
       id: `t${triangles.length}`,
       a,
       b: second,
       c: third,
       area2,
+      supported: longestSide <= supportThresholdPx,
     });
   }
 
@@ -490,6 +525,12 @@ export function triangulateRssi(input: TriangulationInput): TriangulationResult 
       height: input.plan.height,
       points,
       triangles,
+      spatialGrid: buildTriangleSpatialGrid(
+        triangles,
+        input.plan.width,
+        input.plan.height
+      ),
+      supportThresholdPx,
     },
     dropped,
   };
@@ -727,6 +768,99 @@ export function interpolateBarycentric(
 }
 
 /**
+ * Construit la grille spatiale d'un ensemble de triangles. Le nombre de
+ * cellules suit la racine du nombre de triangles : la grille reste compacte
+ * tout en réduisant fortement le nombre de candidats par requête.
+ */
+export function buildTriangleSpatialGrid(
+  triangles: readonly Triangle[],
+  width: number,
+  height: number
+): TriangleSpatialGrid {
+  const columns = Math.max(1, Math.ceil(Math.sqrt(triangles.length)));
+  const rows = columns;
+  const safeWidth = Number.isFinite(width) && width > 0 ? width : 1;
+  const safeHeight = Number.isFinite(height) && height > 0 ? height : 1;
+  const cellWidth = safeWidth / columns;
+  const cellHeight = safeHeight / rows;
+  const cells: number[][] = Array.from(
+    { length: columns * rows },
+    () => []
+  );
+
+  const cellColumn = (xPx: number) =>
+    Math.min(columns - 1, Math.max(0, Math.floor(xPx / cellWidth)));
+  const cellRow = (yPx: number) =>
+    Math.min(rows - 1, Math.max(0, Math.floor(yPx / cellHeight)));
+
+  triangles.forEach((triangle, index) => {
+    const minX = Math.min(
+      triangle.a.xPx,
+      triangle.b.xPx,
+      triangle.c.xPx
+    );
+    const maxX = Math.max(
+      triangle.a.xPx,
+      triangle.b.xPx,
+      triangle.c.xPx
+    );
+    const minY = Math.min(
+      triangle.a.yPx,
+      triangle.b.yPx,
+      triangle.c.yPx
+    );
+    const maxY = Math.max(
+      triangle.a.yPx,
+      triangle.b.yPx,
+      triangle.c.yPx
+    );
+
+    const minColumn = cellColumn(minX);
+    const maxColumn = cellColumn(maxX);
+    const minRow = cellRow(minY);
+    const maxRow = cellRow(maxY);
+
+    for (let row = minRow; row <= maxRow; row += 1) {
+      for (let column = minColumn; column <= maxColumn; column += 1) {
+        cells[row * columns + column].push(index);
+      }
+    }
+  });
+
+  return { columns, rows, cellWidth, cellHeight, cells };
+}
+
+/**
+ * Échantillonne un triangle unique et ne renvoie `null` que si le point est
+ * hors du triangle.
+ */
+function sampleTriangleAt(
+  triangle: Triangle,
+  xPx: number,
+  yPx: number
+): SampleResult | null {
+  const result = interpolateBarycentric({ xPx, yPx }, triangle);
+
+  if (result.status === 'INTERPOLATED') {
+    return {
+      status: 'INTERPOLATED',
+      triangleId: triangle.id,
+      lambdaA: result.lambdaA,
+      lambdaB: result.lambdaB,
+      lambdaC: result.lambdaC,
+      rssi: result.rssi,
+      supported: triangle.supported,
+    };
+  }
+
+  if (result.status === 'INVALID') {
+    return { status: 'INVALID_QUERY', reason: result.reason };
+  }
+
+  return null;
+}
+
+/**
  * Échantillonne le maillage en coordonnées pixel plan (origine en bas).
  * Aucun point hors triangle ne reçoit de valeur : pas d'extrapolation.
  */
@@ -742,24 +876,50 @@ export function sampleTriangleMesh(
     };
   }
 
-  for (const triangle of mesh.triangles) {
-    const result = interpolateBarycentric({ xPx, yPx }, triangle);
+  const grid = mesh.spatialGrid;
+  if (grid) {
+    const column = Math.min(
+      grid.columns - 1,
+      Math.max(0, Math.floor(xPx / grid.cellWidth))
+    );
+    const row = Math.min(
+      grid.rows - 1,
+      Math.max(0, Math.floor(yPx / grid.cellHeight))
+    );
+    const candidates = grid.cells[row * grid.columns + column] ?? [];
 
-    if (result.status === 'INTERPOLATED') {
-      return {
-        status: 'INTERPOLATED',
-        triangleId: triangle.id,
-        lambdaA: result.lambdaA,
-        lambdaB: result.lambdaB,
-        lambdaC: result.lambdaC,
-        rssi: result.rssi,
-      };
+    for (const index of candidates) {
+      const triangle = mesh.triangles[index];
+      if (!triangle) continue;
+      const result = sampleTriangleAt(triangle, xPx, yPx);
+      if (result) return result;
     }
-
-    if (result.status === 'INVALID') {
-      return { status: 'INVALID_QUERY', reason: result.reason };
+  } else {
+    for (const triangle of mesh.triangles) {
+      const result = sampleTriangleAt(triangle, xPx, yPx);
+      if (result) return result;
     }
   }
 
   return { status: 'OUTSIDE', rssi: null };
+}
+
+export function medianNearestNeighborDistancePx(points: GeometryPoint[]): number {
+  if (points.length < 2) return 0;
+  const nearest: number[] = [];
+  for (let i = 0; i < points.length; i += 1) {
+    let min = Infinity;
+    for (let j = 0; j < points.length; j += 1) {
+      if (i === j) continue;
+      const d = Math.hypot(points[i].xPx - points[j].xPx, points[i].yPx - points[j].yPx);
+      if (d < min) min = d;
+    }
+    nearest.push(min);
+  }
+  nearest.sort((a, b) => a - b);
+  const mid = Math.floor(nearest.length / 2);
+  if (nearest.length % 2 === 0) {
+    return (nearest[mid - 1] + nearest[mid]) / 2;
+  }
+  return nearest[mid];
 }

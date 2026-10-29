@@ -111,6 +111,23 @@
   transform: translate(-50%, -50%);
 }
 
+/* Étiquettes des AP placés sur le plan (heatmap) */
+.heatmap-ap-label {
+  background: rgba(11, 15, 20, 0.82);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: 6px;
+  box-shadow: none;
+  color: #e6edf3;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+}
+
+.heatmap-ap-label::before {
+  display: none;
+}
+
 /* Étiquettes « Zone N » et poignées de sommets des zones de délimitation */
 .polygon-zone-label {
   background: rgba(11, 15, 20, 0.78);

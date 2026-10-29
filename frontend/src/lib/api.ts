@@ -1,5 +1,6 @@
 import {
   ApiError,
+  type GatewayHeatmapRow,
   type HeatmapRow,
   type NetworkInfo,
   type PlanResponse,
@@ -7,9 +8,11 @@ import {
   type ScanDetailResponse,
   type ScanHistoryEntry,
   type ScanPointResponse,
+  type SimulationScenario,
   type SpeedHeatmapRow,
   type UploadPlanResponse,
 } from '../types/api';
+import type { RadioParams } from '../types/wifi';
 import type { AccessPoint } from '../types/plan';
 import type { PlanPolygon } from '../types/polygon';
 import type { NormalizedCoord } from './coords';
@@ -140,6 +143,21 @@ export async function deletePlan(id: string): Promise<void> {
   });
 }
 
+/** Enregistre (ou remplace) l'échelle du plan, en mètres par pixel. */
+export async function calibratePlan(
+  id: string,
+  metersPerPixel: number,
+): Promise<PlanResponse> {
+  return apiFetch<PlanResponse>(
+    `/api/v1/plans/${encodeURIComponent(id)}/calibration`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metersPerPixel }),
+    },
+  );
+}
+
 /* ==========================================================================
    Points d'accès
    ========================================================================== */
@@ -252,6 +270,67 @@ export async function deletePolygon(polygonId: string): Promise<void> {
 }
 
 /* ==========================================================================
+   Scénarios de simulation (copie indépendante d'un AP réel)
+   ========================================================================== */
+
+export async function listSimulationScenarios(
+  planId: string,
+): Promise<SimulationScenario[]> {
+  return apiFetch<SimulationScenario[]>(
+    `/api/v1/simulation-scenarios?plan_id=${encodeURIComponent(planId)}`,
+  );
+}
+
+export async function createSimulationScenario(input: {
+  plan_id: string;
+  sourceAccessPointId: string;
+  name?: string;
+  radio: RadioParams;
+}): Promise<SimulationScenario> {
+  return apiFetch<SimulationScenario>('/api/v1/simulation-scenarios', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateSimulationScenario(
+  id: string,
+  patch: {
+    name?: string;
+    currentX?: number;
+    currentY?: number;
+    radio?: RadioParams;
+  },
+): Promise<SimulationScenario> {
+  return apiFetch<SimulationScenario>(
+    `/api/v1/simulation-scenarios/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    },
+  );
+}
+
+/** Restaure la position et la radio initiales du scénario (jamais l'AP réel). */
+export async function resetSimulationScenario(
+  id: string,
+): Promise<SimulationScenario> {
+  return apiFetch<SimulationScenario>(
+    `/api/v1/simulation-scenarios/${encodeURIComponent(id)}/reset`,
+    { method: 'POST' },
+  );
+}
+
+export async function deleteSimulationScenario(id: string): Promise<void> {
+  await apiFetch<void>(
+    `/api/v1/simulation-scenarios/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/* ==========================================================================
    Relevés Wi-Fi
    ========================================================================== */
 
@@ -333,7 +412,9 @@ export async function getHeatmap(
   const params = new URLSearchParams();
   if (filter?.ssid) params.set('ssid', filter.ssid);
   if (filter?.bssid) params.set('bssid', filter.bssid);
-  if (filter?.connected) params.set('connected', '1');
+  if (filter?.connected !== undefined) {
+    params.set('connected', filter.connected ? '1' : '0');
+  }
   if (filter?.band) params.set('band', filter.band);
   const qs = params.toString();
   return apiFetch<HeatmapRow[]>(
@@ -344,6 +425,12 @@ export async function getHeatmap(
 export async function getHeatmapSpeed(planId: string): Promise<SpeedHeatmapRow[]> {
   return apiFetch<SpeedHeatmapRow[]>(
     `/api/v1/plans/${encodeURIComponent(planId)}/heatmap-speed`
+  );
+}
+
+export async function getHeatmapGateway(planId: string): Promise<GatewayHeatmapRow[]> {
+  return apiFetch<GatewayHeatmapRow[]>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/heatmap-gateway`
   );
 }
 
@@ -474,4 +561,70 @@ export async function deleteApMapping(mappingId: string): Promise<void> {
 export function exportCsvUrl(planId: string): string {
   const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
   return `${base}/api/v1/plans/${encodeURIComponent(planId)}/export.csv`;
+}
+
+/** URL de téléchargement de l'export complet des données (base + plans). */
+export function exportAllUrl(): string {
+  const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
+  return `${base}/api/v1/export`;
+}
+
+export async function importCsvSurvey(file: File, options: { name?: string } = {}): Promise<{ planId: string; surveyId: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  if (options.name) form.append('name', options.name);
+  return apiFetch<{ planId: string; surveyId: string }>('/api/v1/import/csv', {
+    method: 'POST',
+    body: form,
+  });
+}
+
+
+export interface ApPositionDto {
+  bssid: string;
+  x: number;
+  y: number;
+}
+
+interface ApPositionRow {
+  plan_id: string;
+  bssid: string;
+  x: number;
+  y: number;
+  updated_at: string;
+}
+
+function toApPosition(row: ApPositionRow): ApPositionDto {
+  return { bssid: row.bssid, x: row.x, y: row.y };
+}
+
+export async function fetchApPositions(planId: string): Promise<ApPositionDto[]> {
+  const rows = await apiFetch<ApPositionRow[]>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/aps`
+  );
+  return rows.map(toApPosition);
+}
+
+export async function saveApPosition(
+  planId: string,
+  bssid: string,
+  x: number,
+  y: number
+): Promise<ApPositionDto> {
+  const row = await apiFetch<ApPositionRow>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/aps/${encodeURIComponent(bssid)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x, y }),
+    }
+  );
+  return toApPosition(row);
+}
+
+export async function removeApPosition(planId: string, bssid: string): Promise<void> {
+  await apiFetch<void>(
+    `/api/v1/plans/${encodeURIComponent(planId)}/aps/${encodeURIComponent(bssid)}`,
+    { method: 'DELETE' }
+  );
 }

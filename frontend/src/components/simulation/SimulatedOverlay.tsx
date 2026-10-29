@@ -48,11 +48,12 @@ export function SimulatedOverlay({
   );
 
   // Calcul RF pur (réutilise le moteur existant, aucune fonction dupliquée).
-  const grid = useMemo(() => {
+  const startTime = useRef(0);
+  const grid = useMemo(() => computeHeatmapGrid(surface, resolution, ap, radio, antenna), [surface, resolution, ap, radio, antenna]);
+  useEffect(() => {
     const t0 = performance.now();
-    const result = computeHeatmapGrid(surface, resolution, ap, radio, antenna);
-    onComputeTiming?.(performance.now() - t0);
-    return result;
+    onComputeTiming?.(t0 - startTime.current);
+    startTime.current = t0;
   }, [surface, resolution, ap, radio, antenna, onComputeTiming]);
 
   useEffect(() => {
