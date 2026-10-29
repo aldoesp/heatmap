@@ -569,6 +569,16 @@ export function exportAllUrl(): string {
   return `${base}/api/v1/export`;
 }
 
+export async function importCsvSurvey(file: File, options: { name?: string } = {}): Promise<{ planId: string; surveyId: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  if (options.name) form.append('name', options.name);
+  return apiFetch<{ planId: string; surveyId: string }>('/api/v1/import/csv', {
+    method: 'POST',
+    body: form,
+  });
+}
+
 
 export interface ApPositionDto {
   bssid: string;

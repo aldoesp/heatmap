@@ -12,6 +12,8 @@ interface ApMarkersLayerProps {
   positions: ApPosition[];
   width: number;
   height: number;
+  draggable?: boolean;
+  onDragEnd?: (bssid: string, latlng: L.LatLng) => void;
 }
 
 function apIcon() {
@@ -24,7 +26,13 @@ function apIcon() {
   });
 }
 
-export function ApMarkersLayer({ positions, width, height }: ApMarkersLayerProps) {
+export function ApMarkersLayer({
+  positions,
+  width,
+  height,
+  draggable = false,
+  onDragEnd,
+}: ApMarkersLayerProps) {
   const icon = apIcon();
   return (
     <>
@@ -34,6 +42,20 @@ export function ApMarkersLayer({ positions, width, height }: ApMarkersLayerProps
           position={[ap.y * height, ap.x * width]}
           icon={icon}
           title={ap.bssid}
+          draggable={draggable}
+          autoPan={draggable}
+          bubblingMouseEvents={false}
+          keyboard={false}
+          eventHandlers={
+            onDragEnd
+              ? {
+                  dragend: (event) => {
+                    const marker = event.target as L.Marker;
+                    onDragEnd(ap.bssid, marker.getLatLng());
+                  },
+                }
+              : undefined
+          }
         />
       ))}
     </>

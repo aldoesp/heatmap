@@ -8,8 +8,10 @@ import {
   sampleTriangleMesh,
   triangulateRssi,
   type GeometryPoint,
+  type InterpolationMesh,
   type InterpolationScope,
   type RssiMeasurement,
+  type SampleResult,
   type TriangleVertices,
   type TriangulationInput,
   type TriangulationResult,
@@ -82,6 +84,34 @@ function expectReady(result: TriangulationResult) {
     throw new Error('Statut inattendu : le maillage devrait être READY.');
   }
   return result;
+}
+
+function sampleTriangleMeshLegacy(
+  mesh: InterpolationMesh,
+  xPx: number,
+  yPx: number
+): SampleResult {
+  for (const triangle of mesh.triangles) {
+    const result = interpolateBarycentric({ xPx, yPx }, triangle);
+
+    if (result.status === 'INTERPOLATED') {
+      return {
+        status: 'INTERPOLATED',
+        triangleId: triangle.id,
+        lambdaA: result.lambdaA,
+        lambdaB: result.lambdaB,
+        lambdaC: result.lambdaC,
+        rssi: result.rssi,
+        supported: triangle.supported,
+      };
+    }
+
+    if (result.status === 'INVALID') {
+      return { status: 'INVALID_QUERY', reason: result.reason };
+    }
+  }
+
+  return { status: 'OUTSIDE', rssi: null };
 }
 
 describe('triangulation RSSI', () => {
@@ -595,6 +625,32 @@ describe('support des triangles', () => {
     assert.ok(withoutFar.length > 0);
     for (const triangle of withoutFar) {
       assert.equal(triangle.supported, true);
+    }
+  });
+});
+
+describe('grille spatiale des triangles', () => {
+  it('donne exactement le même résultat que le parcours complet sur 1000 points aléatoires', () => {
+    const result = expectReady(
+      triangulateRssi(makeInput(gridMeasurements(6, 0.05, 0.1)))
+    );
+    assert.ok(result.mesh.spatialGrid);
+    assert.ok(result.mesh.spatialGrid.cells.length > 0);
+
+    let state = 0x12345678;
+    const random = () => {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      return state / 0x1_0000_0000;
+    };
+
+    for (let index = 0; index < 1000; index += 1) {
+      const xPx = -20 + random() * 140;
+      const yPx = -20 + random() * 140;
+      assert.deepEqual(
+        sampleTriangleMesh(result.mesh, xPx, yPx),
+        sampleTriangleMeshLegacy(result.mesh, xPx, yPx),
+        `point #${index} (${xPx}, ${yPx})`
+      );
     }
   });
 });

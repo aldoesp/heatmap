@@ -4,6 +4,7 @@ import {
   exportCsvUrl,
   getHeatmap,
   getHistory,
+  importCsvSurvey,
   listApMappings,
   listPlans,
   renamePlan,
@@ -137,6 +138,19 @@ export function useSurveysLibrary() {
     }
   }, []);
 
+  const importCsv = useCallback(async (file: File, name?: string) => {
+    setState((s) => ({ ...s, importing: true }));
+    try {
+      const result = await importCsvSurvey(file, { name });
+      await load();
+      setState((s) => ({ ...s, importing: false }));
+      return result;
+    } catch (err) {
+      setState((s) => ({ ...s, importing: false }));
+      throw err instanceof Error ? err : new Error('Import CSV impossible.');
+    }
+  }, [load]);
+
   const rename = useCallback(async (id: string, name: string) => {
     setState((s) => ({ ...s, busyId: id }));
     try {
@@ -184,5 +198,5 @@ export function useSurveysLibrary() {
     location.hash = `#/${section}`;
   }, []);
 
-  return { ...state, load, importImage, rename, remove, exportCsv, openSection };
+  return { ...state, load, importImage, importCsv, rename, remove, exportCsv, openSection };
 }

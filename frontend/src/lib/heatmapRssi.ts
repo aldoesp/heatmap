@@ -7,6 +7,7 @@ import {
   type PlanPixelPoint,
 } from './polygon.js';
 import {
+  buildTriangleSpatialGrid,
   triangulateRssi,
   type Band,
   type InterpolationMesh,
@@ -272,6 +273,11 @@ export function buildRssiMeshes(
         ...result.mesh,
         polygonId: constraint.id,
         triangles,
+        spatialGrid: buildTriangleSpatialGrid(
+          triangles,
+          result.mesh.width,
+          result.mesh.height
+        ),
       });
     }
   }
