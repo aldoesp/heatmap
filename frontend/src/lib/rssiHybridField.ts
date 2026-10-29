@@ -13,7 +13,7 @@ export type HybridSample =
   | { status: 'EXTRAPOLATED'; rssi: number; confidence: number }
   | { status: 'NO_DATA'; rssi: null };
 
-interface HybridField {
+export interface HybridField {
   sample(xPx: number, yPx: number): HybridSample;
   model: PathLossModel | null;
 }

@@ -1,4 +1,5 @@
 import { imagePixelToPlanPixel, planPixelToImagePixel } from './coords.js';
+import type { HybridField } from './rssiHybridField.js';
 import type { RssiBand } from './signal.js';
 import {
   prepareBarycentricTriangle,
@@ -183,6 +184,118 @@ export function rasterizeRssiMeshes(
     data[offset + 2] = rgb[2];
     data[offset + 3] = maxAlpha;
     coveredPixels += 1;
+  }
+
+  return { width, height, data, coveredPixels };
+}
+
+/**
+ * Rasterise le champ hybride (modèle de propagation + résidus interpolés)
+ * uniquement à l'intérieur du masque fourni.
+ *
+ * Les pixels sont échantillonnés en leur centre (`x + 0.5`, `y + 0.5`) puis
+ * convertis dans le repère du plan. Les valeurs extrapolées peuvent être
+ * masquées via `showEstimated`, auquel cas leur alpha reste nul.
+ */
+export function rasterizeRssiHybrid(
+  field: HybridField,
+  zoneMask: (xPx: number, yPx: number) => boolean,
+  planWidth: number,
+  planHeight: number,
+  imageWidth: number,
+  imageHeight: number,
+  bands: RssiBand[],
+  opacity = 0.75,
+  showEstimated = true
+): RssiRaster | null {
+  if (
+    !(planWidth > 0) ||
+    !(planHeight > 0) ||
+    !(imageWidth >= 2) ||
+    !(imageHeight >= 2)
+  ) {
+    return null;
+  }
+
+  const width = Math.round(imageWidth);
+  const height = Math.round(imageHeight);
+  const planXs = new Float64Array(width);
+  const planYs = new Float64Array(height);
+  for (let ix = 0; ix < width; ix += 1) {
+    planXs[ix] = imagePixelToPlanPixel(
+      ix + 0.5,
+      0,
+      planWidth,
+      planHeight,
+      width,
+      height
+    ).xPx;
+  }
+  for (let iy = 0; iy < height; iy += 1) {
+    planYs[iy] = imagePixelToPlanPixel(
+      0,
+      iy + 0.5,
+      planWidth,
+      planHeight,
+      width,
+      height
+    ).yPx;
+  }
+
+  const mask = new Uint8Array(width * height);
+  let minIx = width;
+  let maxIx = -1;
+  let minIy = height;
+  let maxIy = -1;
+
+  for (let iy = 0; iy < height; iy += 1) {
+    for (let ix = 0; ix < width; ix += 1) {
+      if (!zoneMask(planXs[ix], planYs[iy])) continue;
+      mask[iy * width + ix] = 1;
+      if (ix < minIx) minIx = ix;
+      if (ix > maxIx) maxIx = ix;
+      if (iy < minIy) minIy = iy;
+      if (iy > maxIy) maxIy = iy;
+    }
+  }
+
+  const data = new Uint8ClampedArray(width * height * 4);
+  const rgbBands = bands.map((band) => ({ min: band.min, rgb: hexToRgb(band.color) }));
+  const maxAlpha = Math.round(255 * clamp(opacity, 0, 1));
+  let coveredPixels = 0;
+
+  if (maxIx < minIx || maxIy < minIy) {
+    return { width, height, data, coveredPixels };
+  }
+
+  for (let iy = minIy; iy <= maxIy; iy += 1) {
+    for (let ix = minIx; ix <= maxIx; ix += 1) {
+      const index = iy * width + ix;
+      if (mask[index] === 0) continue;
+
+      const sample = field.sample(planXs[ix], planYs[iy]);
+      if (sample.status === 'NO_DATA') continue;
+
+      let alpha: number;
+      if (sample.status === 'INTERPOLATED') {
+        alpha = maxAlpha;
+      } else {
+        if (!showEstimated) continue;
+        const confidence = clamp(sample.confidence, 0, 1);
+        alpha = Math.round(maxAlpha * (0.4 + 0.6 * confidence));
+      }
+      if (alpha <= 0) continue;
+
+      const rgb = colorForValue(sample.rssi, rgbBands);
+      if (rgb === null) continue;
+
+      const offset = index * 4;
+      data[offset] = rgb[0];
+      data[offset + 1] = rgb[1];
+      data[offset + 2] = rgb[2];
+      data[offset + 3] = alpha;
+      coveredPixels += 1;
+    }
   }
 
   return { width, height, data, coveredPixels };

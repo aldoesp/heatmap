@@ -55,6 +55,27 @@ function makeInput(
   };
 }
 
+function gridMeasurements(
+  size: number,
+  step: number,
+  start: number
+): RssiMeasurement[] {
+  const measurements: RssiMeasurement[] = [];
+  for (let iy = 0; iy < size; iy += 1) {
+    for (let ix = 0; ix < size; ix += 1) {
+      measurements.push(
+        measurement(
+          `g${ix}-${iy}`,
+          start + ix * step,
+          start + iy * step,
+          -50 - ((ix + iy) % 20)
+        )
+      );
+    }
+  }
+  return measurements;
+}
+
 function expectReady(result: TriangulationResult) {
   assert.equal(result.status, 'READY');
   if (result.status !== 'READY') {
@@ -530,6 +551,50 @@ describe('audit de la variante numérique de rasterisation', () => {
           assert.equal(fast, null);
         }
       }
+    }
+  });
+});
+
+describe('support des triangles', () => {
+  it('marque tous les triangles d’une grille régulière comme supportés', () => {
+    const result = expectReady(
+      triangulateRssi(makeInput(gridMeasurements(4, 0.05, 0.1)))
+    );
+
+    assert.ok(result.mesh.triangles.length > 0);
+    for (const triangle of result.mesh.triangles) {
+      assert.equal(triangle.supported, true);
+    }
+  });
+
+  it('marque comme non supportés les triangles reliant un point très éloigné', () => {
+    const result = expectReady(
+      triangulateRssi(
+        makeInput([
+          ...gridMeasurements(4, 0.05, 0.1),
+          measurement('far', 0.95, 0.9, -90),
+        ])
+      )
+    );
+
+    const touchesFar = (triangle: (typeof result.mesh.triangles)[number]) =>
+      triangle.a.sourceId === 'far' ||
+      triangle.b.sourceId === 'far' ||
+      triangle.c.sourceId === 'far';
+
+    const withFar = result.mesh.triangles.filter(touchesFar);
+    const withoutFar = result.mesh.triangles.filter(
+      (triangle) => !touchesFar(triangle)
+    );
+
+    assert.ok(withFar.length > 0);
+    for (const triangle of withFar) {
+      assert.equal(triangle.supported, false);
+    }
+
+    assert.ok(withoutFar.length > 0);
+    for (const triangle of withoutFar) {
+      assert.equal(triangle.supported, true);
     }
   });
 });
