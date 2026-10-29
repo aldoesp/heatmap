@@ -1,24 +1,44 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
 
+function parseBssids(row) {
+  let bssids = row.bssids;
+  if (typeof bssids === 'string') {
+    try {
+      const parsed = JSON.parse(bssids);
+      if (Array.isArray(parsed)) {
+        bssids = parsed.map((v) => String(v));
+      }
+    } catch {
+      bssids = [];
+    }
+  }
+  if (!Array.isArray(bssids)) {
+    bssids = [];
+  }
+  return { ...row, bssids };
+}
+
 export function insertAccessPoint({ plan_id, name, x, y }) {
   const id = randomUUID();
   getDb()
     .prepare(
-      `INSERT INTO access_points (id, plan_id, name, x, y) VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO access_points (id, plan_id, name, x, y, bssids) VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .run(id, plan_id, name, x, y);
-  return findAccessPointById(id);
+    .run(id, plan_id, name, x, y, '[]');
+  return parseBssids(findAccessPointById(id));
 }
 
 export function findAccessPointById(id) {
-  return getDb().prepare('SELECT * FROM access_points WHERE id = ?').get(id) ?? null;
+  const row = getDb().prepare('SELECT * FROM access_points WHERE id = ?').get(id);
+  return row ? parseBssids(row) : null;
 }
 
 export function listAccessPointsByPlan(plan_id) {
   return getDb()
     .prepare('SELECT * FROM access_points WHERE plan_id = ? ORDER BY created_at ASC')
-    .all(plan_id);
+    .all(plan_id)
+    .map(parseBssids);
 }
 
 export function deleteAccessPoint(id) {
@@ -39,6 +59,13 @@ export function updateAccessPoint(id, patch) {
   if (patch.y !== undefined) {
     fields.push('y = ?');
     params.push(patch.y);
+  }
+  if (patch.bssids !== undefined) {
+    const bssidsValue = Array.isArray(patch.bssids)
+      ? JSON.stringify(patch.bssids)
+      : patch.bssids;
+    fields.push('bssids = ?');
+    params.push(bssidsValue);
   }
   if (fields.length === 0) return findAccessPointById(id);
   params.push(id);

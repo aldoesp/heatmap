@@ -1133,6 +1133,7 @@ export function HeatmapPage() {
                   bounds={bounds}
                   bands={RSSI_BANDS}
                   apPositions={apPositions}
+                  accessPoints={visibleAccessPoints}
                   polygons={visiblePolygons}
                   showEstimated={showEstimated}
                 />

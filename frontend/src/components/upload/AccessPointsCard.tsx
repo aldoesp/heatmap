@@ -10,6 +10,7 @@ interface AccessPointsCardProps {
   onTogglePlacing: () => void;
   onSelect: (id: string | null) => void;
   onChangeName: (id: string, name: string) => void;
+  onChangeBssids: (id: string, bssids: string[]) => void;
   onRemove: (id: string) => void;
 }
 
@@ -21,6 +22,7 @@ export function AccessPointsCard({
   onTogglePlacing,
   onSelect,
   onChangeName,
+  onChangeBssids,
   onRemove,
 }: AccessPointsCardProps) {
   return (
@@ -61,6 +63,7 @@ export function AccessPointsCard({
               hasDuplicateName={duplicateNames.has(ap.name.trim())}
               onSelect={(id) => onSelect(id)}
               onChangeName={onChangeName}
+              onChangeBssids={onChangeBssids}
               onRemove={onRemove}
             />
           ))}

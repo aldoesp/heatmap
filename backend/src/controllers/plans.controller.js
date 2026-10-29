@@ -19,6 +19,7 @@ import {
   listAccessPointsByPlan,
   deleteAccessPoint,
   updateAccessPoint,
+  findAccessPointById,
 } from '../repositories/accessPoints.repository.js';
 import {
   insertScanPoint,
@@ -177,6 +178,32 @@ export const patchAccessPoint = (req, res, next) => {
       }
       patch[key] = v;
     }
+  }
+  if (req.body?.bssids !== undefined) {
+    if (!Array.isArray(req.body.bssids) || req.body.bssids.length > 16) {
+      return next(new AppError('BSSID invalide (ex. 9e:05:d6:96:e8:30).', 400));
+    }
+    const normalized = [];
+    const seen = new Set();
+    for (const v of req.body.bssids) {
+      const b = String(v).trim().toLowerCase();
+      if (!BSSID_RE.test(b)) {
+        return next(new AppError('BSSID invalide (ex. 9e:05:d6:96:e8:30).', 400));
+      }
+      if (!seen.has(b)) {
+        seen.add(b);
+        normalized.push(b);
+      }
+    }
+    const ap = findAccessPointById(req.params.apId);
+    if (ap) {
+      const others = listAccessPointsByPlan(ap.plan_id).filter((a) => a.id !== req.params.apId);
+      const used = new Set(others.flatMap((a) => a.bssids || []));
+      if (normalized.some((b) => used.has(b))) {
+        return next(new AppError('Ce BSSID est déjà associé à un autre AP.', 409));
+      }
+    }
+    patch.bssids = normalized;
   }
   if (Object.keys(patch).length === 0) {
     return next(new AppError('Rien à mettre à jour.', 400));

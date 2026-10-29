@@ -42,6 +42,10 @@ function migrate(db) {
   if (!scans.includes('gateway_ip')) {
     db.exec('ALTER TABLE scans ADD COLUMN gateway_ip TEXT DEFAULT NULL');
   }
+  const accessPoints = columnsOf('access_points');
+  if (!accessPoints.includes('bssids')) {
+    db.exec('ALTER TABLE access_points ADD COLUMN bssids TEXT NOT NULL DEFAULT \'[]\'');
+  }
   if (!scans.includes('gateway_rtt_ms')) {
     db.exec('ALTER TABLE scans ADD COLUMN gateway_rtt_ms REAL DEFAULT NULL');
   }
