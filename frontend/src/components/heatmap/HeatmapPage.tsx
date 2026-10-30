@@ -45,6 +45,8 @@ import { formatPercent, formatMbps } from '../../lib/format';
 import { average, RSSI_BANDS } from '../../lib/signal';
 import type { AccessPoint } from '../../types/plan';
 import { buildRssiMeshes, findUncoveredZones } from '../../lib/heatmapRssi';
+import { useHeatmapColours } from '../../hooks/useHeatmapColours';
+import { buildColourLut, RSSI_MAX, RSSI_MIN, rssiToPosition } from '../../lib/heatmapColours';
 
 function MapSetup({
   width,
@@ -209,6 +211,8 @@ export function HeatmapPage() {
   );
   const [placingAp, setPlacingAp] = useState(false);
   const [showEstimated, setShowEstimated] = useState(true);
+  const { colours } = useHeatmapColours();
+  const rssiLut = useMemo(() => buildColourLut(colours), [colours]);
   const [networks, setNetworks] = useState<NetworkInfo[]>([]);
   const [ssid, setSsid] = useState('');
   const [bssid, setBssid] = useState('');
@@ -1133,8 +1137,10 @@ export function HeatmapPage() {
                   bounds={bounds}
                   bands={RSSI_BANDS}
                   apPositions={apPositions}
+                  accessPoints={visibleAccessPoints}
                   polygons={visiblePolygons}
                   showEstimated={showEstimated}
+                  lut={rssiLut}
                 />
               )}
               {/* Les points de mesure ne sont pas affichés : seuls les AP
@@ -1190,19 +1196,35 @@ export function HeatmapPage() {
           {/* Légende : barre segmentée par seuil + meilleur relevé, comme
               le bandeau « Primary Coverage » d'UniFi. */}
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-            <div className="flex h-3 rounded-full overflow-hidden border border-white/10 min-w-64 flex-1 max-w-120">
-              {activeBands
-                .slice()
-                .reverse()
-                .map((bandDef) => (
-                  <div
-                    key={bandKey(bandDef.min)}
-                    className="flex-1"
-                    style={{ backgroundColor: bandDef.color }}
-                    aria-hidden
-                  />
-                ))}
-            </div>
+            {showingSpeed ? (
+              <>
+                <div className="flex h-3 rounded-full overflow-hidden border border-white/10 min-w-64 flex-1 max-w-120">
+                  {activeBands
+                    .slice()
+                    .reverse()
+                    .map((bandDef) => (
+                      <div
+                        key={bandKey(bandDef.min)}
+                        className="flex-1"
+                        style={{ backgroundColor: bandDef.color }}
+                        aria-hidden
+                      />
+                    ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  className="h-3 rounded-full border border-white/10 min-w-64 flex-1 max-w-120"
+                  style={{
+                    backgroundImage: `linear-gradient(to right, ${colours.stops
+                      .map((s) => s.color)
+                      .join(', ')})`,
+                  }}
+                  aria-hidden
+                />
+              </>
+            )}
             <span className="text-[12px] text-text-dim font-mono">
               {showingSpeed ? 'Débit' : 'Signal'} · meilleur relevé{' '}
               <span className="text-text font-medium">
@@ -1210,6 +1232,13 @@ export function HeatmapPage() {
               </span>
             </span>
           </div>
+          {!showingSpeed && (
+            <div className="mt-1 flex items-center gap-4 text-[12px] text-text-dim font-mono">
+              <span>0 % ({RSSI_MIN} dBm)</span>
+              <span className="ml-auto">50 % ({RSSI_MIN + (RSSI_MAX - RSSI_MIN) / 2} dBm)</span>
+              <span className="ml-auto">100 % ({RSSI_MAX} dBm)</span>
+            </div>
+          )}
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
             {activeBands.map((bandDef) => (
               <span

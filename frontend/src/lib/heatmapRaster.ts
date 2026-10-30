@@ -1,6 +1,7 @@
 import { imagePixelToPlanPixel, planPixelToImagePixel } from './coords.js';
 import type { HybridField } from './rssiHybridField.js';
 import type { RssiBand } from './signal.js';
+import { lutColourForRssi } from './heatmapColours.js';
 import {
   prepareBarycentricTriangle,
   rssiAtPreparedTriangle,
@@ -72,6 +73,10 @@ function colorForValue(value: number, bands: Array<{ min: number; rgb: [number, 
   return null;
 }
 
+function isLut(palette: RssiBand[] | Uint8ClampedArray): palette is Uint8ClampedArray {
+  return palette instanceof Uint8ClampedArray;
+}
+
 /**
  * Rasterise uniquement les pixels couverts par au moins un triangle.
  *
@@ -87,7 +92,7 @@ export function rasterizeRssiMeshes(
   planHeight: number,
   imageWidth: number,
   imageHeight: number,
-  bands: RssiBand[],
+  palette: RssiBand[] | Uint8ClampedArray,
   opacity = 0.75
 ): RssiRaster | null {
   if (
@@ -111,7 +116,8 @@ export function rasterizeRssiMeshes(
   for (let iy = 0; iy < height; iy += 1) {
     planYs[iy] = imagePixelToPlanPixel(0, iy, planWidth, planHeight, width, height).yPx;
   }
-  const rgbBands = bands.map((band) => ({ min: band.min, rgb: hexToRgb(band.color) }));
+  const useLut = isLut(palette);
+  const rgbBands = useLut ? [] : (palette as RssiBand[]).map((band) => ({ min: band.min, rgb: hexToRgb(band.color) }));
 
   const triangles: IndexedTriangle[] = [];
   for (const mesh of meshes) {
@@ -168,22 +174,35 @@ export function rasterizeRssiMeshes(
   }
 
   const data = new Uint8ClampedArray(width * height * 4);
-  const maxAlpha = Math.round(255 * clamp(opacity, 0, 1));
+  const maxAlpha = useLut ? 0 : Math.round(255 * clamp(opacity, 0, 1));
   let coveredPixels = 0;
 
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (!Number.isFinite(value)) continue;
 
-    const rgb = colorForValue(value, rgbBands);
-    if (rgb === null) continue;
+    if (useLut) {
+      const lut = palette as Uint8ClampedArray;
+      const colour = lutColourForRssi(lut, value);
+      const offset = index * 4;
+      data[offset] = colour[0];
+      data[offset + 1] = colour[1];
+      data[offset + 2] = colour[2];
+      data[offset + 3] = colour[3];
+      if (colour[3] > 0) {
+        coveredPixels += 1;
+      }
+    } else {
+      const rgb = colorForValue(value, rgbBands);
+      if (rgb === null) continue;
 
-    const offset = index * 4;
-    data[offset] = rgb[0];
-    data[offset + 1] = rgb[1];
-    data[offset + 2] = rgb[2];
-    data[offset + 3] = maxAlpha;
-    coveredPixels += 1;
+      const offset = index * 4;
+      data[offset] = rgb[0];
+      data[offset + 1] = rgb[1];
+      data[offset + 2] = rgb[2];
+      data[offset + 3] = maxAlpha;
+      coveredPixels += 1;
+    }
   }
 
   return { width, height, data, coveredPixels };
@@ -204,7 +223,7 @@ export function rasterizeRssiHybrid(
   planHeight: number,
   imageWidth: number,
   imageHeight: number,
-  bands: RssiBand[],
+  palette: RssiBand[] | Uint8ClampedArray,
   opacity = 0.75,
   showEstimated = true
 ): RssiRaster | null {
@@ -260,8 +279,9 @@ export function rasterizeRssiHybrid(
   }
 
   const data = new Uint8ClampedArray(width * height * 4);
-  const rgbBands = bands.map((band) => ({ min: band.min, rgb: hexToRgb(band.color) }));
-  const maxAlpha = Math.round(255 * clamp(opacity, 0, 1));
+  const useLut = isLut(palette);
+  const rgbBands = useLut ? [] : (palette as RssiBand[]).map((band) => ({ min: band.min, rgb: hexToRgb(band.color) }));
+  const maxAlpha = useLut ? 0 : Math.round(255 * clamp(opacity, 0, 1));
   let coveredPixels = 0;
 
   if (maxIx < minIx || maxIy < minIy) {
@@ -276,25 +296,55 @@ export function rasterizeRssiHybrid(
       const sample = field.sample(planXs[ix], planYs[iy]);
       if (sample.status === 'NO_DATA') continue;
 
-      let alpha: number;
-      if (sample.status === 'INTERPOLATED') {
-        alpha = maxAlpha;
+      if (useLut) {
+        const lut = palette as Uint8ClampedArray;
+        const colour = lutColourForRssi(lut, sample.rssi);
+        if (colour[3] === 0) continue;
+
+        let alpha = colour[3];
+        if (sample.status === 'INTERPOLATED') {
+          // keep as is from LUT alpha? But LUT gives alpha from formula; also need to handle estimated
+          // "dans l'hybride, multiplie l'alpha par 0.4+0.6*confidence pour les pixels ESTIMATED comme aujourd'hui"
+          // LUT already includes alpha calculation; but requirement says "Si c'est une LUT, utilise lutColourForRssi (couleur et alpha viennent de la LUT, le param opacity est ignoré) ; dans l'hybride, multiplie l'alpha par 0.4+0.6*confidence pour les pixels ESTIMATED comme aujourd'hui."
+          // So for LUT in hybrid, base alpha comes from LUT, but ESTIMATED pixels get multiplied by 0.4+0.6*confidence
+        }
+
+        if (sample.status === 'INTERPOLATED') {
+          alpha = colour[3];
+        } else {
+          if (!showEstimated) continue;
+          const confidence = clamp(sample.confidence, 0, 1);
+          alpha = Math.round(colour[3] * (0.4 + 0.6 * confidence));
+        }
+        if (alpha <= 0) continue;
+
+        const offset = index * 4;
+        data[offset] = colour[0];
+        data[offset + 1] = colour[1];
+        data[offset + 2] = colour[2];
+        data[offset + 3] = Math.max(0, Math.min(255, alpha));
+        coveredPixels += 1;
       } else {
-        if (!showEstimated) continue;
-        const confidence = clamp(sample.confidence, 0, 1);
-        alpha = Math.round(maxAlpha * (0.4 + 0.6 * confidence));
+        let alpha: number;
+        if (sample.status === 'INTERPOLATED') {
+          alpha = maxAlpha;
+        } else {
+          if (!showEstimated) continue;
+          const confidence = clamp(sample.confidence, 0, 1);
+          alpha = Math.round(maxAlpha * (0.4 + 0.6 * confidence));
+        }
+        if (alpha <= 0) continue;
+
+        const rgb = colorForValue(sample.rssi, rgbBands);
+        if (rgb === null) continue;
+
+        const offset = index * 4;
+        data[offset] = rgb[0];
+        data[offset + 1] = rgb[1];
+        data[offset + 2] = rgb[2];
+        data[offset + 3] = alpha;
+        coveredPixels += 1;
       }
-      if (alpha <= 0) continue;
-
-      const rgb = colorForValue(sample.rssi, rgbBands);
-      if (rgb === null) continue;
-
-      const offset = index * 4;
-      data[offset] = rgb[0];
-      data[offset + 1] = rgb[1];
-      data[offset + 2] = rgb[2];
-      data[offset + 3] = alpha;
-      coveredPixels += 1;
     }
   }
 

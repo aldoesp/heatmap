@@ -184,7 +184,7 @@ export async function createAccessPoint(
 
 export async function updateAccessPoint(
   apId: string,
-  patch: Partial<Pick<AccessPoint, 'name' | 'x' | 'y'>>
+  patch: Partial<Pick<AccessPoint, 'name' | 'x' | 'y' | 'bssids'>>
 ): Promise<AccessPoint> {
   return apiFetch<AccessPoint>(
     `/api/v1/plans/access-points/${encodeURIComponent(apId)}`,
@@ -464,6 +464,7 @@ export interface AppSettings {
   iperf_server: string;
   iperf_duration_s: string;
   scan_mode: string;
+  heatmap_colours: string;
 }
 
 export interface BssidRule {

@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS access_points (
   name TEXT NOT NULL,
   x REAL NOT NULL CHECK(x BETWEEN 0 AND 1),
   y REAL NOT NULL CHECK(y BETWEEN 0 AND 1),
+  bssids TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(plan_id, name)
 );

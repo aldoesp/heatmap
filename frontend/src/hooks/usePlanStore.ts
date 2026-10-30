@@ -309,7 +309,7 @@ export function usePlanStore() {
     id: string,
     patch: Partial<AccessPoint>
   ): Promise<boolean> => {
-    const clean: Partial<Pick<AccessPoint, 'name' | 'x' | 'y'>> = {};
+    const clean: Partial<Pick<AccessPoint, 'name' | 'x' | 'y' | 'bssids'>> = {};
     if (patch.name !== undefined) {
       const name = patch.name.trim();
       if (!name) {
@@ -320,6 +320,7 @@ export function usePlanStore() {
     }
     if (patch.x !== undefined) clean.x = Math.max(0, Math.min(1, patch.x));
     if (patch.y !== undefined) clean.y = Math.max(0, Math.min(1, patch.y));
+    if (patch.bssids !== undefined) clean.bssids = patch.bssids;
     setBusy(true);
     try {
       const updated = await updateAccessPoint(id, clean);

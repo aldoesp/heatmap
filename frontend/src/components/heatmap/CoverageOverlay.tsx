@@ -45,6 +45,8 @@ interface CoverageOverlayProps {
   bands: CoverageBand[];
   /** Opacité maximale du champ (0-1). */
   opacity?: number;
+  /** LUT personnalisée (256*4). Si fournie, utilisée en mode triangulation. */
+  lut?: Uint8ClampedArray;
   /**
    * Zones autorisées (coordonnées normalisées, y en bas). En mode IDW, les
    * pixels hors de toutes les zones restent transparents. En mode
@@ -58,6 +60,7 @@ interface CoverageOverlayProps {
   polygons?: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }>;
   /** Positions d'AP normalisées 0-1, une par BSSID. */
   apPositions?: ReadonlyArray<{ bssid: string; x: number; y: number }>;
+  accessPoints?: ReadonlyArray<{ id: string; x: number; y: number; bssids?: string[] }>;
   /** Affiche les valeurs extrapolées par le modèle de propagation. */
   showEstimated?: boolean;
 }
@@ -184,15 +187,51 @@ function createCoverageImage(
 
 function findApForMesh(
   mesh: InterpolationMesh,
-  apPositions: readonly { bssid: string; x: number; y: number }[]
+  apPositions: readonly { bssid: string; x: number; y: number }[],
+  accessPoints: readonly { id: string; x: number; y: number; bssids?: string[] }[] = []
 ): ApPosition | null {
   const bssid = mesh.scope.bssid.trim().toLowerCase();
   const position = apPositions.find(
     (ap) => ap.bssid.trim().toLowerCase() === bssid
   );
-  if (!position) return null;
-  if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
-  return normalizedToPlanPixel(position.x, position.y, mesh.width, mesh.height);
+  if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
+    return normalizedToPlanPixel(position.x, position.y, mesh.width, mesh.height);
+  }
+  // 2) AP whose bssids contains BSSID
+  const ap = accessPoints.find((a) =>
+    (a.bssids ?? []).some((b) => b.trim().toLowerCase() === bssid)
+  );
+  if (ap) {
+    return normalizedToPlanPixel(ap.x, ap.y, mesh.width, mesh.height);
+  }
+  // 3) nearest AP by euclidean distance in plan pixels to max rssi point
+  if (accessPoints.length > 0 && mesh.points.length > 0) {
+    let maxIdx = 0;
+    let maxRssi = mesh.points[0].rssi;
+    for (let i = 1; i < mesh.points.length; i++) {
+      if (mesh.points[i].rssi > maxRssi) {
+        maxRssi = mesh.points[i].rssi;
+        maxIdx = i;
+      }
+    }
+    const pt = mesh.points[maxIdx];
+    const px = pt.xPx;
+    const py = pt.yPx;
+    let best: any = null;
+    let bestDist = Infinity;
+    for (const a of accessPoints) {
+      const apPx = normalizedToPlanPixel(a.x, a.y, mesh.width, mesh.height);
+      const dx = apPx.x - px;
+      const dy = apPx.y - py;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) {
+        bestDist = d;
+        best = apPx;
+      }
+    }
+    if (best) return best;
+  }
+  return null;
 }
 
 function createZoneMaskPredicate(
@@ -245,16 +284,18 @@ function createTriangulatedCoverageImage(
   opacity: number,
   polygons: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }> | undefined,
   apPositions: readonly { bssid: string; x: number; y: number }[],
-  showEstimated: boolean
+  accessPoints: readonly { id: string; x: number; y: number; bssids?: string[] }[] = [],
+  showEstimated: boolean,
+  lut?: Uint8ClampedArray
 ): string {
   const size = chooseRasterSize(width, height);
   const hasZones = (polygons?.length ?? 0) > 0;
   const apForMesh = hasZones
-    ? meshes.map((mesh) => findApForMesh(mesh, apPositions))
+    ? meshes.map((mesh) => findApForMesh(mesh, apPositions, accessPoints))
     : [];
 
   let raster;
-  if (hasZones && apForMesh.every((ap) => ap !== null)) {
+  if (hasZones && apForMesh.some((ap) => ap !== null)) {
     const fields = meshes.map((mesh, index) =>
       createHybridField(mesh, { ap: apForMesh[index] })
     );
@@ -265,7 +306,7 @@ function createTriangulatedCoverageImage(
       height,
       size.width,
       size.height,
-      bands,
+      lut ?? bands,
       opacity,
       showEstimated
     );
@@ -276,7 +317,7 @@ function createTriangulatedCoverageImage(
       height,
       size.width,
       size.height,
-      bands,
+      lut ?? bands,
       opacity
     );
   }
@@ -302,8 +343,10 @@ export function CoverageOverlay({
   bounds,
   bands,
   opacity = 0.75,
+  lut,
   polygons,
   apPositions,
+  accessPoints,
   showEstimated = true,
 }: CoverageOverlayProps) {
   const imageUrl = useMemo(() => {
@@ -316,8 +359,10 @@ export function CoverageOverlay({
             bands,
             opacity,
             polygons,
-            apPositions ?? [],
-            showEstimated
+             apPositions ?? [],
+             accessPoints ?? [],
+             showEstimated,
+             lut
           )
         : '';
     }
@@ -343,7 +388,9 @@ export function CoverageOverlay({
     opacity,
     polygons,
     apPositions,
+    accessPoints,
     showEstimated,
+    lut,
   ]);
 
   if (!imageUrl) return null;

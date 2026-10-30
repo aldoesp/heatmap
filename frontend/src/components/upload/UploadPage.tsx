@@ -195,6 +195,9 @@ export function UploadPage() {
               onChangeName={(id, name) => {
                 updateAp(id, { name });
               }}
+              onChangeBssids={(id, bssids) => {
+                updateAp(id, { bssids });
+              }}
               onRemove={(id) => {
                 removeAp(id);
               }}

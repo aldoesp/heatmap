@@ -4,7 +4,7 @@ export interface AccessPoint {
   /** Normalized 0–1 relative to image */
   x: number;
   y: number;
-}
+  bssids: string[];
 
 export interface PlanData {
   /** Identifiant serveur du plan (renvoyé par POST /api/v1/plans) */

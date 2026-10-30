@@ -10,6 +10,7 @@ interface ApRowProps {
   hasDuplicateName: boolean;
   onSelect: (id: string) => void;
   onChangeName: (id: string, name: string) => void;
+  onChangeBssids: (id: string, bssids: string[]) => void;
   onRemove: (id: string) => void;
 }
 
@@ -20,6 +21,7 @@ export function ApRow({
   hasDuplicateName,
   onSelect,
   onChangeName,
+  onChangeBssids,
   onRemove,
 }: ApRowProps) {
   // Saisie locale : le backend n'est appelé qu'à la sortie du champ.
@@ -31,8 +33,25 @@ export function ApRow({
     setDraft(ap.name);
   }
 
+  const [bssidDraft, setBssidDraft] = useState(ap.bssids.join(', '));
+  const [prevBssids, setPrevBssids] = useState(ap.bssids.join(', '));
+  if (ap.bssids.join(', ') !== prevBssids) {
+    setPrevBssids(ap.bssids.join(', '));
+    setBssidDraft(ap.bssids.join(', '));
+  }
+
   const commit = () => {
     if (draft !== ap.name) onChangeName(ap.id, draft);
+  };
+
+  const commitBssids = () => {
+    const parsed = bssidDraft
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const unique = [...new Set(parsed)];
+    const current = ap.bssids.join(', ');
+    if (unique.join(', ') !== current) onChangeBssids(ap.id, unique);
   };
 
   return (
@@ -72,6 +91,19 @@ export function ApRow({
         <div className="pl-2 font-mono text-[12px] text-text-dim">
           {formatApCoords(ap.x, ap.y)}
         </div>
+        <input
+          type="text"
+          value={bssidDraft}
+          aria-label={`BSSID de l'AP ${index}`}
+          onClick={(e) => e.stopPropagation()}
+          onFocus={() => onSelect(ap.id)}
+          onChange={(e) => setBssidDraft(e.target.value)}
+          onBlur={commitBssids}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+          className="h-8 w-full px-2 rounded-lg text-[12px] font-mono text-text outline-none bg-[rgba(255,255,255,0.03)] border border-transparent focus:border-accent focus:bg-[rgba(255,255,255,0.05)] transition-colors duration-ui ease-ui"
+        />
       </div>
 
       <button
