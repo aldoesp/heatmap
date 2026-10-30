@@ -1,6 +1,6 @@
 import { getDb } from '../database/db.js';
 
-export const SETTING_KEYS = ['iperf_server', 'iperf_duration_s', 'scan_mode'];
+export const SETTING_KEYS = ['iperf_server', 'iperf_duration_s', 'scan_mode', 'heatmap_colours'];
 
 export function getSetting(key) {
   const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key);

@@ -464,6 +464,7 @@ export interface AppSettings {
   iperf_server: string;
   iperf_duration_s: string;
   scan_mode: string;
+  heatmap_colours: string;
 }
 
 export interface BssidRule {

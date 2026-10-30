@@ -45,6 +45,8 @@ interface CoverageOverlayProps {
   bands: CoverageBand[];
   /** Opacité maximale du champ (0-1). */
   opacity?: number;
+  /** LUT personnalisée (256*4). Si fournie, utilisée en mode triangulation. */
+  lut?: Uint8ClampedArray;
   /**
    * Zones autorisées (coordonnées normalisées, y en bas). En mode IDW, les
    * pixels hors de toutes les zones restent transparents. En mode
@@ -283,7 +285,8 @@ function createTriangulatedCoverageImage(
   polygons: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }> | undefined,
   apPositions: readonly { bssid: string; x: number; y: number }[],
   accessPoints: readonly { id: string; x: number; y: number; bssids?: string[] }[] = [],
-  showEstimated: boolean
+  showEstimated: boolean,
+  lut?: Uint8ClampedArray
 ): string {
   const size = chooseRasterSize(width, height);
   const hasZones = (polygons?.length ?? 0) > 0;
@@ -303,7 +306,7 @@ function createTriangulatedCoverageImage(
       height,
       size.width,
       size.height,
-      bands,
+      lut ?? bands,
       opacity,
       showEstimated
     );
@@ -314,7 +317,7 @@ function createTriangulatedCoverageImage(
       height,
       size.width,
       size.height,
-      bands,
+      lut ?? bands,
       opacity
     );
   }
@@ -340,6 +343,7 @@ export function CoverageOverlay({
   bounds,
   bands,
   opacity = 0.75,
+  lut,
   polygons,
   apPositions,
   accessPoints,
@@ -357,7 +361,8 @@ export function CoverageOverlay({
             polygons,
              apPositions ?? [],
              accessPoints ?? [],
-             showEstimated
+             showEstimated,
+             lut
           )
         : '';
     }
@@ -385,6 +390,7 @@ export function CoverageOverlay({
     apPositions,
     accessPoints,
     showEstimated,
+    lut,
   ]);
 
   if (!imageUrl) return null;
