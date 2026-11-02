@@ -10,20 +10,40 @@ const COORDINATE_ORIGIN = 'bottom-left';
 
 const placeholders = (count) => Array.from({ length: count }, () => '?').join(', ');
 
-function normalizeSurveyIds(surveyIds) {
-  if (!Array.isArray(surveyIds)) {
-    throw new AppError('ids doit être une liste de surveys.', 400);
+function normalizeIds(values, message) {
+  if (!Array.isArray(values)) {
+    throw new AppError(message, 400);
   }
-  const ids = [
-    ...new Set(surveyIds.map((id) => String(id).trim()).filter(Boolean)),
-  ];
-  if (ids.length === 0) {
-    throw new AppError('Au moins un identifiant de survey est requis.', 400);
+  return [...new Set(values.map((id) => String(id).trim()).filter(Boolean))];
+}
+
+function loadPlans(db, ids) {
+  if (ids.length === 0) return [];
+  const rows = db
+    .prepare(
+      `SELECT id, name, file_name, stored_file, mime, width, height, size_bytes,
+              created_at, updated_at
+       FROM plans WHERE id IN (${placeholders(ids.length)})`
+    )
+    .all(...ids);
+  const byId = new Map(rows.map((plan) => [plan.id, plan]));
+  const missing = ids.filter((id) => !byId.has(id));
+  if (missing.length > 0) {
+    throw new AppError(`Plans introuvables : ${missing.join(', ')}`, 404);
   }
-  if (ids.length > MAX_SURVEYS) {
-    throw new AppError(`Maximum ${MAX_SURVEYS} surveys par export.`, 400);
-  }
-  return ids;
+  return ids.map((id) => byId.get(id));
+}
+
+function loadSurveyIdsForPlans(db, planIds) {
+  if (planIds.length === 0) return [];
+  return db
+    .prepare(
+      `SELECT id FROM surveys
+       WHERE plan_id IN (${placeholders(planIds.length)})
+       ORDER BY created_at ASC, id ASC`
+    )
+    .all(...planIds)
+    .map((row) => row.id);
 }
 
 function planExtension(plan) {
@@ -127,28 +147,44 @@ function loadScanPoints(db, surveyId) {
   }));
 }
 
-export function buildSurveyExportZip(surveyIds) {
-  const ids = normalizeSurveyIds(surveyIds);
-  const db = getDb();
+export function buildSurveyExportZip({ surveyIds = [], planIds = [] } = {}) {
+  const requestedSurveyIds = normalizeIds(
+    surveyIds,
+    'ids doit être une liste de surveys.'
+  );
+  const requestedPlanIds = normalizeIds(
+    planIds,
+    'planIds doit être une liste de plans.'
+  );
+  if (requestedSurveyIds.length === 0 && requestedPlanIds.length === 0) {
+    throw new AppError('Au moins un survey ou un plan est requis.', 400);
+  }
 
-  const surveys = loadSurveys(db, ids);
-  const planIds = [...new Set(surveys.map((survey) => survey.plan_id))];
-  const planRows = planIds.length
-    ? db
-        .prepare(
-          `SELECT id, name, file_name, stored_file, mime, width, height, size_bytes,
-                  created_at, updated_at
-           FROM plans WHERE id IN (${placeholders(planIds.length)})`
-        )
-        .all(...planIds)
-    : [];
-  const plansById = new Map(planRows.map((plan) => [plan.id, plan]));
+  const db = getDb();
+  loadPlans(db, requestedPlanIds);
+
+  const ids = [
+    ...new Set([
+      ...requestedSurveyIds,
+      ...loadSurveyIdsForPlans(db, requestedPlanIds),
+    ]),
+  ];
+  if (ids.length > MAX_SURVEYS) {
+    throw new AppError(`Maximum ${MAX_SURVEYS} surveys par export.`, 400);
+  }
+
+  const surveys = ids.length > 0 ? loadSurveys(db, ids) : [];
+  const manifestPlanIds = [
+    ...new Set([
+      ...surveys.map((survey) => survey.plan_id),
+      ...requestedPlanIds,
+    ]),
+  ];
+  const planRows = loadPlans(db, manifestPlanIds);
 
   const files = {};
   const plans = [];
-  for (const planId of planIds) {
-    const plan = plansById.get(planId);
-    if (!plan) continue;
+  for (const plan of planRows) {
     plans.push(loadPlanDetails(db, plan));
     files[`plans/${plan.id}.${planExtension(plan)}`] = readPlanImage(plan);
   }

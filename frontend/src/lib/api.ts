@@ -618,9 +618,9 @@ function contentDispositionFilename(value: string | null): string | null {
   return bare ? bare[1].trim() : null;
 }
 
-export async function exportSurveys(ids: string[]): Promise<SurveyExportBlob> {
+export async function exportPlansZip(planIds: string[]): Promise<SurveyExportBlob> {
   const params = new URLSearchParams();
-  params.set('ids', ids.join(','));
+  params.set('planIds', planIds.join(','));
   const res = await apiRequest(
     `/api/v1/surveys/export.zip?${params.toString()}`,
   );
