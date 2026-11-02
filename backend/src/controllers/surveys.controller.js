@@ -76,6 +76,14 @@ export const exportSurvey = run((req, res) => {
   res.send('\ufeff' + csv);
 });
 
+const queryList = (value) => {
+  const values = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  return values
+    .flatMap((entry) => (typeof entry === 'string' ? entry.split(',') : []))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+};
+
 const exportTimestamp = () => {
   const now = new Date();
   const pad = (value) => String(value).padStart(2, '0');
@@ -86,13 +94,10 @@ const exportTimestamp = () => {
 };
 
 export const exportSurveysZip = run((req, res) => {
-  const rawIds = req.query.ids;
-  const ids = Array.isArray(rawIds)
-    ? rawIds.flatMap((value) => String(value).split(','))
-    : typeof rawIds === 'string'
-      ? rawIds.split(',')
-      : [];
-  const zip = buildSurveyExportZip(ids);
+  const zip = buildSurveyExportZip({
+    surveyIds: queryList(req.query.ids),
+    planIds: queryList(req.query.planIds),
+  });
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader(
     'Content-Disposition',

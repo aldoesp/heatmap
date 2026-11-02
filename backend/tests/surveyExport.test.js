@@ -424,7 +424,7 @@ describe('survey export/import', () => {
     const fixture = createFixture();
     const before = readPlanState(fixture.planId);
     const beforeRules = readBssidRules();
-    const zip = buildSurveyExportZip([fixture.surveyId]);
+    const zip = buildSurveyExportZip({ surveyIds: [fixture.surveyId] });
 
     clearDatabase();
     assert.equal(getDb().prepare('SELECT COUNT(*) AS count FROM plans').get().count, 0);
@@ -462,9 +462,71 @@ describe('survey export/import', () => {
     assert.equal(after.plan.image_url, `/uploads/plans/${after.plan.stored_file}`);
   });
 
+  it('exporte les mêmes surveys par planIds que par ids', () => {
+    const fixture = createFixture();
+    const byIds = parseSurveyExportZip(
+      buildSurveyExportZip({ surveyIds: [fixture.surveyId] })
+    ).manifest;
+    const byPlan = parseSurveyExportZip(
+      buildSurveyExportZip({ planIds: [fixture.planId] })
+    ).manifest;
+
+    assert.deepEqual(byPlan.surveys, byIds.surveys);
+    assert.deepEqual(
+      byPlan.plans.map((plan) => plan.id),
+      [fixture.planId]
+    );
+  });
+
+  it('retourne 404 pour un planId inconnu', () => {
+    const error = expectAppError(
+      () => buildSurveyExportZip({ planIds: ['plan-inconnu'] }),
+      404
+    );
+    assert.equal(error.message, 'Plans introuvables : plan-inconnu');
+  });
+
+  it('exporte et réimporte un plan sans survey', () => {
+    const fixture = createFixture();
+    getDb().prepare('DELETE FROM surveys WHERE id = ?').run(fixture.surveyId);
+
+    const zip = buildSurveyExportZip({ planIds: [fixture.planId] });
+    const { manifest, images } = parseSurveyExportZip(zip);
+
+    assert.equal(manifest.surveys.length, 0);
+    assert.equal(manifest.plans.length, 1);
+    const plan = manifest.plans[0];
+    assert.equal(plan.id, fixture.planId);
+    assert.equal(plan.access_points.length, 1);
+    assert.equal(plan.ap_positions.length, 1);
+    assert.equal(plan.polygons.length, 1);
+    assert.equal(plan.ap_mappings.length, 1);
+    assert.ok(images.get(fixture.planId)?.length > 0);
+
+    clearDatabase();
+    const result = executeSurveyImport({ manifest, images }, {});
+
+    assert.equal(result.plansCreated, 1);
+    assert.deepEqual(result.importedSurveys, []);
+    assert.equal(result.scanPoints, 0);
+    const imported = getDb()
+      .prepare('SELECT * FROM plans WHERE id = ?')
+      .get(fixture.planId);
+    assert.ok(imported);
+    assert.ok(existsSync(path.join(PLANS_DIRECTORY, imported.stored_file)));
+
+    const state = readPlanState(fixture.planId);
+    assert.equal(state.counts.surveys, 0);
+    assert.equal(state.counts.scanPoints, 0);
+    assert.equal(state.counts.accessPoints, 1);
+    assert.equal(state.counts.apPositions, 1);
+    assert.equal(state.counts.polygons, 1);
+    assert.equal(state.counts.apMappings, 1);
+  });
+
   it('refuse un réimport sans résolution avec RESOLUTION_REQUIRED', () => {
     const fixture = createFixture();
-    const zip = buildSurveyExportZip([fixture.surveyId]);
+    const zip = buildSurveyExportZip({ surveyIds: [fixture.surveyId] });
     clearDatabase();
     const { manifest, images } = parseSurveyExportZip(zip);
     executeSurveyImport({ manifest, images }, {});
@@ -485,7 +547,7 @@ describe('survey export/import', () => {
 
   it('fusionne sans ajouter de lignes ni remplacer l’image', () => {
     const fixture = createFixture();
-    const zip = buildSurveyExportZip([fixture.surveyId]);
+    const zip = buildSurveyExportZip({ surveyIds: [fixture.surveyId] });
     clearDatabase();
     const { manifest, images } = parseSurveyExportZip(zip);
     executeSurveyImport({ manifest, images }, {});
@@ -515,7 +577,7 @@ describe('survey export/import', () => {
 
   it('duplique avec de nouveaux ids et le suffixe (copie)', () => {
     const fixture = createFixture();
-    const zip = buildSurveyExportZip([fixture.surveyId]);
+    const zip = buildSurveyExportZip({ surveyIds: [fixture.surveyId] });
     clearDatabase();
     const { manifest, images } = parseSurveyExportZip(zip);
     executeSurveyImport({ manifest, images }, {});
@@ -547,7 +609,7 @@ describe('survey export/import', () => {
 
   it('rejette les ZIP invalides sans modifier la base', () => {
     const fixture = createFixture();
-    const zip = buildSurveyExportZip([fixture.surveyId]);
+    const zip = buildSurveyExportZip({ surveyIds: [fixture.surveyId] });
     const { manifest, images } = parseSurveyExportZip(zip);
 
     const checkUnchanged = () => {
@@ -585,7 +647,7 @@ describe('survey export/import', () => {
   });
 
   it('retourne 404 pour un id inconnu et 400 sans id', () => {
-    expectAppError(() => buildSurveyExportZip(['inconnu']), 404);
-    expectAppError(() => buildSurveyExportZip([]), 400);
+    expectAppError(() => buildSurveyExportZip({ surveyIds: ['inconnu'] }), 404);
+    expectAppError(() => buildSurveyExportZip({}), 400);
   });
 });

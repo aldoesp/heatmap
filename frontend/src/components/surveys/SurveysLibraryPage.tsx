@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, FileUp, Search, Upload } from 'lucide-react';
 import { useSurveysLibrary, type SurveySummary } from '../../hooks/useSurveysLibrary';
 import {
-  exportSurveys,
+  exportPlansZip,
   getHeatmap,
   getHistory,
   importSurveys,
@@ -131,7 +131,7 @@ export function SurveysLibraryPage() {
     setExporting(true);
     setImportError(null);
     try {
-      const blob = await exportSurveys(ids);
+      const blob = await exportPlansZip(ids);
       downloadBlob(blob, blob.filename ?? 'heatmap-surveys.zip');
       showToast('Export prêt.');
     } catch (err) {
@@ -329,6 +329,7 @@ export function SurveysLibraryPage() {
             type="button"
             onClick={() => void onExportSelected()}
             disabled={selectedIds.size === 0 || exporting}
+            title="Exporte tous les surveys de ces plans"
             className="inline-flex items-center gap-2 h-9 px-3 rounded-[10px] border border-accent-border text-[#34d399] text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
           >
             <Download className="w-[16px] h-[16px]" strokeWidth={1.75} aria-hidden />
