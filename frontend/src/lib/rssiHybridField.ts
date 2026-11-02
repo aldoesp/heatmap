@@ -1,5 +1,13 @@
 import type { InterpolationMesh, GeometryPoint } from './triangulation.js';
-import { sampleTriangleMesh, medianNearestNeighborDistancePx } from './triangulation.js';
+import {
+  sampleTriangleMesh,
+  medianNearestNeighborDistancePx,
+  findBorderTriangles,
+  prepareBarycentricTriangle,
+  barycentricWeightsUnclamped,
+  distanceToTrianglePx,
+  type PreparedBarycentricTriangle,
+} from './triangulation.js';
 import type { ApPosition, PathLossModel } from './pathLossModel.js';
 import {
   fitPathLossModel,
@@ -18,12 +26,17 @@ export interface HybridField {
   model: PathLossModel | null;
 }
 
+type ReadyTriangle = Extract<PreparedBarycentricTriangle, { status: 'READY' }>;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 export function createHybridField(
   mesh: InterpolationMesh,
-  options: { ap: ApPosition | null; decayFactor?: number; idwNeighbors?: number }
+  options: { ap: ApPosition | null; decayFactor?: number }
 ): HybridField {
   const decayFactor = options.decayFactor ?? 3;
-  const idwNeighbors = options.idwNeighbors ?? 3;
 
   const model =
     options.ap === null
@@ -37,6 +50,30 @@ export function createHybridField(
     triangleById.set(t.id, { a: t.a, b: t.b, c: t.c });
   }
 
+  const borderTriangles: ReadyTriangle[] = [];
+  for (const triangle of findBorderTriangles(mesh.triangles)) {
+    const prepared = prepareBarycentricTriangle(triangle);
+    if (prepared.status === 'READY') borderTriangles.push(prepared);
+  }
+
+  let vMin = Infinity;
+  let vMax = -Infinity;
+  if (model !== null && residuals !== null) {
+    for (const value of residuals.values()) {
+      if (value < vMin) vMin = value;
+      if (value > vMax) vMax = value;
+    }
+  } else {
+    for (const point of mesh.points) {
+      if (point.rssi < vMin) vMin = point.rssi;
+      if (point.rssi > vMax) vMax = point.rssi;
+    }
+  }
+  if (!Number.isFinite(vMin) || !Number.isFinite(vMax)) {
+    vMin = 0;
+    vMax = 0;
+  }
+
   const Lraw = medianNearestNeighborDistancePx(mesh.points) * decayFactor;
   const L = Lraw === 0 ? 1 : Lraw;
 
@@ -47,52 +84,75 @@ export function createHybridField(
 
     const meshSample = sampleTriangleMesh(mesh, xPx, yPx);
 
-    if (model === null || residuals === null) {
-      if (meshSample.status === 'INTERPOLATED') {
+    if (meshSample.status === 'INTERPOLATED' && meshSample.supported) {
+      if (model !== null && residuals !== null) {
+        const tri = triangleById.get(meshSample.triangleId);
+        if (tri) {
+          const rA = residuals.get(tri.a.sourceId) ?? 0;
+          const rB = residuals.get(tri.b.sourceId) ?? 0;
+          const rC = residuals.get(tri.c.sourceId) ?? 0;
+          const residual = meshSample.lambdaA * rA + meshSample.lambdaB * rB + meshSample.lambdaC * rC;
+          const rssi = clampRssi(predictPathLossRaw(model, xPx, yPx) + residual);
+          return { status: 'INTERPOLATED', rssi, confidence: 1 };
+        }
+      } else {
         return { status: 'INTERPOLATED', rssi: meshSample.rssi, confidence: 1 };
       }
+    }
+
+    let candidates = borderTriangles;
+    if (meshSample.status === 'INTERPOLATED' && !meshSample.supported) {
+      const tri = triangleById.get(meshSample.triangleId);
+      const prepared = tri ? prepareBarycentricTriangle(tri) : null;
+      candidates = prepared !== null && prepared.status === 'READY' ? [prepared] : [];
+    }
+    if (candidates.length === 0) {
       return { status: 'NO_DATA', rssi: null };
     }
 
-    if (meshSample.status === 'INTERPOLATED' && meshSample.supported) {
-      const tri = triangleById.get(meshSample.triangleId);
-      if (tri) {
-        const rA = residuals.get(tri.a.sourceId) ?? 0;
-        const rB = residuals.get(tri.b.sourceId) ?? 0;
-        const rC = residuals.get(tri.c.sourceId) ?? 0;
-        const residual = meshSample.lambdaA * rA + meshSample.lambdaB * rB + meshSample.lambdaC * rC;
-        const rssi = clampRssi(predictPathLossRaw(model, xPx, yPx) + residual);
-        return { status: 'INTERPOLATED', rssi, confidence: 1 };
+    let best: ReadyTriangle | null = null;
+    let dMin = Infinity;
+    for (const candidate of candidates) {
+      const distance = distanceToTrianglePx(
+        xPx,
+        yPx,
+        candidate.a,
+        candidate.b,
+        candidate.c
+      );
+      if (distance < dMin) {
+        dMin = distance;
+        best = candidate;
       }
     }
-
-    // EXTRAPOLATED
-    let dMin = Infinity;
-    const sorted = mesh.points
-      .map((p) => ({ p, d: Math.hypot(p.xPx - xPx, p.yPx - yPx) }))
-      .sort((a, b) => a.d - b.d);
-    const k = Math.min(idwNeighbors, sorted.length);
-    const neighbors = sorted.slice(0, k);
-    for (const n of neighbors) {
-      if (n.d < dMin) dMin = n.d;
-    }
-    if (neighbors.length === 0) {
+    if (best === null) {
       return { status: 'NO_DATA', rssi: null };
     }
 
-    let wSum = 0;
-    let rSum = 0;
-    for (const n of neighbors) {
-      const w = 1 / (n.d * n.d + 1e-6);
-      const r = residuals.get(n.p.sourceId) ?? 0;
-      wSum += w;
-      rSum += w * r;
+    const weights = barycentricWeightsUnclamped(xPx, yPx, best);
+    if (weights === null) {
+      return { status: 'NO_DATA', rssi: null };
     }
-    const residAvg = wSum > 0 ? rSum / wSum : 0;
-    const confidence = Math.exp(-dMin / L);
-    const residual = residAvg * confidence;
-    const rssi = clampRssi(predictPathLossRaw(model, xPx, yPx) + residual);
-    return { status: 'EXTRAPOLATED', rssi, confidence };
+    const [wa, wb, wc] = weights;
+
+    let v: number;
+    if (model !== null && residuals !== null) {
+      const rA = residuals.get(best.a.sourceId) ?? 0;
+      const rB = residuals.get(best.b.sourceId) ?? 0;
+      const rC = residuals.get(best.c.sourceId) ?? 0;
+      v = wa * rA + wb * rB + wc * rC;
+      v = clamp(v, vMin, vMax);
+      const rssi = clampRssi(predictPathLossRaw(model, xPx, yPx) + v);
+      return { status: 'EXTRAPOLATED', rssi, confidence: Math.exp(-dMin / L) };
+    }
+
+    v = wa * best.a.rssi + wb * best.b.rssi + wc * best.c.rssi;
+    v = clamp(v, vMin, vMax);
+    return {
+      status: 'EXTRAPOLATED',
+      rssi: clampRssi(v),
+      confidence: Math.exp(-dMin / L),
+    };
   }
 
   return { sample, model };
