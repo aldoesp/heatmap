@@ -221,8 +221,8 @@ function findApForMesh(
     let bestDist = Infinity;
     for (const a of accessPoints) {
       const apPx = normalizedToPlanPixel(a.x, a.y, mesh.width, mesh.height);
-      const dx = apPx.x - px;
-      const dy = apPx.y - py;
+      const dx = apPx.xPx - px;
+      const dy = apPx.yPx - py;
       const d = dx * dx + dy * dy;
       if (d < bestDist) {
         bestDist = d;

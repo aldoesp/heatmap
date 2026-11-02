@@ -46,7 +46,7 @@ import { average, RSSI_BANDS } from '../../lib/signal';
 import type { AccessPoint } from '../../types/plan';
 import { buildRssiMeshes, findUncoveredZones } from '../../lib/heatmapRssi';
 import { useHeatmapColours } from '../../hooks/useHeatmapColours';
-import { buildColourLut, RSSI_MAX, RSSI_MIN, rssiToPosition } from '../../lib/heatmapColours';
+import { buildColourLut, RSSI_MAX, RSSI_MIN } from '../../lib/heatmapColours';
 
 function MapSetup({
   width,

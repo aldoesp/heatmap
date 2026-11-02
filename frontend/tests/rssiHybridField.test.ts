@@ -31,10 +31,14 @@ describe('rssiHybridField', () => {
     assert.equal(s.status, 'EXTRAPOLATED');
     if (s.status === 'EXTRAPOLATED') assert.ok(s.confidence < 0.1);
   });
-  it('no ap behaves like mesh', () => {
+  it('no ap extrapolates from mesh values', () => {
     const f = createHybridField(mesh, { ap: null });
     const s = f.sample(500, 0);
-    assert.equal(s.status, 'NO_DATA');
+    assert.equal(s.status, 'EXTRAPOLATED');
+    if (s.status === 'EXTRAPOLATED') {
+      assert.ok(s.rssi >= -127 && s.rssi <= 0);
+      assert.ok(s.confidence < 0.1);
+    }
   });
   it('rssi in range', () => {
     const f = createHybridField(mesh, { ap });
