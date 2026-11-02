@@ -17,7 +17,6 @@ import {
 import { ApiError } from '../../types/api';
 import { useHeatmapColours } from '../../hooks/useHeatmapColours';
 import {
-  DEFAULT_HEATMAP_COLOURS,
   positionToRssi,
   sanitizeHeatmapColours,
   type HeatmapColours,

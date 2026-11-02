@@ -5,6 +5,7 @@ export interface AccessPoint {
   x: number;
   y: number;
   bssids: string[];
+}
 
 export interface PlanData {
   /** Identifiant serveur du plan (renvoyé par POST /api/v1/plans) */

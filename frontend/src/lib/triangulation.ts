@@ -745,6 +745,123 @@ export function rssiAtPreparedTriangle(
   return Number.isFinite(rssi) ? rssi : null;
 }
 
+type ReadyTriangle = Extract<PreparedBarycentricTriangle, { status: 'READY' }>;
+
+/**
+ * Retourne les trois coordonnées barycentriques brutes de P dans un triangle
+ * préparé, sans test de bornes ni normalisation. Retourne `null` si l'un des
+ * poids n'est pas fini.
+ */
+export function barycentricWeightsUnclamped(
+  xPx: number,
+  yPx: number,
+  prepared: ReadyTriangle
+): [number, number, number] | null {
+  const { a, b, c, denominator } = prepared;
+  const lambdaA =
+    ((b.yPx - c.yPx) * (xPx - c.xPx) +
+      (c.xPx - b.xPx) * (yPx - c.yPx)) /
+    denominator;
+  const lambdaB =
+    ((c.yPx - a.yPx) * (xPx - c.xPx) +
+      (a.xPx - c.xPx) * (yPx - c.yPx)) /
+    denominator;
+  const lambdaC = 1 - lambdaA - lambdaB;
+
+  if (
+    !Number.isFinite(lambdaA) ||
+    !Number.isFinite(lambdaB) ||
+    !Number.isFinite(lambdaC)
+  ) {
+    return null;
+  }
+
+  return [lambdaA, lambdaB, lambdaC];
+}
+
+function distanceToSegmentPx(
+  xPx: number,
+  yPx: number,
+  start: GeometryPoint,
+  end: GeometryPoint
+): number {
+  const dx = end.xPx - start.xPx;
+  const dy = end.yPx - start.yPx;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) {
+    return Math.hypot(xPx - start.xPx, yPx - start.yPx);
+  }
+
+  let t = ((xPx - start.xPx) * dx + (yPx - start.yPx) * dy) / lengthSquared;
+  if (t < 0) t = 0;
+  else if (t > 1) t = 1;
+
+  return Math.hypot(xPx - (start.xPx + t * dx), yPx - (start.yPx + t * dy));
+}
+
+function isInsideTrianglePx(
+  xPx: number,
+  yPx: number,
+  a: GeometryPoint,
+  b: GeometryPoint,
+  c: GeometryPoint
+): boolean {
+  const sign = (p: GeometryPoint, q: GeometryPoint, r: GeometryPoint): number =>
+    (p.xPx - r.xPx) * (q.yPx - r.yPx) - (q.xPx - r.xPx) * (p.yPx - r.yPx);
+  const point = { sourceId: '', xPx, yPx, rssi: 0 };
+  const d1 = sign(point, a, b);
+  const d2 = sign(point, b, c);
+  const d3 = sign(point, c, a);
+  const hasNegative = d1 < 0 || d2 < 0 || d3 < 0;
+  const hasPositive = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(hasNegative && hasPositive);
+}
+
+/**
+ * Distance en pixels d'un point au triangle ABC. Vaut 0 si le point est à
+ * l'intérieur (bord inclus), sinon la distance minimale aux trois segments.
+ */
+export function distanceToTrianglePx(
+  xPx: number,
+  yPx: number,
+  a: GeometryPoint,
+  b: GeometryPoint,
+  c: GeometryPoint
+): number {
+  if (isInsideTrianglePx(xPx, yPx, a, b, c)) return 0;
+
+  return Math.min(
+    distanceToSegmentPx(xPx, yPx, a, b),
+    distanceToSegmentPx(xPx, yPx, b, c),
+    distanceToSegmentPx(xPx, yPx, c, a)
+  );
+}
+
+/**
+ * Retourne les triangles ayant au moins une arête présente une seule fois dans
+ * le maillage. Les arêtes sont identifiées sans tenir compte de leur ordre.
+ */
+export function findBorderTriangles(
+  triangles: readonly Triangle[]
+): Triangle[] {
+  const edgeCounts = new Map<string, number>();
+  const edgeKeysFor = (triangle: Triangle): [string, string, string] => {
+    const key = (p: GeometryPoint, q: GeometryPoint) =>
+      [p.sourceId, q.sourceId].sort().join('|');
+    return [key(triangle.a, triangle.b), key(triangle.b, triangle.c), key(triangle.c, triangle.a)];
+  };
+
+  for (const triangle of triangles) {
+    for (const edgeKey of edgeKeysFor(triangle)) {
+      edgeCounts.set(edgeKey, (edgeCounts.get(edgeKey) ?? 0) + 1);
+    }
+  }
+
+  return triangles.filter((triangle) =>
+    edgeKeysFor(triangle).some((edgeKey) => edgeCounts.get(edgeKey) === 1)
+  );
+}
+
 /**
  * Interpole le RSSI d'un point P dans un triangle ABC par coordonnées
  * barycentriques.
