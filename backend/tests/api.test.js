@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { deflateSync, crc32 } from 'node:zlib';
+import { unzipSync } from 'fflate';
 
 const TMP = mkdtempSync(path.join(tmpdir(), 'heatmap-test-'));
 process.env.DB_PATH = path.join(TMP, 'test.db');
@@ -294,6 +295,95 @@ describe('surveys', () => {
     const emptyAnalysis = await api('GET', `/api/v1/surveys/${otherSurveyId}/analysis/history`);
     assert.equal(emptyAnalysis.status, 200);
     assert.deepEqual(emptyAnalysis.json.data, []);
+  });
+
+  it('exporte les surveys en ZIP (manifest, images, sans ids techniques)', async () => {
+    const res = await fetch(
+      `${base}/api/v1/surveys/export.zip?ids=${surveyId},${surveyId},${otherSurveyId}`
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'application/zip');
+    assert.match(
+      res.headers.get('content-disposition') ?? '',
+      /^attachment; filename="heatmap-surveys-\d{8}-\d{4}\.zip"$/
+    );
+
+    const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
+    assert.ok(files['manifest.json']);
+    const manifest = JSON.parse(new TextDecoder().decode(files['manifest.json']));
+    assert.equal(manifest.format, 'heatmap-survey-export');
+    assert.equal(manifest.version, 1);
+    assert.equal(manifest.coordinateOrigin, 'bottom-left');
+    assert.equal(manifest.surveys.length, 2);
+    assert.equal(manifest.plans.length, 1);
+    assert.ok(files[manifest.plans[0].image]);
+    assert.ok(!('stored_file' in manifest.plans[0]));
+    assert.ok(!('image_url' in manifest.plans[0]));
+    assert.ok(Array.isArray(manifest.bssid_rules));
+
+    const exported = manifest.surveys.find((survey) => survey.id === surveyId);
+    const observations = exported.scan_points.flatMap((point) =>
+      point.scans.flatMap((scan) => scan.observations)
+    );
+    assert.ok(observations.length > 0);
+    assert.ok(observations.every((obs) => !('id' in obs) && !('scan_id' in obs)));
+  });
+
+  it('valide les identifiants de l’export ZIP', async () => {
+    const missing = await api('GET', '/api/v1/surveys/export.zip?ids=absent-1,absent-2');
+    assert.equal(missing.status, 404);
+    assert.match(missing.json.error, /absent-1, absent-2/);
+
+    const empty = await api('GET', '/api/v1/surveys/export.zip');
+    assert.equal(empty.status, 400);
+
+    const ids = Array.from({ length: 51 }, (_, index) => `survey-${index}`).join(',');
+    const tooMany = await api('GET', `/api/v1/surveys/export.zip?ids=${ids}`);
+    assert.equal(tooMany.status, 400);
+  });
+
+  it('prévisualise un export ZIP sans écrire en base', async () => {
+    const zipRes = await fetch(
+      `${base}/api/v1/surveys/export.zip?ids=${surveyId}`
+    );
+    assert.equal(zipRes.status, 200);
+    const form = new FormData();
+    form.append(
+      'file',
+      new Blob([Buffer.from(await zipRes.arrayBuffer())], { type: 'application/zip' }),
+      'export.zip'
+    );
+    const res = await fetch(`${base}/api/v1/surveys/import/preview`, {
+      method: 'POST',
+      body: form,
+    });
+    assert.equal(res.status, 200);
+    const preview = await res.json();
+
+    assert.equal(preview.plans.length, 1);
+    assert.equal(preview.plans[0].id, planId);
+    assert.equal(preview.plans[0].existsOnDevice, true);
+    assert.equal(preview.plans[0].surveyCount, 1);
+    assert.equal(preview.surveys.length, 1);
+    assert.equal(preview.surveys[0].id, surveyId);
+    assert.equal(preview.surveys[0].planId, planId);
+    assert.equal(preview.surveys[0].existsOnDevice, true);
+    assert.equal(preview.surveys[0].scanPointCount, 1);
+    assert.ok(preview.surveys[0].observationCount > 0);
+    assert.ok(preview.bssidRuleCount >= 0);
+  });
+
+  it('rejette un aperçu sans fichier ou avec un ZIP invalide', async () => {
+    const withoutFile = await api('POST', '/api/v1/surveys/import/preview');
+    assert.equal(withoutFile.status, 400);
+
+    const form = new FormData();
+    form.append('file', new Blob(['pas un zip'], { type: 'application/zip' }), 'bad.zip');
+    const invalid = await fetch(`${base}/api/v1/surveys/import/preview`, {
+      method: 'POST',
+      body: form,
+    });
+    assert.equal(invalid.status, 400);
   });
 
   it('retourne 404 pour une analyse sans survey', async () => {

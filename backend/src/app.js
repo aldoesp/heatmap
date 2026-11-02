@@ -10,7 +10,7 @@ import { notFound, errorHandler } from './middleware/errorHandler.js';
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+app.use(cors({ origin: process.env.CORS_ORIGIN || '*', exposedHeaders: ['Content-Disposition'] }));
 app.use(express.json());
 app.use('/uploads', express.static(UPLOADS_DIRECTORY, { fallthrough: false }));
 app.use(requestLogger);

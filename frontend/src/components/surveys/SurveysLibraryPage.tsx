@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Upload, FileUp } from 'lucide-react';
+import { Download, FileUp, Search, Upload } from 'lucide-react';
 import { useSurveysLibrary, type SurveySummary } from '../../hooks/useSurveysLibrary';
-import { getHeatmap, getHistory } from '../../lib/api';
+import {
+  exportSurveys,
+  getHeatmap,
+  getHistory,
+  importSurveys,
+  previewSurveyImport,
+  type SurveyImportPreview,
+  type SurveyImportResolution,
+  type SurveyImportResult,
+} from '../../lib/api';
+import { ApiError } from '../../types/api';
 import { SurveyCard } from './SurveyCard';
 import { SurveySheet } from './SurveySheet';
 import { ConfirmDelete } from './ConfirmDelete';
@@ -9,9 +19,29 @@ import { PointsTable, type PointRow } from './PointsTable';
 
 type SortMode = 'recent' | 'name' | 'rssi';
 
-const ERR_IMPORT =
-  'Impossible d’importer ce fichier. Utilise une image JPG, PNG ou WebP.';
 const ERR_IMPORT_CSV = 'Impossible d’importer ce fichier CSV. Vérifie le format.';
+const ERR_IMPORT_ZIP = 'Impossible d’importer ce fichier ZIP.';
+const ERR_EXPORT = 'Impossible d’exporter les surveys sélectionnés.';
+
+type PendingImport = {
+  file: File;
+  preview: SurveyImportPreview;
+  resolutions: Record<string, SurveyImportResolution>;
+};
+
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof ApiError && error.message ? error.message : fallback;
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
 
 export function SurveysLibraryPage() {
   const {
@@ -21,7 +51,6 @@ export function SurveysLibraryPage() {
     importing,
     busyId,
     load,
-    importImage,
     importCsv,
     rename,
     remove,
@@ -39,7 +68,13 @@ export function SurveysLibraryPage() {
   );
   const [toast, setToast] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const [zipImporting, setZipImporting] = useState(false);
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
+  const [importResult, setImportResult] = useState<SurveyImportResult | null>(null);
+  const zipRef = useRef<HTMLInputElement>(null);
   const csvRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
 
@@ -68,16 +103,93 @@ export function SurveysLibraryPage() {
     toastTimer.current = window.setTimeout(() => setToast(null), 2500);
   };
 
-  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectionMode = () => {
+    setSelecting((value) => !value);
+    setSelectedIds(new Set());
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedIds((prev) => {
+      const allSelected =
+        filtered.length > 0 && filtered.every((survey) => prev.has(survey.id));
+      return allSelected ? new Set() : new Set(filtered.map((survey) => survey.id));
+    });
+  };
+
+  const onExportSelected = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0 || exporting) return;
+    setExporting(true);
+    setImportError(null);
+    try {
+      const blob = await exportSurveys(ids);
+      downloadBlob(blob, blob.filename ?? 'heatmap-surveys.zip');
+      showToast('Export prêt.');
+    } catch (err) {
+      setImportError(errorMessage(err, ERR_EXPORT));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const performImport = async (
+    file: File,
+    resolutions: Record<string, SurveyImportResolution>,
+  ) => {
+    const result = await importSurveys(file, resolutions);
+    setPendingImport(null);
+    setImportResult(result);
+    try {
+      await load();
+    } catch (err) {
+      void err;
+    }
+  };
+
+  const onPickZip = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     setImportError(null);
+    setZipImporting(true);
     try {
-      await importImage(file);
-      showToast('Survey importé.');
-    } catch {
-      setImportError(ERR_IMPORT);
+      const preview = await previewSurveyImport(file);
+      const conflicts = preview.plans.filter((plan) => plan.existsOnDevice);
+      if (conflicts.length > 0) {
+        setPendingImport({ file, preview, resolutions: {} });
+      } else {
+        await performImport(file, {});
+      }
+    } catch (err) {
+      setImportError(errorMessage(err, ERR_IMPORT_ZIP));
+    } finally {
+      setZipImporting(false);
+    }
+  };
+
+  const onConfirmImport = async () => {
+    if (!pendingImport) return;
+    const conflicts = pendingImport.preview.plans.filter(
+      (plan) => plan.existsOnDevice,
+    );
+    if (!conflicts.every((plan) => pendingImport.resolutions[plan.id])) return;
+    setImportError(null);
+    setZipImporting(true);
+    try {
+      await performImport(pendingImport.file, pendingImport.resolutions);
+    } catch (err) {
+      setImportError(errorMessage(err, ERR_IMPORT_ZIP));
+    } finally {
+      setZipImporting(false);
     }
   };
 
@@ -141,39 +253,48 @@ export function SurveysLibraryPage() {
 
   return (
     <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-10">
-      <div className="flex items-start justify-between gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div>
           <h1 className="text-[20px] font-medium text-text">Surveys</h1>
           <p className="text-[12px] text-text-dim mt-0.5">
             {surveys.length} survey{surveys.length > 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={importing}
-          aria-label="Importer un survey"
-          className="inline-flex items-center gap-2 h-11 px-4 rounded-[14px] border border-accent-border text-[#34d399] text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
-        >
-          <Upload className="w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
-          {importing ? 'Import…' : 'Importer'}
-        </button>
-        <button
-          type="button"
-          onClick={() => csvRef.current?.click()}
-          disabled={importing}
-          aria-label="Importer un CSV"
-          className="inline-flex items-center gap-2 h-11 px-4 rounded-[14px] border border-glass-border-soft text-text-dim text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
-        >
-          <FileUp className="w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
-          Importer CSV
-        </button>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <button
+            type="button"
+            onClick={toggleSelectionMode}
+            className="inline-flex items-center h-11 px-4 rounded-[14px] border border-glass-border-soft text-text text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            {selecting ? 'Annuler' : 'Sélectionner'}
+          </button>
+          <button
+            type="button"
+            onClick={() => zipRef.current?.click()}
+            disabled={importing || zipImporting}
+            aria-label="Importer un export ZIP de surveys"
+            className="inline-flex items-center gap-2 h-11 px-4 rounded-[14px] border border-accent-border text-[#34d399] text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            <Upload className="w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
+            {zipImporting ? 'Import…' : 'Importer'}
+          </button>
+          <button
+            type="button"
+            onClick={() => csvRef.current?.click()}
+            disabled={importing || zipImporting}
+            aria-label="Importer un CSV"
+            className="inline-flex items-center gap-2 h-11 px-4 rounded-[14px] border border-glass-border-soft text-text-dim text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            <FileUp className="w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
+            Importer CSV
+          </button>
+        </div>
         <input
-          ref={fileRef}
+          ref={zipRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+          accept=".zip,application/zip"
           className="hidden"
-          onChange={onPickFile}
+          onChange={onPickZip}
           aria-hidden="true"
           tabIndex={-1}
         />
@@ -187,6 +308,34 @@ export function SurveysLibraryPage() {
           tabIndex={-1}
         />
       </div>
+
+      {selecting && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[14px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] px-3 py-2">
+          <span className="flex-1 min-w-40 text-[13px] text-text-dim">
+            {selectedIds.size} survey{selectedIds.size > 1 ? 's' : ''} sélectionné
+            {selectedIds.size > 1 ? 's' : ''}
+          </span>
+          <button
+            type="button"
+            onClick={toggleAllVisible}
+            disabled={filtered.length === 0}
+            className="h-9 px-3 rounded-[10px] border border-glass-border-soft text-text-dim text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            {filtered.length > 0 && filtered.every((survey) => selectedIds.has(survey.id))
+              ? 'Tout désélectionner'
+              : 'Tout sélectionner'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void onExportSelected()}
+            disabled={selectedIds.size === 0 || exporting}
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-[10px] border border-accent-border text-[#34d399] text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            <Download className="w-[16px] h-[16px]" strokeWidth={1.75} aria-hidden />
+            {exporting ? 'Export…' : `Exporter (${selectedIds.size})`}
+          </button>
+        </div>
+      )}
 
       {importError && (
         <p role="alert" className="mb-3 text-[13px] text-danger">
@@ -231,7 +380,7 @@ export function SurveysLibraryPage() {
         </div>
       )}
 
-      {loading || importing ? (
+      {loading || importing || zipImporting ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {[0, 1, 2].map((i) => (
             <div
@@ -239,7 +388,7 @@ export function SurveysLibraryPage() {
               aria-hidden={i > 0}
               className="min-h-[128px] rounded-[14px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] animate-pulse flex items-center justify-center"
             >
-              {importing && i === 0 && (
+              {(importing || zipImporting) && i === 0 && (
                 <span className="text-[13px] text-text-dim">Import en cours…</span>
               )}
             </div>
@@ -249,11 +398,11 @@ export function SurveysLibraryPage() {
         <div className="text-center py-16">
           <p className="text-[15px] text-text mb-1">Importez votre premier survey</p>
           <p className="text-[13px] text-text-dim mb-4">
-            Ajoutez l’image du plan de votre survey (JPG, PNG ou WebP).
+            Ajoutez un export ZIP de surveys pour commencer.
           </p>
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
+            onClick={() => zipRef.current?.click()}
             className="inline-flex items-center h-11 px-5 rounded-[14px] border border-accent-border text-[#34d399] text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Importer
@@ -270,6 +419,9 @@ export function SurveysLibraryPage() {
               key={s.id}
               survey={s}
               busy={busyId === s.id}
+              selectable={selecting}
+              selected={selectedIds.has(s.id)}
+              onSelect={(survey) => toggleSelected(survey.id)}
               onOpenMenu={setSheet}
               onAnalyse={(x) => openSection(x, 'analyse')}
               onHeatmap={(x) => openSection(x, 'heatmap')}
@@ -339,6 +491,37 @@ export function SurveysLibraryPage() {
         />
       )}
 
+      {pendingImport && (
+        <ResolveImportDialog
+          preview={pendingImport.preview}
+          resolutions={pendingImport.resolutions}
+          busy={zipImporting}
+          error={importError}
+          onChange={(planId, resolution) =>
+            setPendingImport((current) =>
+              current
+                ? {
+                    ...current,
+                    resolutions: { ...current.resolutions, [planId]: resolution },
+                  }
+                : current,
+            )
+          }
+          onCancel={() => {
+            setPendingImport(null);
+            setImportError(null);
+          }}
+          onConfirm={() => void onConfirmImport()}
+        />
+      )}
+
+      {importResult && (
+        <ImportSummaryDialog
+          result={importResult}
+          onClose={() => setImportResult(null)}
+        />
+      )}
+
       {toast && (
         <div
           role="status"
@@ -347,6 +530,183 @@ export function SurveysLibraryPage() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+function ResolveImportDialog({
+  preview,
+  resolutions,
+  busy,
+  error,
+  onChange,
+  onCancel,
+  onConfirm,
+}: {
+  preview: SurveyImportPreview;
+  resolutions: Record<string, SurveyImportResolution>;
+  busy: boolean;
+  error: string | null;
+  onChange: (planId: string, resolution: SurveyImportResolution) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const conflicts = preview.plans.filter((plan) => plan.existsOnDevice);
+  const ready = conflicts.every((plan) => Boolean(resolutions[plan.id]));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) onCancel();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [busy, onCancel]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Plans déjà présents"
+        className="w-full max-w-md rounded-[16px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] p-4"
+      >
+        <h2 className="text-[15px] font-medium text-text mb-1">Plans déjà présents</h2>
+        <p className="text-[13px] text-text-dim mb-3">
+          Choisissez ce que l’import doit faire pour chaque plan existant.
+        </p>
+
+        <ul className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto pr-1">
+          {conflicts.map((plan) => (
+            <li
+              key={plan.id}
+              className="rounded-[12px] border border-glass-border-soft p-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[14px] text-text truncate">{plan.name}</div>
+                  <div className="text-[12px] text-text-dim">
+                    {plan.surveyCount} survey{plan.surveyCount > 1 ? 's' : ''}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {(['merge', 'duplicate'] as const).map((resolution) => {
+                  const active = resolutions[plan.id] === resolution;
+                  return (
+                    <label
+                      key={resolution}
+                      className={[
+                        'inline-flex items-center justify-center min-h-9 px-3 rounded-[10px] border text-[13px] font-medium cursor-pointer focus-within:ring-2 focus-within:ring-accent',
+                        active
+                          ? 'border-accent-border text-[#34d399]'
+                          : 'border-glass-border-soft text-text-dim',
+                      ].join(' ')}
+                    >
+                      <input
+                        type="radio"
+                        name={`resolution-${plan.id}`}
+                        value={resolution}
+                        checked={active}
+                        onChange={() => onChange(plan.id, resolution)}
+                        className="sr-only"
+                      />
+                      {resolution === 'merge' ? 'Fusionner' : 'Dupliquer'}
+                    </label>
+                  );
+                })}
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        {error && (
+          <p role="alert" className="mt-3 text-[13px] text-danger">
+            {error}
+          </p>
+        )}
+
+        <div className="flex gap-2 mt-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="flex-1 h-11 rounded-[12px] border border-glass-border-soft text-text text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy || !ready}
+            className="flex-1 h-11 rounded-[12px] bg-accent text-bg text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          >
+            {busy ? 'Import…' : 'Importer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImportSummaryDialog({
+  result,
+  onClose,
+}: {
+  result: SurveyImportResult;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const rows = [
+    ['Surveys importés', result.importedSurveys.length],
+    ['Surveys ignorés', result.skippedSurveys.length],
+    ['Points de scan', result.scanPoints],
+    ['Scans', result.scans],
+    ['Observations', result.observations],
+    ['Plans créés', result.plansCreated],
+    ['Plans fusionnés', result.plansMerged],
+    ['Règles BSSID ajoutées', result.bssidRulesAdded],
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Résumé de l’import"
+        className="w-full max-w-sm rounded-[16px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] p-4"
+      >
+        <h2 className="text-[15px] font-medium text-text mb-3">Import terminé</h2>
+        <dl className="grid grid-cols-2 gap-2">
+          {rows.map(([label, value]) => (
+            <div
+              key={label}
+              className="rounded-[10px] border border-glass-border-soft px-3 py-2"
+            >
+              <dt className="text-[12px] text-text-dim">{label}</dt>
+              <dd className="text-[16px] text-text">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {result.skippedSurveys.length > 0 && (
+          <p className="mt-3 text-[12px] text-text-dim">
+            Ignorés : {result.skippedSurveys.map((survey) => survey.name).join(', ')}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full h-11 mt-4 rounded-[12px] bg-accent text-bg text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Fermer
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,3 +1,10 @@
+import { buildSurveyExportZip } from '../services/surveyExport.service.js';
+import {
+  executeSurveyImport,
+  parseSurveyExportZip,
+  previewSurveyImport as buildSurveyImportPreview,
+} from '../services/surveyImport.service.js';
+import { AppError } from '../utils/AppError.js';
 import {
   createSurvey,
   createSurveyScanPoint,
@@ -67,6 +74,60 @@ export const exportSurvey = run((req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${safeName}-releves.csv"`);
   res.send('\ufeff' + csv);
+});
+
+const exportTimestamp = () => {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return (
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}`
+  );
+};
+
+export const exportSurveysZip = run((req, res) => {
+  const rawIds = req.query.ids;
+  const ids = Array.isArray(rawIds)
+    ? rawIds.flatMap((value) => String(value).split(','))
+    : typeof rawIds === 'string'
+      ? rawIds.split(',')
+      : [];
+  const zip = buildSurveyExportZip(ids);
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="heatmap-surveys-${exportTimestamp()}.zip"`
+  );
+  res.send(Buffer.from(zip));
+});
+
+export const previewSurveyImport = run((req, res) => {
+  if (!req.file?.buffer) {
+    throw new AppError('Fichier ZIP manquant.', 400);
+  }
+  const parsed = parseSurveyExportZip(req.file.buffer);
+  res.json(buildSurveyImportPreview(parsed));
+});
+
+export const importSurveys = run((req, res) => {
+  if (!req.file?.buffer) {
+    throw new AppError('Fichier ZIP manquant.', 400);
+  }
+
+  let resolutions = {};
+  if (req.body?.resolutions !== undefined && String(req.body.resolutions).trim() !== '') {
+    try {
+      resolutions = JSON.parse(req.body.resolutions);
+    } catch {
+      throw new AppError('Champ resolutions invalide (JSON attendu).', 400);
+    }
+    if (!resolutions || typeof resolutions !== 'object' || Array.isArray(resolutions)) {
+      throw new AppError('Champ resolutions invalide (objet attendu).', 400);
+    }
+  }
+
+  const parsed = parseSurveyExportZip(req.file.buffer);
+  res.status(201).json(executeSurveyImport(parsed, resolutions));
 });
 
 export const readSurveyScanPoints = run((req, res) => {
