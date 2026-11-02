@@ -10,24 +10,56 @@ type Props = {
   onOpenMenu: (survey: SurveySummary) => void;
   onAnalyse: (survey: SurveySummary) => void;
   onHeatmap: (survey: SurveySummary) => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelect?: (survey: SurveySummary) => void;
 };
 
-export function SurveyCard({ survey, busy, onOpenMenu, onAnalyse, onHeatmap }: Props) {
+export function SurveyCard({
+  survey,
+  busy,
+  onOpenMenu,
+  onAnalyse,
+  onHeatmap,
+  selectable = false,
+  selected = false,
+  onSelect,
+}: Props) {
   const quality = qualityFromRssi(survey.avgRssi);
+  const activate = () => {
+    if (selectable) onSelect?.(survey);
+    else onOpenMenu(survey);
+  };
 
   return (
     <article
       className={[
-        'rounded-[14px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] overflow-hidden',
+        'relative rounded-[14px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] overflow-hidden',
+        selected && 'ring-1 ring-accent-border',
         busy && 'opacity-55 pointer-events-none',
       ]
         .filter(Boolean)
         .join(' ')}
     >
+      {selectable && (
+        <label className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#0b1017]/85">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onSelect?.(survey)}
+            aria-label={`Sélectionner ${survey.name}`}
+            className="h-5 w-5 accent-[#34d399]"
+          />
+        </label>
+      )}
       <button
         type="button"
-        onClick={() => onOpenMenu(survey)}
-        aria-label={`Plus d'actions pour ${survey.name}`}
+        onClick={activate}
+        aria-label={
+          selectable
+            ? `${selected ? 'Désélectionner' : 'Sélectionner'} ${survey.name}`
+            : `Plus d'actions pour ${survey.name}`
+        }
         className="w-full text-left p-3 flex gap-3 items-start min-h-[88px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       >
         <SurveyThumbnail survey={survey} />
@@ -44,7 +76,10 @@ export function SurveyCard({ survey, busy, onOpenMenu, onAnalyse, onHeatmap }: P
             <QualityBadge quality={quality} />
           </div>
         </div>
-        <span className="text-text-dim pt-1" aria-hidden="true">
+        <span
+          className={['text-text-dim pt-1', selectable && 'invisible'].filter(Boolean).join(' ')}
+          aria-hidden="true"
+        >
           <EllipsisVertical className="w-[18px] h-[18px]" strokeWidth={1.75} />
         </span>
       </button>

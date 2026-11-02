@@ -46,7 +46,7 @@ async function parseError(res: Response): Promise<never> {
   throw new ApiError(message, res.status, code);
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiRequest(path: string, init?: RequestInit): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, init);
@@ -58,6 +58,11 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   if (!res.ok) await parseError(res);
+  return res;
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiRequest(path, init);
   if (res.status === 204) return undefined as T;
   try {
     return (await res.json()) as T;
@@ -556,6 +561,96 @@ export async function deleteApMapping(mappingId: string): Promise<void> {
     `/api/v1/plans/ap-mappings/${encodeURIComponent(mappingId)}`,
     { method: 'DELETE' }
   );
+}
+
+export type SurveyImportResolution = 'merge' | 'duplicate';
+
+export interface SurveyImportPreviewPlan {
+  id: string;
+  name: string;
+  existsOnDevice: boolean;
+  surveyCount: number;
+}
+
+export interface SurveyImportPreviewSurvey {
+  id: string;
+  name: string;
+  planId: string;
+  existsOnDevice: boolean;
+  scanPointCount: number;
+  observationCount: number;
+}
+
+export interface SurveyImportPreview {
+  plans: SurveyImportPreviewPlan[];
+  surveys: SurveyImportPreviewSurvey[];
+  bssidRuleCount: number;
+}
+
+export interface SurveyImportResult {
+  importedSurveys: Array<{ id: string; name: string }>;
+  skippedSurveys: Array<{ id: string; name: string; reason: string }>;
+  plansCreated: number;
+  plansMerged: number;
+  scanPoints: number;
+  scans: number;
+  observations: number;
+  bssidRulesAdded: number;
+}
+
+export interface SurveyExportBlob extends Blob {
+  filename: string | null;
+}
+
+function contentDispositionFilename(value: string | null): string | null {
+  if (!value) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      return encoded[1].trim();
+    }
+  }
+  const quoted = /filename="([^"]+)"/i.exec(value);
+  if (quoted) return quoted[1];
+  const bare = /filename=([^;]+)/i.exec(value);
+  return bare ? bare[1].trim() : null;
+}
+
+export async function exportSurveys(ids: string[]): Promise<SurveyExportBlob> {
+  const params = new URLSearchParams();
+  params.set('ids', ids.join(','));
+  const res = await apiRequest(
+    `/api/v1/surveys/export.zip?${params.toString()}`,
+  );
+  const blob = (await res.blob()) as SurveyExportBlob;
+  blob.filename = contentDispositionFilename(
+    res.headers.get('Content-Disposition'),
+  );
+  return blob;
+}
+
+export async function previewSurveyImport(file: File): Promise<SurveyImportPreview> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch<SurveyImportPreview>('/api/v1/surveys/import/preview', {
+    method: 'POST',
+    body: form,
+  });
+}
+
+export async function importSurveys(
+  file: File,
+  resolutions: Record<string, SurveyImportResolution>,
+): Promise<SurveyImportResult> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('resolutions', JSON.stringify(resolutions));
+  return apiFetch<SurveyImportResult>('/api/v1/surveys/import', {
+    method: 'POST',
+    body: form,
+  });
 }
 
 /** URL de téléchargement CSV des relevés (ancre <a href>, pas de fetch). */

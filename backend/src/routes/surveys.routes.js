@@ -1,11 +1,15 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { readAnalysisHistory, readLiveAnalysis } from '../controllers/analysis.controller.js';
 import { scanLimiter } from '../middleware/rateLimit.js';
 import {
   deleteSurvey,
   deleteSurveyPoint,
   exportSurvey,
+  exportSurveysZip,
+  importSurveys,
   patchSurvey,
+  previewSurveyImport,
   patchSurveyPoint,
   readSurvey,
   readSurveyHeatmap,
@@ -23,6 +27,14 @@ import {
 } from '../middleware/surveys.middleware.js';
 
 const router = Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024 },
+});
+
+router.get('/export.zip', exportSurveysZip);
+router.post('/import/preview', upload.single('file'), previewSurveyImport);
+router.post('/import', upload.single('file'), importSurveys);
 
 router.get('/:surveyId/analysis/live', scanLimiter, readLiveAnalysis);
 router.get('/:surveyId/analysis/history', readAnalysisHistory);
