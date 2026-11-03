@@ -7,7 +7,7 @@ import {
   useMap,
   useMapEvents,
 } from 'react-leaflet';
-import { Check, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, X } from 'lucide-react';
+import { Check, Eye, EyeOff, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, X } from 'lucide-react';
 import L from 'leaflet';
 import { useApPositions } from '../../hooks/useApPositions';
 import { usePlanImage } from '../../hooks/usePlanImage';
@@ -244,6 +244,9 @@ export function HeatmapPage() {
   const [editing, setEditing] = useState<PolygonEditingState | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [polygonBusy, setPolygonBusy] = useState(false);
+  // Affichage des zones sur la carte (masquées par défaut). Le découpage de la
+  // heatmap reste appliqué : seul le rendu bleu des polygones est concerné.
+  const [showZones, setShowZones] = useState(false);
 
   const registerRecenter = useCallback((fn: () => void) => {
     recenterRef.current = fn;
@@ -262,10 +265,18 @@ export function HeatmapPage() {
       setActiveVertices([]);
     } else {
       setDrawing(true);
+      setShowZones(true);
       setEditing(null);
       setSelectedPolygonId(null);
     }
   }, [drawing]);
+
+  const toggleZones = useCallback(() => {
+    setPendingDeleteId(null);
+    setPolygonError(null);
+    setSelectedPolygonId(null);
+    setShowZones((prev) => !prev);
+  }, []);
 
   const handleAddVertex = useCallback((vertex: NormalizedCoord) => {
     setPolygonError(null);
@@ -913,6 +924,29 @@ export function HeatmapPage() {
               {drawing ? 'Quitter le dessin' : 'Dessiner une zone'}
             </button>
 
+            {polygons.length > 0 && (
+              <button
+                type="button"
+                aria-pressed={showZones}
+                onClick={toggleZones}
+                disabled={drawing || !!editing}
+                title={showZones ? 'Masquer les zones' : 'Afficher les zones'}
+                className={[
+                  'inline-flex items-center gap-2 h-11 px-4 rounded-xl border text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  showZones
+                    ? 'bg-accent-soft text-accent border-accent-border'
+                    : 'text-text-dim border-glass-border-soft hover:text-text',
+                ].join(' ')}
+              >
+                {showZones ? (
+                  <Eye size={16} strokeWidth={1.75} aria-hidden />
+                ) : (
+                  <EyeOff size={16} strokeWidth={1.75} aria-hidden />
+                )}
+                Zones
+              </button>
+            )}
+
             {displayedBssid && (
               <button
                 type="button"
@@ -1024,7 +1058,7 @@ export function HeatmapPage() {
               </>
             )}
 
-            {!drawing && !editing && !selectedPolygon && polygons.length > 0 && (
+            {showZones && !drawing && !editing && !selectedPolygon && polygons.length > 0 && (
               <span className="text-[12px] text-text-dim">
                 Clique sur une zone pour la sélectionner.
               </span>
@@ -1182,7 +1216,7 @@ export function HeatmapPage() {
                 height={plan.height}
                 drawing={drawing}
                 activeVertices={activeVertices}
-                polygons={visiblePolygons}
+                polygons={showZones ? visiblePolygons : []}
                 selectedPolygonId={selectedPolygonId}
                 editing={editing}
                 onAddVertex={handleAddVertex}

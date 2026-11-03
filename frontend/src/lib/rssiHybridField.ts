@@ -32,6 +32,32 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+export function combineHybridFields(fields: HybridField[]): HybridField {
+  return {
+    model: null,
+    sample(xPx: number, yPx: number): HybridSample {
+      let best: HybridSample | null = null;
+      let bestRank = 0;
+      let bestRssi = Number.NEGATIVE_INFINITY;
+      for (const field of fields) {
+        const sample = field.sample(xPx, yPx);
+        if (sample.status === 'NO_DATA') continue;
+        const rank = sample.status === 'INTERPOLATED' ? 2 : 1;
+        if (
+          best === null ||
+          rank > bestRank ||
+          (rank === bestRank && sample.rssi > bestRssi)
+        ) {
+          best = sample;
+          bestRank = rank;
+          bestRssi = sample.rssi;
+        }
+      }
+      return best ?? { status: 'NO_DATA', rssi: null };
+    },
+  };
+}
+
 export function createHybridField(
   mesh: InterpolationMesh,
   options: { ap: ApPosition | null; decayFactor?: number }

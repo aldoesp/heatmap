@@ -9,11 +9,7 @@ import {
 import { normalizedToPlanPixel, type NormalizedCoord } from '../../lib/coords';
 import type { ApPosition } from '../../lib/pathLossModel';
 import { buildZoneMask, pointInPolygonPx, type ZoneMask } from '../../lib/polygon';
-import {
-  createHybridField,
-  type HybridField,
-  type HybridSample,
-} from '../../lib/rssiHybridField';
+import { combineHybridFields, createHybridField } from '../../lib/rssiHybridField';
 import type { InterpolationMesh } from '../../lib/triangulation';
 
 export interface CoveragePoint {
@@ -257,25 +253,6 @@ function createZoneMaskPredicate(
     );
 }
 
-function combineHybridFields(fields: HybridField[]): HybridField {
-  return {
-    model: null,
-    sample(xPx: number, yPx: number): HybridSample {
-      let best: HybridSample | null = null;
-      let bestRssi = Number.NEGATIVE_INFINITY;
-      for (const field of fields) {
-        const sample = field.sample(xPx, yPx);
-        if (sample.status === 'NO_DATA') continue;
-        if (sample.rssi > bestRssi) {
-          bestRssi = sample.rssi;
-          best = sample;
-        }
-      }
-      return best ?? { status: 'NO_DATA', rssi: null };
-    },
-  };
-}
-
 function createTriangulatedCoverageImage(
   meshes: InterpolationMesh[],
   width: number,
@@ -295,7 +272,7 @@ function createTriangulatedCoverageImage(
     : [];
 
   let raster;
-  if (hasZones && apForMesh.some((ap) => ap !== null)) {
+  if (hasZones) {
     const fields = meshes.map((mesh, index) =>
       createHybridField(mesh, { ap: apForMesh[index] })
     );
