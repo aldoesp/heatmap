@@ -9,7 +9,11 @@ import {
 import { normalizedToPlanPixel, type NormalizedCoord } from '../../lib/coords';
 import type { ApPosition } from '../../lib/pathLossModel';
 import { buildZoneMask, pointInPolygonPx, type ZoneMask } from '../../lib/polygon';
-import { combineHybridFields, createHybridField } from '../../lib/rssiHybridField';
+import {
+  combineHybridFields,
+  createHybridField,
+  type HybridField,
+} from '../../lib/rssiHybridField';
 import type { InterpolationMesh } from '../../lib/triangulation';
 
 export interface CoveragePoint {
@@ -200,37 +204,10 @@ function findApForMesh(
   if (ap) {
     return normalizedToPlanPixel(ap.x, ap.y, mesh.width, mesh.height);
   }
-  // 3) nearest AP by euclidean distance in plan pixels to max rssi point
-  if (accessPoints.length > 0 && mesh.points.length > 0) {
-    let maxIdx = 0;
-    let maxRssi = mesh.points[0].rssi;
-    for (let i = 1; i < mesh.points.length; i++) {
-      if (mesh.points[i].rssi > maxRssi) {
-        maxRssi = mesh.points[i].rssi;
-        maxIdx = i;
-      }
-    }
-    const pt = mesh.points[maxIdx];
-    const px = pt.xPx;
-    const py = pt.yPx;
-    let best: any = null;
-    let bestDist = Infinity;
-    for (const a of accessPoints) {
-      const apPx = normalizedToPlanPixel(a.x, a.y, mesh.width, mesh.height);
-      const dx = apPx.xPx - px;
-      const dy = apPx.yPx - py;
-      const d = dx * dx + dy * dy;
-      if (d < bestDist) {
-        bestDist = d;
-        best = apPx;
-      }
-    }
-    if (best) return best;
-  }
   return null;
 }
 
-function createZoneMaskPredicate(
+export function createZoneMaskPredicate(
   polygons: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }>,
   width: number,
   height: number
@@ -253,6 +230,18 @@ function createZoneMaskPredicate(
     );
 }
 
+export function buildCombinedHybridField(
+  meshes: InterpolationMesh[],
+  apPositions: readonly { bssid: string; x: number; y: number }[],
+  accessPoints: readonly { id: string; x: number; y: number; bssids?: string[] }[]
+): HybridField {
+  const apForMesh = meshes.map((mesh) => findApForMesh(mesh, apPositions, accessPoints));
+  const fields = meshes.map((mesh, index) =>
+    createHybridField(mesh, { ap: apForMesh[index] })
+  );
+  return combineHybridFields(fields);
+}
+
 function createTriangulatedCoverageImage(
   meshes: InterpolationMesh[],
   width: number,
@@ -271,22 +260,17 @@ function createTriangulatedCoverageImage(
     `[heatmap] createTriangulatedCoverageImage start · meshes.length=${meshes.length} · raster=${size.width}×${size.height}`
   );
   const hasZones = (polygons?.length ?? 0) > 0;
-  const apForMesh = hasZones
-    ? meshes.map((mesh) => findApForMesh(mesh, apPositions, accessPoints))
-    : [];
 
   let raster;
   if (hasZones) {
     const fieldsStart = performance.now();
-    const fields = meshes.map((mesh, index) =>
-      createHybridField(mesh, { ap: apForMesh[index] })
-    );
+    const field = buildCombinedHybridField(meshes, apPositions, accessPoints);
     console.info(
-      `[heatmap] createHybridField ${(performance.now() - fieldsStart).toFixed(1)} ms · meshes.length=${fields.length}`
+      `[heatmap] createHybridField ${(performance.now() - fieldsStart).toFixed(1)} ms · meshes.length=${meshes.length}`
     );
     const rasterStart = performance.now();
     raster = rasterizeRssiHybrid(
-      combineHybridFields(fields),
+      field,
       createZoneMaskPredicate(polygons ?? [], width, height),
       width,
       height,

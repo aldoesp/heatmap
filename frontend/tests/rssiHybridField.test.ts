@@ -68,14 +68,24 @@ describe('combineHybridFields', () => {
     sample: () => sample,
   });
 
-  it('INTERPOLATED beats EXTRAPOLATED even with weaker rssi', () => {
+  it('INTERPOLATED -80 contre EXTRAPOLATED -50 (confidence 0.5) -> EXTRAPOLATED -50 gagne', () => {
     const combined = combineHybridFields([
       fakeField({ status: 'INTERPOLATED', rssi: -80, confidence: 1 }),
       fakeField({ status: 'EXTRAPOLATED', rssi: -50, confidence: 0.5 }),
     ]);
     const sample = combined.sample(0, 0);
+    assert.equal(sample.status, 'EXTRAPOLATED');
+    if (sample.status === 'EXTRAPOLATED') assert.equal(sample.rssi, -50);
+  });
+
+  it('INTERPOLATED -60 contre EXTRAPOLATED -50 (confidence 0.1) -> INTERPOLATED gagne', () => {
+    const combined = combineHybridFields([
+      fakeField({ status: 'INTERPOLATED', rssi: -60, confidence: 1 }),
+      fakeField({ status: 'EXTRAPOLATED', rssi: -50, confidence: 0.1 }),
+    ]);
+    const sample = combined.sample(0, 0);
     assert.equal(sample.status, 'INTERPOLATED');
-    if (sample.status === 'INTERPOLATED') assert.equal(sample.rssi, -80);
+    if (sample.status === 'INTERPOLATED') assert.equal(sample.rssi, -60);
   });
 
   it('two EXTRAPOLATED: strongest rssi wins', () => {
@@ -104,5 +114,18 @@ describe('combineHybridFields', () => {
       fakeField({ status: 'NO_DATA', rssi: null }),
     ]);
     assert.deepEqual(combined.sample(0, 0), { status: 'NO_DATA', rssi: null });
+  });
+
+  it('combineHybridFields returns the source of the winning sample', () => {
+    const combined = combineHybridFields([
+      fakeField({ status: 'INTERPOLATED', rssi: -90, confidence: 1, source: { bssid: 'aa:bb:cc:dd:ee:01', band: '2.4GHz', surveyId: null } }),
+      fakeField({ status: 'EXTRAPOLATED', rssi: -50, confidence: 0.5, source: { bssid: 'aa:bb:cc:dd:ee:02', band: '5GHz', surveyId: 's1' } }),
+    ]);
+    const sample = combined.sample(0, 0);
+    assert.equal(sample.status, 'EXTRAPOLATED');
+    if (sample.status === 'EXTRAPOLATED') {
+      assert.equal(sample.rssi, -50);
+      assert.deepEqual(sample.source, { bssid: 'aa:bb:cc:dd:ee:02', band: '5GHz', surveyId: 's1' });
+    }
   });
 });
