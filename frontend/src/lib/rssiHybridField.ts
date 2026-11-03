@@ -16,9 +16,11 @@ import {
   computeResiduals,
 } from './pathLossModel.js';
 
+export const EXTRAP_PENALTY_DB = 12;
+
 export type HybridSample =
-  | { status: 'INTERPOLATED'; rssi: number; confidence: number }
-  | { status: 'EXTRAPOLATED'; rssi: number; confidence: number }
+  | { status: 'INTERPOLATED'; rssi: number; confidence: number; source?: { bssid: string; band: string; surveyId: string | null } }
+  | { status: 'EXTRAPOLATED'; rssi: number; confidence: number; source?: { bssid: string; band: string; surveyId: string | null } }
   | { status: 'NO_DATA'; rssi: null };
 
 export interface HybridField {
@@ -37,20 +39,17 @@ export function combineHybridFields(fields: HybridField[]): HybridField {
     model: null,
     sample(xPx: number, yPx: number): HybridSample {
       let best: HybridSample | null = null;
-      let bestRank = 0;
-      let bestRssi = Number.NEGATIVE_INFINITY;
+      let bestScore = Number.NEGATIVE_INFINITY;
       for (const field of fields) {
         const sample = field.sample(xPx, yPx);
         if (sample.status === 'NO_DATA') continue;
-        const rank = sample.status === 'INTERPOLATED' ? 2 : 1;
-        if (
-          best === null ||
-          rank > bestRank ||
-          (rank === bestRank && sample.rssi > bestRssi)
-        ) {
+        const score =
+          sample.status === 'INTERPOLATED'
+            ? sample.rssi
+            : sample.rssi - EXTRAP_PENALTY_DB * (1 - sample.confidence);
+        if (best === null || score > bestScore) {
           best = sample;
-          bestRank = rank;
-          bestRssi = sample.rssi;
+          bestScore = score;
         }
       }
       return best ?? { status: 'NO_DATA', rssi: null };
@@ -70,6 +69,8 @@ export function createHybridField(
       : fitPathLossModel(mesh.points, options.ap, { width: mesh.width, height: mesh.height });
 
   const residuals = model ? computeResiduals(mesh.points, model) : null;
+
+  const source = { bssid: mesh.scope.bssid, band: mesh.scope.band, surveyId: mesh.scope.surveyId };
 
   const triangleById = new Map<string, { a: GeometryPoint; b: GeometryPoint; c: GeometryPoint }>();
   for (const t of mesh.triangles) {
@@ -119,10 +120,10 @@ export function createHybridField(
           const rC = residuals.get(tri.c.sourceId) ?? 0;
           const residual = meshSample.lambdaA * rA + meshSample.lambdaB * rB + meshSample.lambdaC * rC;
           const rssi = clampRssi(predictPathLossRaw(model, xPx, yPx) + residual);
-          return { status: 'INTERPOLATED', rssi, confidence: 1 };
+          return { status: 'INTERPOLATED', rssi, confidence: 1, source };
         }
       } else {
-        return { status: 'INTERPOLATED', rssi: meshSample.rssi, confidence: 1 };
+        return { status: 'INTERPOLATED', rssi: meshSample.rssi, confidence: 1, source };
       }
     }
 
@@ -169,7 +170,7 @@ export function createHybridField(
       v = wa * rA + wb * rB + wc * rC;
       v = clamp(v, vMin, vMax);
       const rssi = clampRssi(predictPathLossRaw(model, xPx, yPx) + v);
-      return { status: 'EXTRAPOLATED', rssi, confidence: Math.exp(-dMin / L) };
+      return { status: 'EXTRAPOLATED', rssi, confidence: Math.exp(-dMin / L), source };
     }
 
     v = wa * best.a.rssi + wb * best.b.rssi + wc * best.c.rssi;
@@ -178,6 +179,7 @@ export function createHybridField(
       status: 'EXTRAPOLATED',
       rssi: clampRssi(v),
       confidence: Math.exp(-dMin / L),
+      source,
     };
   }
 

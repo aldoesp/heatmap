@@ -447,19 +447,13 @@ export function rasterizeRssiHybrid(
         const colour = lutColourForRssi(lut, sample.rssi);
         if (colour[3] === 0) continue;
 
-        let alpha = colour[3];
+        const baseAlpha = colour[3];
+        let alpha: number;
         if (sample.status === 'INTERPOLATED') {
-          // keep as is from LUT alpha? But LUT gives alpha from formula; also need to handle estimated
-          // "dans l'hybride, multiplie l'alpha par 0.4+0.6*confidence pour les pixels ESTIMATED comme aujourd'hui"
-          // LUT already includes alpha calculation; but requirement says "Si c'est une LUT, utilise lutColourForRssi (couleur et alpha viennent de la LUT, le param opacity est ignoré) ; dans l'hybride, multiplie l'alpha par 0.4+0.6*confidence pour les pixels ESTIMATED comme aujourd'hui."
-          // So for LUT in hybrid, base alpha comes from LUT, but ESTIMATED pixels get multiplied by 0.4+0.6*confidence
-        }
-
-        if (sample.status === 'INTERPOLATED') {
-          alpha = colour[3];
+          alpha = baseAlpha;
         } else {
           if (!showEstimated) continue;
-          alpha = colour[3];
+          alpha = Math.round(baseAlpha * (0.4 + 0.6 * sample.confidence));
         }
         if (alpha <= 0) continue;
 
@@ -470,12 +464,13 @@ export function rasterizeRssiHybrid(
         data[offset + 3] = Math.max(0, Math.min(255, alpha));
         coveredPixels += 1;
       } else {
+        const baseAlpha = maxAlpha;
         let alpha: number;
         if (sample.status === 'INTERPOLATED') {
-          alpha = maxAlpha;
+          alpha = baseAlpha;
         } else {
           if (!showEstimated) continue;
-          alpha = maxAlpha;
+          alpha = Math.round(baseAlpha * (0.4 + 0.6 * sample.confidence));
         }
         if (alpha <= 0) continue;
 
@@ -486,7 +481,7 @@ export function rasterizeRssiHybrid(
         data[offset] = rgb[0];
         data[offset + 1] = rgb[1];
         data[offset + 2] = rgb[2];
-        data[offset + 3] = alpha;
+        data[offset + 3] = Math.max(0, Math.min(255, alpha));
         coveredPixels += 1;
       }
     }

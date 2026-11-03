@@ -7,7 +7,7 @@ import {
   useMap,
   useMapEvents,
 } from 'react-leaflet';
-import { Check, Eye, EyeOff, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, X } from 'lucide-react';
+import { Check, Eye, EyeOff, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, X, ScanLine } from 'lucide-react';
 import L from 'leaflet';
 import { useApPositions } from '../../hooks/useApPositions';
 import { usePlanImage } from '../../hooks/usePlanImage';
@@ -27,6 +27,7 @@ import {
   calculateAutoRadius,
 } from '../../lib/heatmap';
 import { CoverageOverlay, type CoverageBand, type CoveragePoint } from './CoverageOverlay';
+import { RssiProbeLayer } from './RssiProbeLayer';
 import {
   PolygonEditorLayer,
   type PolygonEditingState,
@@ -261,6 +262,7 @@ export function HeatmapPage() {
   // Affichage des zones sur la carte (masquées par défaut). Le découpage de la
   // heatmap reste appliqué : seul le rendu bleu des polygones est concerné.
   const [showZones, setShowZones] = useState(false);
+  const [showProbe, setShowProbe] = useState(true);
 
   const registerRecenter = useCallback((fn: () => void) => {
     recenterRef.current = fn;
@@ -967,6 +969,25 @@ export function HeatmapPage() {
               </button>
             )}
 
+            {!showingSpeed && (
+              <button
+                type="button"
+                aria-pressed={showProbe}
+                onClick={() => setShowProbe((prev) => !prev)}
+                disabled={drawing || !!editing}
+                title={showProbe ? 'Masquer les valeurs RSSI' : 'Afficher les valeurs RSSI au survol'}
+                className={[
+                  'inline-flex items-center gap-2 h-11 px-4 rounded-xl border text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  showProbe
+                    ? 'bg-accent-soft text-accent border-accent-border'
+                    : 'text-text-dim border-glass-border-soft hover:text-text',
+                ].join(' ')}
+              >
+                <ScanLine size={16} strokeWidth={1.75} aria-hidden />
+                Valeurs RSSI
+              </button>
+            )}
+
             {displayedBssid && (
               <button
                 type="button"
@@ -1183,19 +1204,31 @@ export function HeatmapPage() {
                   polygons={visiblePolygons}
                 />
               ) : (
-                <CoverageOverlay
-                  interpolation="triangulation"
-                  meshes={rssiMeshModel?.meshes ?? []}
-                  width={plan.width}
-                  height={plan.height}
-                  bounds={bounds}
-                  bands={RSSI_BANDS}
-                  apPositions={apPositions}
-                  accessPoints={visibleAccessPoints}
-                  polygons={visiblePolygons}
-                  showEstimated={showEstimated}
-                  lut={rssiLut}
-                />
+                <>
+                  <CoverageOverlay
+                    interpolation="triangulation"
+                    meshes={rssiMeshModel?.meshes ?? []}
+                    width={plan.width}
+                    height={plan.height}
+                    bounds={bounds}
+                    bands={RSSI_BANDS}
+                    apPositions={apPositions}
+                    accessPoints={visibleAccessPoints}
+                    polygons={visiblePolygons}
+                    showEstimated={showEstimated}
+                    lut={rssiLut}
+                  />
+                  <RssiProbeLayer
+                    meshes={rssiMeshModel?.meshes ?? []}
+                    polygons={visiblePolygons}
+                    apPositions={apPositions}
+                    accessPoints={visibleAccessPoints}
+                    width={plan.width}
+                    height={plan.height}
+                    lut={rssiLut}
+                    enabled={showProbe && !drawing && !editing && !placingAp}
+                  />
+                </>
               )}
               {/* Les points de mesure ne sont pas affichés : seuls les AP
                   ajoutés au plan servent de repère sur la carte. */}
