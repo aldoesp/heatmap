@@ -78,6 +78,80 @@ function isLut(palette: RssiBand[] | Uint8ClampedArray): palette is Uint8Clamped
 }
 
 /**
+ * Flou gaussien séparable normalisé sur les pixels valides.
+ *
+ * Chaque sortie vaut Σ(w·v·valid) / Σ(w·valid) : les voisins invalides sont
+ * ignorés et ne diluent donc pas la valeur. Les pixels invalides restent
+ * invalides (leurs sorties ne sont pas utilisées).
+ */
+export function blurValidSamples(
+  values: Float32Array,
+  confidence: Float32Array,
+  valid: Float32Array,
+  width: number,
+  height: number,
+  sigma: number
+): { values: Float32Array; confidence: Float32Array } {
+  const radius = Math.ceil(3 * sigma);
+  const kernel = new Float32Array(radius * 2 + 1);
+  for (let i = -radius; i <= radius; i += 1) {
+    kernel[i + radius] = Math.exp(-(i * i) / (2 * sigma * sigma));
+  }
+
+  const horizontalValues = new Float32Array(width * height);
+  const horizontalConfidence = new Float32Array(width * height);
+  for (let iy = 0; iy < height; iy += 1) {
+    const rowOffset = iy * width;
+    for (let ix = 0; ix < width; ix += 1) {
+      let weightSum = 0;
+      let valueSum = 0;
+      let confidenceSum = 0;
+      for (let k = -radius; k <= radius; k += 1) {
+        const nx = ix + k;
+        if (nx < 0 || nx >= width) continue;
+        const index = rowOffset + nx;
+        if (valid[index] === 0) continue;
+        const weight = kernel[k + radius];
+        weightSum += weight;
+        valueSum += weight * values[index];
+        confidenceSum += weight * confidence[index];
+      }
+      if (weightSum > 0) {
+        horizontalValues[rowOffset + ix] = valueSum / weightSum;
+        horizontalConfidence[rowOffset + ix] = confidenceSum / weightSum;
+      }
+    }
+  }
+
+  const blurredValues = new Float32Array(width * height);
+  const blurredConfidence = new Float32Array(width * height);
+  for (let iy = 0; iy < height; iy += 1) {
+    for (let ix = 0; ix < width; ix += 1) {
+      const index = iy * width + ix;
+      let weightSum = 0;
+      let valueSum = 0;
+      let confidenceSum = 0;
+      for (let k = -radius; k <= radius; k += 1) {
+        const ny = iy + k;
+        if (ny < 0 || ny >= height) continue;
+        const neighbor = ny * width + ix;
+        if (valid[neighbor] === 0) continue;
+        const weight = kernel[k + radius];
+        weightSum += weight;
+        valueSum += weight * horizontalValues[neighbor];
+        confidenceSum += weight * horizontalConfidence[neighbor];
+      }
+      if (weightSum > 0) {
+        blurredValues[index] = valueSum / weightSum;
+        blurredConfidence[index] = confidenceSum / weightSum;
+      }
+    }
+  }
+
+  return { values: blurredValues, confidence: blurredConfidence };
+}
+
+/**
  * Rasterise uniquement les pixels couverts par au moins un triangle.
  *
  * Chaque triangle n'est préparé qu'une fois, puis seuls les pixels de sa
@@ -225,7 +299,8 @@ export function rasterizeRssiHybrid(
   imageHeight: number,
   palette: RssiBand[] | Uint8ClampedArray,
   opacity = 0.75,
-  showEstimated = true
+  showEstimated = true,
+  options: { smoothingSigmaPx?: number } = {}
 ): RssiRaster | null {
   if (
     !(planWidth > 0) ||
@@ -285,6 +360,77 @@ export function rasterizeRssiHybrid(
   let coveredPixels = 0;
 
   if (maxIx < minIx || maxIy < minIy) {
+    return { width, height, data, coveredPixels };
+  }
+
+  const smoothingSigmaPx = options.smoothingSigmaPx ?? 0;
+  if (smoothingSigmaPx > 0) {
+    const values = new Float32Array(width * height);
+    const confidence = new Float32Array(width * height);
+    const valid = new Float32Array(width * height);
+
+    for (let iy = minIy; iy <= maxIy; iy += 1) {
+      for (let ix = minIx; ix <= maxIx; ix += 1) {
+        const index = iy * width + ix;
+        if (mask[index] === 0) continue;
+
+        const sample = field.sample(planXs[ix], planYs[iy]);
+        if (sample.status === 'NO_DATA') continue;
+        if (sample.status === 'EXTRAPOLATED' && !showEstimated) continue;
+
+        values[index] = sample.rssi;
+        confidence[index] =
+          sample.status === 'INTERPOLATED' ? 1 : clamp(sample.confidence, 0, 1);
+        valid[index] = 1;
+      }
+    }
+
+    const blurred = blurValidSamples(
+      values,
+      confidence,
+      valid,
+      width,
+      height,
+      smoothingSigmaPx
+    );
+
+    for (let iy = minIy; iy <= maxIy; iy += 1) {
+      for (let ix = minIx; ix <= maxIx; ix += 1) {
+        const index = iy * width + ix;
+        if (valid[index] === 0) continue;
+
+        const value = blurred.values[index];
+        const factor = 0.4 + 0.6 * clamp(blurred.confidence[index], 0, 1);
+
+        if (useLut) {
+          const lut = palette as Uint8ClampedArray;
+          const colour = lutColourForRssi(lut, value);
+          const alpha = Math.round(colour[3] * factor);
+          if (alpha <= 0) continue;
+
+          const offset = index * 4;
+          data[offset] = colour[0];
+          data[offset + 1] = colour[1];
+          data[offset + 2] = colour[2];
+          data[offset + 3] = alpha;
+          coveredPixels += 1;
+        } else {
+          const rgb = colorForValue(value, rgbBands);
+          if (rgb === null) continue;
+
+          const alpha = Math.round(maxAlpha * factor);
+          if (alpha <= 0) continue;
+
+          const offset = index * 4;
+          data[offset] = rgb[0];
+          data[offset + 1] = rgb[1];
+          data[offset + 2] = rgb[2];
+          data[offset + 3] = alpha;
+          coveredPixels += 1;
+        }
+      }
+    }
+
     return { width, height, data, coveredPixels };
   }
 

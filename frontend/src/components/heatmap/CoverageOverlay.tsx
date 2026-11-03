@@ -265,7 +265,11 @@ function createTriangulatedCoverageImage(
   showEstimated: boolean,
   lut?: Uint8ClampedArray
 ): string {
+  const start = performance.now();
   const size = chooseRasterSize(width, height);
+  console.info(
+    `[heatmap] createTriangulatedCoverageImage start · meshes.length=${meshes.length} · raster=${size.width}×${size.height}`
+  );
   const hasZones = (polygons?.length ?? 0) > 0;
   const apForMesh = hasZones
     ? meshes.map((mesh) => findApForMesh(mesh, apPositions, accessPoints))
@@ -273,9 +277,14 @@ function createTriangulatedCoverageImage(
 
   let raster;
   if (hasZones) {
+    const fieldsStart = performance.now();
     const fields = meshes.map((mesh, index) =>
       createHybridField(mesh, { ap: apForMesh[index] })
     );
+    console.info(
+      `[heatmap] createHybridField ${(performance.now() - fieldsStart).toFixed(1)} ms · meshes.length=${fields.length}`
+    );
+    const rasterStart = performance.now();
     raster = rasterizeRssiHybrid(
       combineHybridFields(fields),
       createZoneMaskPredicate(polygons ?? [], width, height),
@@ -287,7 +296,11 @@ function createTriangulatedCoverageImage(
       opacity,
       showEstimated
     );
+    console.info(
+      `[heatmap] rasterizeRssiHybrid ${(performance.now() - rasterStart).toFixed(1)} ms · raster=${size.width}×${size.height}`
+    );
   } else {
+    const rasterStart = performance.now();
     raster = rasterizeRssiMeshes(
       meshes,
       width,
@@ -297,7 +310,13 @@ function createTriangulatedCoverageImage(
       lut ?? bands,
       opacity
     );
+    console.info(
+      `[heatmap] rasterizeRssiMeshes ${(performance.now() - rasterStart).toFixed(1)} ms · raster=${size.width}×${size.height}`
+    );
   }
+  console.info(
+    `[heatmap] createTriangulatedCoverageImage ${(performance.now() - start).toFixed(1)} ms · raster=${size.width}×${size.height}`
+  );
   if (!raster || raster.coveredPixels === 0) return '';
 
   const canvas = document.createElement('canvas');
@@ -336,10 +355,10 @@ export function CoverageOverlay({
             bands,
             opacity,
             polygons,
-             apPositions ?? [],
-             accessPoints ?? [],
-             showEstimated,
-             lut
+            apPositions ?? [],
+            accessPoints ?? [],
+            showEstimated,
+            lut
           )
         : '';
     }
