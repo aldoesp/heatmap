@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHybridField } from '../src/lib/rssiHybridField.js';
+import { combineHybridFields, createHybridField } from '../src/lib/rssiHybridField.js';
+import type { HybridField, HybridSample } from '../src/lib/rssiHybridField.js';
 import { triangulateRssi } from '../src/lib/triangulation.js';
 import type { GeometryPoint } from '../src/lib/triangulation.js';
 import type { ApPosition } from '../src/lib/pathLossModel.js';
@@ -58,5 +59,50 @@ describe('rssiHybridField', () => {
   it('non-finite -> NO_DATA', () => {
     const f = createHybridField(mesh, { ap });
     assert.equal(f.sample(NaN, 0).status, 'NO_DATA');
+  });
+});
+
+describe('combineHybridFields', () => {
+  const fakeField = (sample: HybridSample): HybridField => ({
+    model: null,
+    sample: () => sample,
+  });
+
+  it('INTERPOLATED beats EXTRAPOLATED even with weaker rssi', () => {
+    const combined = combineHybridFields([
+      fakeField({ status: 'INTERPOLATED', rssi: -80, confidence: 1 }),
+      fakeField({ status: 'EXTRAPOLATED', rssi: -50, confidence: 0.5 }),
+    ]);
+    const sample = combined.sample(0, 0);
+    assert.equal(sample.status, 'INTERPOLATED');
+    if (sample.status === 'INTERPOLATED') assert.equal(sample.rssi, -80);
+  });
+
+  it('two EXTRAPOLATED: strongest rssi wins', () => {
+    const combined = combineHybridFields([
+      fakeField({ status: 'EXTRAPOLATED', rssi: -70, confidence: 0.3 }),
+      fakeField({ status: 'EXTRAPOLATED', rssi: -55, confidence: 0.6 }),
+    ]);
+    const sample = combined.sample(0, 0);
+    assert.equal(sample.status, 'EXTRAPOLATED');
+    if (sample.status === 'EXTRAPOLATED') assert.equal(sample.rssi, -55);
+  });
+
+  it('two INTERPOLATED: strongest rssi wins', () => {
+    const combined = combineHybridFields([
+      fakeField({ status: 'INTERPOLATED', rssi: -90, confidence: 1 }),
+      fakeField({ status: 'INTERPOLATED', rssi: -60, confidence: 1 }),
+    ]);
+    const sample = combined.sample(0, 0);
+    assert.equal(sample.status, 'INTERPOLATED');
+    if (sample.status === 'INTERPOLATED') assert.equal(sample.rssi, -60);
+  });
+
+  it('all NO_DATA returns NO_DATA', () => {
+    const combined = combineHybridFields([
+      fakeField({ status: 'NO_DATA', rssi: null }),
+      fakeField({ status: 'NO_DATA', rssi: null }),
+    ]);
+    assert.deepEqual(combined.sample(0, 0), { status: 'NO_DATA', rssi: null });
   });
 });
