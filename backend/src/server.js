@@ -13,7 +13,11 @@ getDb(); // crée data/heatmap.db + tables si besoin
 
 const PORT = Number(process.env.PORT) || 3001;
 
-app.listen(PORT, () => {
+app.listen(PORT, (err) => {
+  if (err) {
+    console.error(`Impossible d'écouter sur le port ${PORT} : ${err.code ?? err.message}`);
+    process.exit(1);
+  }
   console.log(
     `API sur http://localhost:${PORT}/api/v1 — mode : ${process.env.SCAN_MODE === 'test' ? 'test' : 'live'}`
   );

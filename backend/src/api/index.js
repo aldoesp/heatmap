@@ -4,7 +4,6 @@ import plansRoutes from '../routes/plans.routes.js';
 import surveysRoutes from '../routes/surveys.routes.js';
 import bssidRulesRoutes from '../routes/bssidRules.routes.js';
 import importRoutes from '../routes/import.routes.js';
-import { scanLimiter } from '../middleware/rateLimit.js';
 import { getStatus, getIperfStatus, getSettings, patchSettings } from '../controllers/settings.controller.js';
 
 const api = Router();
@@ -14,7 +13,7 @@ api.get('/status', getStatus);
 api.get('/settings/iperf-status', getIperfStatus);
 api.get('/settings', getSettings);
 api.patch('/settings', patchSettings);
-api.use('/scan', scanLimiter, scanRoutes);
+api.use('/scan', scanRoutes);
 api.use('/plans', plansRoutes);
 api.use('/surveys', surveysRoutes);
 api.use('/bssid-rules', bssidRulesRoutes);

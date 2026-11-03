@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import {
   ApiError,
@@ -59,6 +59,7 @@ type FlatRow = {
   obs: NetworkObservation | null;
   loading: boolean;
   noScan: boolean;
+  error?: string;
 };
 
 /* Tableau aplati unique : 1 ligne par (point × réseau du dernier scan),
@@ -69,28 +70,35 @@ export function PointsTable({ surveyName, rows, onBack }: Props) {
   const [weakOnly, setWeakOnly] = useState(false);
   const [details, setDetails] = useState<Record<string, DetailState>>({});
 
+  const requested = useRef<Set<string>>(new Set());
+
   const loadScanDetail = useCallback(async (scanId: string) => {
-    setDetails((current) => {
-      if (current[scanId]?.status === 'loaded' || current[scanId]?.status === 'loading') {
-        return current;
-      }
-      return { ...current, [scanId]: { status: 'loading' } };
-    });
+    if (requested.current.has(scanId)) return;
+    requested.current.add(scanId);
+    setDetails((current) => ({ ...current, [scanId]: { status: 'loading' } }));
     try {
       const detail = await getScanDetail(scanId);
       setDetails((current) => ({ ...current, [scanId]: { status: 'loaded', detail } }));
     } catch (error) {
+      requested.current.delete(scanId);
       const message =
         error instanceof ApiError ? error.message : 'Impossible de charger les données du scan.';
       setDetails((current) => ({ ...current, [scanId]: { status: 'error', message } }));
     }
   }, []);
 
+  /* 6 requêtes en parallèle max, sans doublon (StrictMode inclus). */
   useEffect(() => {
-    for (const row of rows) {
-      const latest = row.scans.at(-1)?.id;
-      if (latest) void loadScanDetail(latest);
-    }
+    const ids = rows
+      .map((r) => r.scans.at(-1)?.id)
+      .filter((id): id is string => Boolean(id));
+    let next = 0;
+    const worker = async () => {
+      while (next < ids.length) {
+        await loadScanDetail(ids[next++]);
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(6, ids.length) }, worker));
   }, [rows, loadScanDetail]);
 
   const flat = useMemo(() => {
@@ -128,6 +136,7 @@ export function PointsTable({ surveyName, rows, onBack }: Props) {
           obs: null,
           loading: state?.status === 'loading',
           noScan: false,
+          error: state?.status === 'error' ? state.message : undefined,
         });
         return;
       }
@@ -297,8 +306,8 @@ export function PointsTable({ surveyName, rows, onBack }: Props) {
                     Aucun scan enregistré.
                   </td>
                 ) : f.loading || !f.obs ? (
-                  <td colSpan={11} className="px-3 py-2 font-mono text-text-dim">
-                    {f.loading ? 'Chargement des observations…' : '—'}
+                  <td colSpan={11} className={`px-3 py-2 font-mono ${f.error ? 'text-danger' : 'text-text-dim'}`}>
+                    {f.loading ? 'Chargement des observations…' : f.error ? `Erreur : ${f.error}` : '—'}
                   </td>
                 ) : (
                   <>
