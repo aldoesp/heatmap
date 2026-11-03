@@ -400,7 +400,7 @@ export function rasterizeRssiHybrid(
         if (valid[index] === 0) continue;
 
         const value = blurred.values[index];
-        const factor = 0.4 + 0.6 * clamp(blurred.confidence[index], 0, 1);
+        const factor = 1;
 
         if (useLut) {
           const lut = palette as Uint8ClampedArray;
@@ -459,8 +459,7 @@ export function rasterizeRssiHybrid(
           alpha = colour[3];
         } else {
           if (!showEstimated) continue;
-          const confidence = clamp(sample.confidence, 0, 1);
-          alpha = Math.round(colour[3] * (0.4 + 0.6 * confidence));
+          alpha = colour[3];
         }
         if (alpha <= 0) continue;
 
@@ -476,8 +475,7 @@ export function rasterizeRssiHybrid(
           alpha = maxAlpha;
         } else {
           if (!showEstimated) continue;
-          const confidence = clamp(sample.confidence, 0, 1);
-          alpha = Math.round(maxAlpha * (0.4 + 0.6 * confidence));
+          alpha = maxAlpha;
         }
         if (alpha <= 0) continue;
 

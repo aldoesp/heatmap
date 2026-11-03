@@ -18,8 +18,8 @@ export const DEFAULT_HEATMAP_COLOURS: HeatmapColours = {
     { position: 0.55, color: '#a3e635', opacity: 1 },
     { position: 0.75, color: '#10b981', opacity: 1 },
   ],
-  opacityStrongest: 0.75,
-  opacityWeakest: 0.75,
+  opacityStrongest: 1,
+  opacityWeakest: 1,
 };
 
 export const RSSI_MIN = -100;
