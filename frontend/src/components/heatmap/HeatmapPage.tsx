@@ -197,12 +197,26 @@ function polygonNumber(
 }
 
 type BandChoice = '' | '2.4' | '5' | '6';
+
 const BAND_TABS: Array<{ value: BandChoice; label: string }> = [
   { value: '', label: 'Toutes' },
   { value: '2.4', label: '2.4 GHz' },
   { value: '5', label: '5 GHz' },
   { value: '6', label: '6 GHz' },
 ];
+
+function buildRssiMeshesTimed(
+  rows: Parameters<typeof buildRssiMeshes>[0],
+  plan: Parameters<typeof buildRssiMeshes>[1],
+  options: Parameters<typeof buildRssiMeshes>[2]
+): ReturnType<typeof buildRssiMeshes> {
+  const start = performance.now();
+  const result = buildRssiMeshes(rows, plan, options);
+  console.info(
+    `[heatmap] buildRssiMeshes ${(performance.now() - start).toFixed(1)} ms · rows.length=${rows.length} · meshes.length=${result.meshes.length}`
+  );
+  return result;
+}
 
 export function HeatmapPage() {
   const { plan, imageUrl, loading: planLoading, imageMissing, error: planError } = usePlanImage();
@@ -528,15 +542,24 @@ export function HeatmapPage() {
     setLoading(true);
     setError(null);
     try {
-      const [data, speeds] = await Promise.all([
-        getHeatmap(plan.id, {
-          ssid: ssid || undefined,
-          bssid: bssid || undefined,
-          connected: onlyConnected || undefined,
-          band: band || undefined,
-        }),
-        getHeatmapSpeed(plan.id).catch(() => [] as SpeedHeatmapRow[]),
-      ]);
+      const heatmapStart = performance.now();
+      const heatmapRequest = getHeatmap(plan.id, {
+        ssid: ssid || undefined,
+        bssid: bssid || undefined,
+        connected: onlyConnected || undefined,
+        band: band || undefined,
+      });
+      const speedStart = performance.now();
+      const speedRequest = getHeatmapSpeed(plan.id).catch(
+        () => [] as SpeedHeatmapRow[]
+      );
+      const [data, speeds] = await Promise.all([heatmapRequest, speedRequest]);
+      console.info(
+        `[heatmap] getHeatmap ${(performance.now() - heatmapStart).toFixed(1)} ms · rows.length=${data.length}`
+      );
+      console.info(
+        `[heatmap] getHeatmapSpeed ${(performance.now() - speedStart).toFixed(1)} ms · speedRows.length=${speeds.length}`
+      );
       if (loadRequestRef.current !== requestId) return;
       setRows(data);
       setSpeedRows(speeds);
@@ -603,21 +626,18 @@ export function HeatmapPage() {
     [speedRows]
   );
 
-  const rssiMeshModel = useMemo(
-    () =>
-      !showingSpeed && plan
-        ? buildRssiMeshes(
-            rows,
-            {
-              id: plan.id,
-              width: plan.width,
-              height: plan.height,
-            },
-            { polygons: visiblePolygons }
-          )
-        : null,
-    [showingSpeed, rows, plan, visiblePolygons]
-  );
+  const rssiMeshModel = useMemo(() => {
+    if (showingSpeed || !plan) return null;
+    return buildRssiMeshesTimed(
+      rows,
+      {
+        id: plan.id,
+        width: plan.width,
+        height: plan.height,
+      },
+      { polygons: visiblePolygons }
+    );
+  }, [showingSpeed, rows, plan, visiblePolygons]);
 
   const displayedBssid = useMemo(() => {
     if (bssid) return bssid;

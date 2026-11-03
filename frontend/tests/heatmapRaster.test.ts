@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { imagePixelToPlanPixel } from '../src/lib/coords.js';
 import { buildRssiMeshes } from '../src/lib/heatmapRssi.js';
 import {
+  blurValidSamples,
   chooseRasterSize,
   rasterizeRssiHybrid,
   rasterizeRssiMeshes,
@@ -220,5 +221,21 @@ describe('rasterisation hybride RSSI', () => {
     );
     assert.ok(withoutEstimated);
     assert.equal(withoutEstimated.data[farOffset + 3], 0);
+  });
+
+  it('garde un champ constant à ±0,01 dBm après flou, bords compris', () => {
+    const width = 9;
+    const height = 7;
+    const count = width * height;
+    const values = new Float32Array(count).fill(-60);
+    const confidence = new Float32Array(count).fill(1);
+    const valid = new Float32Array(count).fill(1);
+
+    const blurred = blurValidSamples(values, confidence, valid, width, height, 2);
+
+    for (let index = 0; index < count; index += 1) {
+      assert.ok(Math.abs(blurred.values[index] + 60) <= 0.01);
+      assert.ok(Math.abs(blurred.confidence[index] - 1) <= 0.01);
+    }
   });
 });
