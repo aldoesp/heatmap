@@ -286,8 +286,8 @@ export function rasterizeRssiMeshes(
  * Rasterise le champ hybride (modèle de propagation + résidus interpolés)
  * uniquement à l'intérieur du masque fourni.
  *
- * Les pixels sont échantillonnés en leur centre (`x + 0.5`, `y + 0.5`) puis
- * convertis dans le repère du plan. Les valeurs extrapolées peuvent être
+ * Les bords utilisent le même repère que le raster triangulé et la sonde
+ * (`imagePixelToPlanPixel`). Les valeurs extrapolées peuvent être
  * masquées via `showEstimated`, auquel cas leur alpha reste nul.
  */
 export function rasterizeRssiHybrid(
@@ -317,7 +317,7 @@ export function rasterizeRssiHybrid(
   const planYs = new Float64Array(height);
   for (let ix = 0; ix < width; ix += 1) {
     planXs[ix] = imagePixelToPlanPixel(
-      ix + 0.5,
+      ix,
       0,
       planWidth,
       planHeight,
@@ -328,7 +328,7 @@ export function rasterizeRssiHybrid(
   for (let iy = 0; iy < height; iy += 1) {
     planYs[iy] = imagePixelToPlanPixel(
       0,
-      iy + 0.5,
+      iy,
       planWidth,
       planHeight,
       width,
@@ -368,6 +368,7 @@ export function rasterizeRssiHybrid(
     const values = new Float32Array(width * height);
     const confidence = new Float32Array(width * height);
     const valid = new Float32Array(width * height);
+    const estimated = new Uint8Array(width * height);
 
     for (let iy = minIy; iy <= maxIy; iy += 1) {
       for (let ix = minIx; ix <= maxIx; ix += 1) {
@@ -382,6 +383,7 @@ export function rasterizeRssiHybrid(
         confidence[index] =
           sample.status === 'INTERPOLATED' ? 1 : clamp(sample.confidence, 0, 1);
         valid[index] = 1;
+        estimated[index] = sample.status === 'EXTRAPOLATED' ? 1 : 0;
       }
     }
 
@@ -400,7 +402,7 @@ export function rasterizeRssiHybrid(
         if (valid[index] === 0) continue;
 
         const value = blurred.values[index];
-        const factor = 1;
+        const factor = estimated[index] ? 0.4 + 0.6 * clamp(blurred.confidence[index], 0, 1) : 1;
 
         if (useLut) {
           const lut = palette as Uint8ClampedArray;

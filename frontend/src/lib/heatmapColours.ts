@@ -18,8 +18,8 @@ export const DEFAULT_HEATMAP_COLOURS: HeatmapColours = {
     { position: 0.55, color: '#a3e635', opacity: 1 },
     { position: 0.75, color: '#10b981', opacity: 1 },
   ],
-  opacityStrongest: 1,
-  opacityWeakest: 1,
+  opacityStrongest: 0.75,
+  opacityWeakest: 0.75,
 };
 
 export const RSSI_MIN = -100;
@@ -188,12 +188,9 @@ export function buildColourLut(colours: HeatmapColours): Uint8ClampedArray {
     const left = stops[leftIdx];
     const right = stops[rightIdx];
 
-    let t = 0;
-    if (right.position === left.position) {
-      t = 0;
-    } else {
-      t = (p - left.position) / (right.position - left.position);
-    }
+    const t = right.position === left.position
+      ? 0
+      : clamp01((p - left.position) / (right.position - left.position));
 
     const leftRgb = parseColorToRgb(left.color) ?? [255, 0, 0];
     const rightRgb = parseColorToRgb(right.color) ?? leftRgb;
@@ -222,4 +219,13 @@ export function lutColourForRssi(lut: Uint8ClampedArray, rssi: number): [number,
   const idx = Math.max(0, Math.min(255, Math.round(p * 255)));
   const baseIdx = idx * 4;
   return [lut[baseIdx], lut[baseIdx + 1], lut[baseIdx + 2], lut[baseIdx + 3]];
+}
+
+/** Même table et mêmes positions que le raster, y compris les palettes personnalisées. */
+export function colourLutToCssGradient(lut: Uint8ClampedArray): string {
+  const stops = Array.from({ length: 256 }, (_, index) => {
+    const offset = index * 4;
+    return `rgba(${lut[offset]}, ${lut[offset + 1]}, ${lut[offset + 2]}, ${lut[offset + 3] / 255}) ${index / 255 * 100}%`;
+  });
+  return `linear-gradient(to right, ${stops.join(', ')})`;
 }

@@ -1,3 +1,4 @@
+import type { RssiCalculation } from '../../lib/regularizedRssi';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapContainer,
@@ -47,7 +48,7 @@ import { average, RSSI_BANDS } from '../../lib/signal';
 import type { AccessPoint } from '../../types/plan';
 import { buildRssiMeshes, findUncoveredZones } from '../../lib/heatmapRssi';
 import { useHeatmapColours } from '../../hooks/useHeatmapColours';
-import { buildColourLut, RSSI_MAX, RSSI_MIN } from '../../lib/heatmapColours';
+import { buildColourLut, colourLutToCssGradient, lutColourForRssi, rssiToPosition, RSSI_MAX, RSSI_MIN } from '../../lib/heatmapColours';
 
 function MapSetup({
   width,
@@ -228,13 +229,17 @@ export function HeatmapPage() {
   const [showEstimated, setShowEstimated] = useState(true);
   const { colours } = useHeatmapColours();
   const rssiLut = useMemo(() => buildColourLut(colours), [colours]);
+  const legendGradient = useMemo(() => colourLutToCssGradient(rssiLut), [rssiLut]);
+  const [layerOpacity, setLayerOpacity] = useState(1);
+  const [showMeasurements, setShowMeasurements] = useState(true);
+  const [calculation, setCalculation] = useState<RssiCalculation>('regularized');
   const [networks, setNetworks] = useState<NetworkInfo[]>([]);
   const [ssid, setSsid] = useState('');
   const [bssid, setBssid] = useState('');
   // Bande affichée ('' = toutes), façon sélecteur 2.4/5/6 GHz d'UniFi.
   const [band, setBand] = useState<BandChoice>('');
-  // Par défaut : seuls les cercles du réseau connecté (marqué au scan).
-  const [onlyConnected, setOnlyConnected] = useState(true);
+  // Les imports peuvent ne pas porter de marqueur de connexion : afficher tous les réseaux par défaut.
+  const [onlyConnected, setOnlyConnected] = useState(false);
   const [rows, setRows] = useState<HeatmapRow[]>([]);
   const [speedRows, setSpeedRows] = useState<SpeedHeatmapRow[]>([]);
   const [accessPoints, setAccessPoints] = useState<{
@@ -752,9 +757,10 @@ export function HeatmapPage() {
   const visibleCount = showingSpeed ? speedRows.length : rows.length;
   const activeBands = showingSpeed ? SPEED_BANDS : RSSI_BANDS;
   const activeLabels = showingSpeed ? SPEED_LABELS : RSSI_LABELS;
-  const estimatedColor = RSSI_BANDS[0]?.color ?? '#10b981';
+  const estimatedRgb = lutColourForRssi(rssiLut, -67);
+  const estimatedColor = `rgb(${estimatedRgb[0]}, ${estimatedRgb[1]}, ${estimatedRgb[2]})`;
   const showEstimatedControls =
-    !showingSpeed && selectedApPositions.length > 0;
+    !showingSpeed && rows.length > 0 && (calculation === 'regularized' || visiblePolygons.length > 0);
   const isEmpty = showingSpeed ? speedRows.length === 0 : rows.length === 0;
   const visibleAccessPoints =
     accessPoints?.planId === plan.id ? accessPoints.items : [];
@@ -781,7 +787,31 @@ export function HeatmapPage() {
         </p>
       </div>
 
+      {!showingSpeed && calculation === 'regularized' && (
+        <p className="mb-3 text-xs text-text-dim">
+          Fond régularisé · points = mesures brutes · trame = extrapolation.
+          {!ssid && !bssid && !onlyConnected ? ' Tous réseaux : meilleur signal disponible. Sélectionne un SSID et une bande pour analyser ton réseau.' : ' Chaque radio et chaque zone sont calculées séparément.'}
+        </p>
+      )}
       <div className="flex flex-wrap gap-2 mb-4">
+        {!showingSpeed && (
+          <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
+            <span>Calcul</span>
+            <select aria-label="Calcul de couverture" value={calculation}
+              onChange={(event) => setCalculation(event.target.value as RssiCalculation)}
+              className="bg-bg text-text outline-none">
+              <option value="regularized">Régularisé</option>
+              <option value="hybrid">Hybride existant</option>
+            </select>
+          </label>
+        )}
+        <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
+          <span className="whitespace-nowrap">Opacité {Math.round(layerOpacity * 100)} %</span>
+          <input type="range" aria-label="Opacité de la heatmap" min={0} max={100} step={5}
+            value={Math.round(layerOpacity * 100)}
+            onChange={(event) => setLayerOpacity(Number(event.target.value) / 100)}
+            className="w-24 accent-[#10b981]" />
+        </label>
         <div
           role="group"
           aria-label="Métrique affichée"
@@ -930,6 +960,12 @@ export function HeatmapPage() {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 mb-2">
+            <button type="button" aria-pressed={showMeasurements}
+              onClick={() => setShowMeasurements((value) => !value)}
+              className="inline-flex items-center gap-2 h-11 px-4 rounded-xl border border-glass-border-soft text-sm text-text-dim hover:text-text">
+              {showMeasurements ? <Eye size={16} aria-hidden /> : <EyeOff size={16} aria-hidden />}
+              Points mesurés
+            </button>
             <button
               type="button"
               aria-pressed={drawing}
@@ -1202,11 +1238,15 @@ export function HeatmapPage() {
                   bounds={bounds}
                   bands={activeBands}
                   polygons={visiblePolygons}
+                  opacity={layerOpacity}
                 />
               ) : (
                 <>
                   <CoverageOverlay
                     interpolation="triangulation"
+                    calculation={calculation}
+                    measurements={rows}
+                    planId={plan.id}
                     meshes={rssiMeshModel?.meshes ?? []}
                     width={plan.width}
                     height={plan.height}
@@ -1217,21 +1257,35 @@ export function HeatmapPage() {
                     polygons={visiblePolygons}
                     showEstimated={showEstimated}
                     lut={rssiLut}
+                    opacity={layerOpacity}
                   />
                   <RssiProbeLayer
+                    calculation={calculation}
+                    measurements={rows}
+                    planId={plan.id}
+                    width={plan.width}
+                    height={plan.height}
                     meshes={rssiMeshModel?.meshes ?? []}
                     polygons={visiblePolygons}
                     apPositions={apPositions}
                     accessPoints={visibleAccessPoints}
-                    width={plan.width}
-                    height={plan.height}
                     lut={rssiLut}
                     enabled={showProbe && !drawing && !editing && !placingAp}
+                    showEstimated={showEstimated}
                   />
                 </>
               )}
-              {/* Les points de mesure ne sont pas affichés : seuls les AP
-                  ajoutés au plan servent de repère sur la carte. */}
+              {showMeasurements && (showingSpeed
+                ? speedRows.map((row) => ({ id: row.scan_point_id, x: row.x, y: row.y, value: row.speed_bps / 1_000_000 }))
+                : bestPerPoint.map((row) => ({ id: row.scan_point_id, x: row.x, y: row.y, value: row.rssi }))
+              ).map((point) => (
+                <CircleMarker key={`measurement-${point.id}`}
+                  center={dataToLatLng(point.x, point.y, plan.width, plan.height)} radius={4}
+                  bubblingMouseEvents={false}
+                  pathOptions={{ color: '#fff', weight: 2, fillColor: '#0d1319', fillOpacity: 1 }}>
+                  <Tooltip direction="top">Mesure · {formatValue(point.value)}</Tooltip>
+                </CircleMarker>
+              ))}
               {visibleAccessPoints.map((ap) => (
                 <CircleMarker
                   key={ap.id}
@@ -1301,15 +1355,18 @@ export function HeatmapPage() {
               </>
             ) : (
               <>
-                <div
-                  className="h-3 rounded-full border border-white/10 min-w-64 flex-1 max-w-120"
-                  style={{
-                    backgroundImage: `linear-gradient(to right, ${colours.stops
-                      .map((s) => s.color)
-                      .join(', ')})`,
-                  }}
-                  aria-hidden
-                />
+                <div className="min-w-64 flex-1 max-w-120" aria-label="Échelle du signal de −100 à −40 dBm">
+                  <div className="h-3 rounded-full border border-white/10"
+                    style={{ backgroundImage: legendGradient, opacity: layerOpacity }} aria-hidden />
+                  <div className="relative mt-1 h-5 text-[10px] text-text-dim font-mono" aria-hidden>
+                    {[RSSI_MIN, -85, -75, -67, -55, RSSI_MAX].map((value, index, values) => (
+                      <span key={value} className="absolute"
+                        style={{ left: `${rssiToPosition(value) * 100}%`, transform: index === 0 ? undefined : index === values.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)' }}>
+                        {value}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </>
             )}
             <span className="text-[12px] text-text-dim font-mono">
@@ -1319,13 +1376,6 @@ export function HeatmapPage() {
               </span>
             </span>
           </div>
-          {!showingSpeed && (
-            <div className="mt-1 flex items-center gap-4 text-[12px] text-text-dim font-mono">
-              <span>0 % ({RSSI_MIN} dBm)</span>
-              <span className="ml-auto">50 % ({RSSI_MIN + (RSSI_MAX - RSSI_MIN) / 2} dBm)</span>
-              <span className="ml-auto">100 % ({RSSI_MAX} dBm)</span>
-            </div>
-          )}
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
             {activeBands.map((bandDef) => (
               <span
@@ -1334,7 +1384,10 @@ export function HeatmapPage() {
               >
                 <span
                   className="inline-block w-3 h-3 rounded-full"
-                  style={{ backgroundColor: bandDef.color }}
+                  style={{ backgroundColor: showingSpeed ? bandDef.color : (() => {
+                    const [r, g, b] = lutColourForRssi(rssiLut, Number.isFinite(bandDef.min) ? bandDef.min : RSSI_MIN);
+                    return `rgb(${r}, ${g}, ${b})`;
+                  })() }}
                 />
                 {activeLabels[bandKey(bandDef.min)]}
               </span>
@@ -1345,12 +1398,13 @@ export function HeatmapPage() {
                   <span
                     className="inline-block w-3 h-3 rounded-full border border-white/20"
                     style={{
-                      backgroundImage: `repeating-conic-gradient(${estimatedColor} 0% 25%, transparent 0% 50%)`,
-                      backgroundSize: '6px 6px',
+                      backgroundColor: estimatedColor,
+                      backgroundImage: calculation === 'regularized' ? 'repeating-linear-gradient(135deg, transparent 0 3px, #ffffff99 3px 4px)' : undefined,
+                      opacity: calculation === 'regularized' ? .8 : .45,
                     }}
                     aria-hidden
                   />
-                  estimé
+                  {calculation === 'regularized' ? 'extrapolation · trame' : 'estimé · transparence variable'}
                 </span>
                 <button
                   type="button"

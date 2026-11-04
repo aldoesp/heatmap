@@ -6,11 +6,13 @@ import {
   patchSetting,
   getIperfStatus,
   listBssidRules,
+  listSeenBssids,
   createBssidRule,
   updateBssidRule,
   deleteBssidRule,
   exportCsvUrl,
   type BssidRule,
+  type BssidSeen,
   type AppSettings,
   type AppStatus,
 } from '../../lib/api';
@@ -45,6 +47,10 @@ export function SettingsPage() {
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingRuleName, setEditingRuleName] = useState('');
   const [mapError, setMapError] = useState<string | null>(null);
+  const [seenBssids, setSeenBssids] = useState<BssidSeen[]>([]);
+  const [seenLoading, setSeenLoading] = useState(false);
+  const [selectedSeen, setSelectedSeen] = useState<Record<string, boolean>>({});
+  const [blacklistingSeen, setBlacklistingSeen] = useState(false);
 
   useEffect(() => {
     setHeatmapColours(hookColours);
@@ -142,6 +148,82 @@ export function SettingsPage() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    setSeenLoading(true);
+    listSeenBssids()
+      .then((s) => {
+        if (!alive) return;
+        setSeenBssids(s);
+        const sel: Record<string, boolean> = {};
+        for (const item of s) {
+          if (item.blacklisted) sel[item.bssid] = true;
+        }
+        setSelectedSeen(sel);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        const apiErr = err instanceof ApiError ? err : null;
+        setMapError(apiErr?.message ?? 'Impossible de charger les BSSID capturés.');
+      })
+      .finally(() => {
+        if (alive) setSeenLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const toggleSeenSelection = useCallback((bssid: string) => {
+    setSelectedSeen((prev) => ({ ...prev, [bssid]: !prev[bssid] }));
+  }, []);
+
+  const addSelectedToBlacklist = useCallback(async () => {
+    const toAdd = seenBssids.filter((s) => selectedSeen[s.bssid] && !s.blacklisted);
+    if (toAdd.length === 0) {
+      setMapError('Aucun BSSID sélectionné à ajouter à la liste noire.');
+      return;
+    }
+    setBlacklistingSeen(true);
+    setMapError(null);
+    try {
+      const results = await Promise.all(
+        toAdd.map(async (item) => {
+          if (item.rule_id) {
+            return updateBssidRule(item.rule_id, { blacklisted: true });
+          }
+          return createBssidRule({ bssid: item.bssid, name: item.name || '', blacklisted: true });
+        }),
+      );
+      setMappings((prev) => {
+        const next = [...prev];
+        for (const r of results) {
+          const idx = next.findIndex((m) => m.id === r.id);
+          if (idx >= 0) next[idx] = r;
+          else next.push(r);
+        }
+        return next.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      setSeenBssids((prev) =>
+        prev.map((s) => {
+          const r = results.find((res) => res.bssid.toLowerCase() === s.bssid.toLowerCase());
+          if (r) return { ...s, blacklisted: r.blacklisted, rule_id: r.id, name: r.name };
+          return s;
+        }),
+      );
+      setSelectedSeen((prev) => {
+        const next = { ...prev };
+        for (const item of toAdd) next[item.bssid] = true;
+        return next;
+      });
+    } catch (err) {
+      const apiErr = err instanceof ApiError ? err : null;
+      setMapError(apiErr?.message ?? "Impossible d'ajouter à la liste noire.");
+    } finally {
+      setBlacklistingSeen(false);
+    }
+  }, [seenBssids, selectedSeen]);
 
   const saveSettings = useCallback(async () => {
     setSaving(true);
@@ -347,7 +429,49 @@ export function SettingsPage() {
           <p className="text-[13px] text-text-dim mb-3">
             Les noms sont globaux et remplacent le BSSID dans l’application. Un BSSID en liste noire est exclu des scans et des analyses, y compris l’historique.
           </p>
-            <>
+              <>
+                {mapError && <p className="text-danger text-[13px] mb-2">{mapError}</p>}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-[13px] font-medium">Liste des BSSID (captures) — SSID affiché à côté du BSSID</h3>
+                    <button
+                      type="button"
+                      disabled={blacklistingSeen || seenLoading}
+                      onClick={addSelectedToBlacklist}
+                      className="inline-flex items-center h-9 px-3 rounded-lg text-[13px] bg-glass-bg border border-glass-border text-text hover:bg-[rgba(255,255,255,0.08)] disabled:opacity-40"
+                    >
+                      {blacklistingSeen ? 'Ajout…' : 'Ajouter à la liste noire'}
+                    </button>
+                  </div>
+                  {seenLoading ? (
+                    <p className="text-[13px] text-text-dim">Chargement…</p>
+                  ) : seenBssids.length === 0 ? (
+                    <p className="text-[13px] text-text-dim">Aucun BSSID capturé trouvé.</p>
+                  ) : (
+                    <div className="flex flex-col gap-1 max-h-64 overflow-auto rounded-xl border border-glass-border-soft">
+                      {seenBssids.map((s) => (
+                        <label
+                          key={s.bssid}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-glass-bg cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!selectedSeen[s.bssid]}
+                            onChange={() => toggleSeenSelection(s.bssid)}
+                            className="w-4 h-4 accent-[#10b981]"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[12px]">{s.bssid}</span>
+                              {s.blacklisted && <span className="text-[11px] text-danger">liste noire</span>}
+                            </div>
+                            {s.ssid && <div className="text-[12px] text-text-dim truncate">{s.ssid}</div>}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
               {mappings.length === 0 ? (
                 <p className="text-[13px] text-text-dim mb-2">Aucun BSSID configuré.</p>
               ) : (
@@ -414,8 +538,7 @@ export function SettingsPage() {
                   ))}
                 </div>
               )}
-              {mapError && <p className="text-danger text-[13px] mb-2">{mapError}</p>}
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
+                <div className="border-t border-glass-border-soft pt-3 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
                 <input
                   type="text"
                   aria-label="Nom de la borne"

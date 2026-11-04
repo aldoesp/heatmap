@@ -3,6 +3,7 @@ import {
   deleteBssidRule,
   findBssidRuleById,
   insertBssidRule,
+  listAllSeenBssids,
   listBssidRules,
   updateBssidRule,
 } from '../repositories/bssidRules.repository.js';
@@ -11,6 +12,10 @@ const BSSID_RE = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
 
 export const getBssidRules = (_req, res) => {
   res.json(listBssidRules());
+};
+
+export const getAllSeenBssids = (_req, res) => {
+  res.json(listAllSeenBssids());
 };
 
 export const createBssidRule = (req, res, next) => {
