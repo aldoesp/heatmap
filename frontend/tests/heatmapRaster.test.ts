@@ -9,6 +9,8 @@ import {
   rasterizeRssiMeshes,
 } from '../src/lib/heatmapRaster.js';
 import { createHybridField } from '../src/lib/rssiHybridField.js';
+import type { HybridField } from '../src/lib/rssiHybridField.js';
+import { buildColourLut, DEFAULT_HEATMAP_COLOURS } from '../src/lib/heatmapColours.js';
 import { RSSI_BANDS } from '../src/lib/signal.js';
 import { sampleTriangleMesh, triangulateRssi } from '../src/lib/triangulation.js';
 import type { HeatmapRow } from '../src/types/api.js';
@@ -123,6 +125,32 @@ describe('rasterisation de la heatmap RSSI', () => {
 });
 
 describe('rasterisation hybride RSSI', () => {
+  it('échantillonne les bords dans le plan sans décalage ni dépassement', () => {
+    const sampled: Array<[number, number]> = [];
+    const field: HybridField = { model: null, sample(x, y) {
+      sampled.push([x, y]);
+      return { status: 'INTERPOLATED', rssi: -60, confidence: 1 };
+    } };
+    rasterizeRssiHybrid(field, () => true, 100, 80, 3, 3, RSSI_BANDS);
+    assert.deepEqual(sampled[0], [0, 80]);
+    assert.deepEqual(sampled.at(-1), [100, 0]);
+    assert.ok(sampled.every(([x, y]) => x >= 0 && x <= 100 && y >= 0 && y <= 80));
+  });
+
+  it('conserve la transparence des estimations après lissage, en LUT et en bandes', () => {
+    const field: HybridField = { model: null, sample(x) {
+      return x <= 50
+        ? { status: 'INTERPOLATED', rssi: -60, confidence: 1 }
+        : { status: 'EXTRAPOLATED', rssi: -60, confidence: 0.1 };
+    } };
+    for (const palette of [RSSI_BANDS, buildColourLut(DEFAULT_HEATMAP_COLOURS)]) {
+      const raster = rasterizeRssiHybrid(field, () => true, 100, 100, 21, 21, palette, 0.75, true, { smoothingSigmaPx: 1 })!;
+      assert.ok(raster.data[pixelOffset(20, 10, 21) + 3] < raster.data[pixelOffset(0, 10, 21) + 3]);
+      const hidden = rasterizeRssiHybrid(field, () => true, 100, 100, 21, 21, palette, 0.75, false, { smoothingSigmaPx: 1 })!;
+      assert.equal(hidden.data[pixelOffset(20, 10, 21) + 3], 0);
+    }
+  });
+
   it('distingue interpolé, extrapolé et hors masque', () => {
     const points: Array<{ x: number; y: number; rssi: number }> = [];
     for (let iy = 0; iy < 3; iy += 1) {

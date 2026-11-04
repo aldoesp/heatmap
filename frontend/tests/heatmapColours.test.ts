@@ -5,6 +5,7 @@ import {
   RSSI_MAX,
   RSSI_MIN,
   buildColourLut,
+  colourLutToCssGradient,
   lutColourForRssi,
   positionToRssi,
   rssiToPosition,
@@ -60,7 +61,7 @@ describe('heatmapColours', () => {
     const def2 = sanitizeHeatmapColours({});
     assert.equal(def2.stops.length, 5);
 
-    const invalid = sanitizeHeatmapColours({ stops: [{ position: 0.5, color: 'bad' } as any] });
+    const invalid = sanitizeHeatmapColours({ stops: [{ position: 0.5, color: 'bad' }] });
     assert.deepEqual(invalid.stops[0], DEFAULT_HEATMAP_COLOURS.stops[0]);
   });
 
@@ -143,5 +144,27 @@ describe('heatmapColours', () => {
     const high = lutColourForRssi(lut, RSSI_MAX); // p=1
     assert.equal(low[3], 0);
     assert.equal(high[3], 255);
+  });
+
+  it('prolonge la première et la dernière couleur sans extrapoler hors des ancres', () => {
+    const lut = buildColourLut({
+      stops: [
+        { position: 0.25, color: '#804020', opacity: 0.5 },
+        { position: 0.75, color: '#2080c0', opacity: 0.5 },
+      ],
+      opacityWeakest: 1,
+      opacityStrongest: 1,
+    });
+    assert.deepEqual(lutColourForRssi(lut, RSSI_MIN), [128, 64, 32, 128]);
+    assert.deepEqual(lutColourForRssi(lut, RSSI_MAX), [32, 128, 192, 128]);
+  });
+
+  it('aligne chaque couleur de la légende sur la même position dans le raster', () => {
+    const lut = buildColourLut(DEFAULT_HEATMAP_COLOURS);
+    const gradient = colourLutToCssGradient(lut);
+    for (const index of [0, 64, 128, 191, 255]) {
+      const offset = index * 4;
+      assert.ok(gradient.includes(`rgba(${lut[offset]}, ${lut[offset + 1]}, ${lut[offset + 2]}, ${lut[offset + 3] / 255}) ${index / 255 * 100}%`));
+    }
   });
 });

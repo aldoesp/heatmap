@@ -59,3 +59,32 @@ export function withBssidNames(rows) {
     bssid_name: names.get(String(row.bssid).toLowerCase()) ?? row.bssid,
   }));
 }
+
+export function listAllSeenBssids() {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT o.bssid AS bssid,
+              COALESCE((
+                SELECT o2.ssid FROM observations o2
+                WHERE LOWER(o2.bssid) = LOWER(o.bssid)
+                  AND o2.ssid IS NOT NULL AND TRIM(o2.ssid) != ''
+                ORDER BY o2.id DESC
+                LIMIT 1
+              ), '') AS ssid,
+              br.id AS rule_id,
+              br.name AS rule_name,
+              br.blacklisted AS blacklisted_flag
+       FROM observations o
+       LEFT JOIN bssid_rules br ON LOWER(br.bssid) = LOWER(o.bssid)
+       ORDER BY COALESCE(NULLIF(ssid, ''), o.bssid) COLLATE NOCASE, LOWER(o.bssid)`
+    )
+    .all();
+  return rows.map((row) => ({
+    bssid: String(row.bssid).toLowerCase(),
+    ssid: row.ssid || '',
+    rule_id: row.rule_id || null,
+    name: row.rule_name || '',
+    blacklisted: !!row.blacklisted_flag,
+  }));
+}

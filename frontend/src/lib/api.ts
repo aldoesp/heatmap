@@ -480,8 +480,20 @@ export interface BssidRule {
   created_at: string;
 }
 
+export interface BssidSeen {
+  bssid: string;
+  ssid: string;
+  rule_id: string | null;
+  name: string;
+  blacklisted: boolean;
+}
+
 export async function listBssidRules(): Promise<BssidRule[]> {
   return apiFetch<BssidRule[]>('/api/v1/bssid-rules');
+}
+
+export async function listSeenBssids(): Promise<BssidSeen[]> {
+  return apiFetch<BssidSeen[]>('/api/v1/bssid-rules/seen');
 }
 
 export async function createBssidRule(input: {

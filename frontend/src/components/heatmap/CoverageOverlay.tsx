@@ -1,4 +1,8 @@
 import { useMemo } from 'react';
+import { buildRegularizedRssiField, type RssiCalculation } from '../../lib/regularizedRssi';
+import { rasterizeRegularizedRssi } from '../../lib/regularizedRaster';
+import { buildColourLut, DEFAULT_HEATMAP_COLOURS } from '../../lib/heatmapColours';
+import type { HeatmapRow } from '../../types/api';
 import { ImageOverlay } from 'react-leaflet';
 import type { LatLngBoundsExpression } from 'leaflet';
 import {
@@ -6,14 +10,9 @@ import {
   rasterizeRssiHybrid,
   rasterizeRssiMeshes,
 } from '../../lib/heatmapRaster';
-import { normalizedToPlanPixel, type NormalizedCoord } from '../../lib/coords';
-import type { ApPosition } from '../../lib/pathLossModel';
+import type { NormalizedCoord } from '../../lib/coords';
 import { buildZoneMask, pointInPolygonPx, type ZoneMask } from '../../lib/polygon';
-import {
-  combineHybridFields,
-  createHybridField,
-  type HybridField,
-} from '../../lib/rssiHybridField';
+import { buildCoverageField } from '../../lib/coverageField';
 import type { InterpolationMesh } from '../../lib/triangulation';
 
 export interface CoveragePoint {
@@ -31,6 +30,9 @@ export interface CoverageBand {
 }
 
 interface CoverageOverlayProps {
+  calculation?: RssiCalculation;
+  measurements?: HeatmapRow[];
+  planId?: string;
   /** Mode IDW, réservé aux métriques sans triangulation (débit). */
   points?: CoveragePoint[];
   /** Maillages Delaunay RSSI, un par périmètre BSSID/survey/bande/fréquence. */
@@ -43,7 +45,7 @@ interface CoverageOverlayProps {
   bounds: LatLngBoundsExpression;
   /** Échelle triée du meilleur au plus faible ; la dernière bande attrape tout le reste. */
   bands: CoverageBand[];
-  /** Opacité maximale du champ (0-1). */
+  /** Opacité de la couche (0-1), appliquée sans recalculer le raster. */
   opacity?: number;
   /** LUT personnalisée (256*4). Si fournie, utilisée en mode triangulation. */
   lut?: Uint8ClampedArray;
@@ -57,7 +59,7 @@ interface CoverageOverlayProps {
    * exactement les mêmes périmètres. Une liste non vide dont aucune zone n'est
    * valide masque tout le champ au lieu de le laisser s'afficher librement.
    */
-  polygons?: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }>;
+  polygons?: ReadonlyArray<{ id: string; vertices: readonly NormalizedCoord[] }>;
   /** Positions d'AP normalisées 0-1, une par BSSID. */
   apPositions?: ReadonlyArray<{ bssid: string; x: number; y: number }>;
   accessPoints?: ReadonlyArray<{ id: string; x: number; y: number; bssids?: string[] }>;
@@ -185,29 +187,7 @@ function createCoverageImage(
   return canvas.toDataURL('image/png');
 }
 
-function findApForMesh(
-  mesh: InterpolationMesh,
-  apPositions: readonly { bssid: string; x: number; y: number }[],
-  accessPoints: readonly { id: string; x: number; y: number; bssids?: string[] }[] = []
-): ApPosition | null {
-  const bssid = mesh.scope.bssid.trim().toLowerCase();
-  const position = apPositions.find(
-    (ap) => ap.bssid.trim().toLowerCase() === bssid
-  );
-  if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
-    return normalizedToPlanPixel(position.x, position.y, mesh.width, mesh.height);
-  }
-  // 2) AP whose bssids contains BSSID
-  const ap = accessPoints.find((a) =>
-    (a.bssids ?? []).some((b) => b.trim().toLowerCase() === bssid)
-  );
-  if (ap) {
-    return normalizedToPlanPixel(ap.x, ap.y, mesh.width, mesh.height);
-  }
-  return null;
-}
-
-export function createZoneMaskPredicate(
+function createZoneMaskPredicate(
   polygons: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }>,
   width: number,
   height: number
@@ -230,25 +210,13 @@ export function createZoneMaskPredicate(
     );
 }
 
-export function buildCombinedHybridField(
-  meshes: InterpolationMesh[],
-  apPositions: readonly { bssid: string; x: number; y: number }[],
-  accessPoints: readonly { id: string; x: number; y: number; bssids?: string[] }[]
-): HybridField {
-  const apForMesh = meshes.map((mesh) => findApForMesh(mesh, apPositions, accessPoints));
-  const fields = meshes.map((mesh, index) =>
-    createHybridField(mesh, { ap: apForMesh[index] })
-  );
-  return combineHybridFields(fields);
-}
-
 function createTriangulatedCoverageImage(
   meshes: InterpolationMesh[],
   width: number,
   height: number,
   bands: CoverageBand[],
   opacity: number,
-  polygons: ReadonlyArray<{ vertices: readonly NormalizedCoord[] }> | undefined,
+  polygons: ReadonlyArray<{ id: string; vertices: readonly NormalizedCoord[] }> | undefined,
   apPositions: readonly { bssid: string; x: number; y: number }[],
   accessPoints: readonly { id: string; x: number; y: number; bssids?: string[] }[] = [],
   showEstimated: boolean,
@@ -264,7 +232,7 @@ function createTriangulatedCoverageImage(
   let raster;
   if (hasZones) {
     const fieldsStart = performance.now();
-    const field = buildCombinedHybridField(meshes, apPositions, accessPoints);
+    const field = buildCoverageField(meshes, polygons ?? [], apPositions, accessPoints);
     console.info(
       `[heatmap] createHybridField ${(performance.now() - fieldsStart).toFixed(1)} ms · meshes.length=${meshes.length}`
     );
@@ -313,7 +281,30 @@ function createTriangulatedCoverageImage(
   return canvas.toDataURL('image/png');
 }
 
+function createRegularizedCoverageImage(
+  rows: HeatmapRow[], planId: string, width: number, height: number,
+  polygons: ReadonlyArray<{ id: string; vertices: readonly NormalizedCoord[] }>,
+  meshes: InterpolationMesh[], lut: Uint8ClampedArray, showEstimated: boolean,
+): string {
+  const field = buildRegularizedRssiField(rows, { id: planId, width, height }, polygons, meshes);
+  const size = chooseRasterSize(width, height);
+  const raster = rasterizeRegularizedRssi(field, width, height, size.width, size.height, lut, showEstimated);
+  if (!raster.coveredPixels) return '';
+  const canvas = document.createElement('canvas');
+  canvas.width = size.width; canvas.height = size.height;
+  const context = canvas.getContext('2d');
+  if (!context) return '';
+  context.putImageData(new ImageData(raster.data, size.width, size.height), 0, 0);
+  context.strokeStyle = 'rgba(255,255,255,0.7)';
+  context.lineWidth = .6;
+  context.beginPath();
+  for (const line of raster.contours) { context.moveTo(...line.a); context.lineTo(...line.b); }
+  context.stroke();
+  return canvas.toDataURL('image/png');
+}
+
 export function CoverageOverlay({
+  calculation = 'hybrid', measurements, planId,
   points,
   meshes,
   interpolation = 'idw',
@@ -322,7 +313,7 @@ export function CoverageOverlay({
   radius,
   bounds,
   bands,
-  opacity = 0.75,
+  opacity = 1,
   lut,
   polygons,
   apPositions,
@@ -330,6 +321,12 @@ export function CoverageOverlay({
   showEstimated = true,
 }: CoverageOverlayProps) {
   const imageUrl = useMemo(() => {
+    if (interpolation === 'triangulation' && calculation === 'regularized') {
+      return measurements?.length && planId ? createRegularizedCoverageImage(
+        measurements, planId, width, height, polygons ?? [], meshes ?? [],
+        lut ?? buildColourLut(DEFAULT_HEATMAP_COLOURS), showEstimated,
+      ) : '';
+    }
     if (interpolation === 'triangulation') {
       return meshes && meshes.length > 0
         ? createTriangulatedCoverageImage(
@@ -337,7 +334,7 @@ export function CoverageOverlay({
             width,
             height,
             bands,
-            opacity,
+            0.75,
             polygons,
             apPositions ?? [],
             accessPoints ?? [],
@@ -353,11 +350,12 @@ export function CoverageOverlay({
           height,
           radius,
           bands,
-          opacity,
+          0.75,
           polygons
         )
       : '';
   }, [
+    calculation, measurements, planId,
     interpolation,
     points,
     meshes,
@@ -365,7 +363,6 @@ export function CoverageOverlay({
     height,
     radius,
     bands,
-    opacity,
     polygons,
     apPositions,
     accessPoints,
@@ -374,5 +371,5 @@ export function CoverageOverlay({
   ]);
 
   if (!imageUrl) return null;
-  return <ImageOverlay url={imageUrl} bounds={bounds} />;
+  return <ImageOverlay url={imageUrl} bounds={bounds} opacity={opacity} />;
 }

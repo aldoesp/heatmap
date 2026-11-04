@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   createBssidRule,
+  getAllSeenBssids,
   getBssidRules,
   patchBssidRule,
   removeBssidRule,
@@ -9,6 +10,7 @@ import {
 const router = Router();
 
 router.get('/', getBssidRules);
+router.get('/seen', getAllSeenBssids);
 router.post('/', createBssidRule);
 router.patch('/:id', patchBssidRule);
 router.delete('/:id', removeBssidRule);
