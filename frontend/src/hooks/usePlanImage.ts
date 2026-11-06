@@ -18,7 +18,7 @@ interface PlanImageResult {
  * Vérifie aussi que le fichier image existe encore : si la ligne SQLite
  * référence une image manquante, on l'indique sans effacer de données.
  */
-export function usePlanImage(): PlanImageResult {
+export function usePlanImage({ waitForImageCheck = true }: { waitForImageCheck?: boolean } = {}): PlanImageResult {
   const [plan, setPlan] = useState<PlanData | null>(null);
   const [loading, setLoading] = useState(true);
   const [imageMissing, setImageMissing] = useState(false);
@@ -44,6 +44,8 @@ export function usePlanImage(): PlanImageResult {
             sizeBytes: p.sizeBytes,
             imageUrl: p.imageUrl,
           });
+          // Heatmap can display the plan while its optional existence check finishes.
+          if (!waitForImageCheck) setLoading(false);
         }
         // L'image existe-t-elle encore sur le serveur ?
         try {
@@ -63,7 +65,7 @@ export function usePlanImage(): PlanImageResult {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [waitForImageCheck]);
 
   return {
     plan,
@@ -73,3 +75,4 @@ export function usePlanImage(): PlanImageResult {
     error,
   };
 }
+

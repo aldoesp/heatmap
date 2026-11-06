@@ -27,7 +27,9 @@ import {
   setHeatmapRadius,
   calculateAutoRadius,
 } from '../../lib/heatmap';
-import { CoverageOverlay, type CoverageBand, type CoveragePoint } from './CoverageOverlay';
+import { CoverageOverlay } from './CoverageOverlay';
+import { useHeatmapRender } from '../../hooks/useHeatmapRender';
+import type { CoverageBand, CoveragePoint, HeatmapRenderInput } from '../../lib/heatmapRender';
 import { RssiProbeLayer } from './RssiProbeLayer';
 import {
   PolygonEditorLayer,
@@ -46,7 +48,6 @@ import type { PlanPolygon } from '../../types/polygon';
 import { formatPercent, formatMbps } from '../../lib/format';
 import { average, RSSI_BANDS } from '../../lib/signal';
 import type { AccessPoint } from '../../types/plan';
-import { buildRssiMeshes, findUncoveredZones } from '../../lib/heatmapRssi';
 import { useHeatmapColours } from '../../hooks/useHeatmapColours';
 import { buildColourLut, colourLutToCssGradient, lutColourForRssi, rssiToPosition, RSSI_MAX, RSSI_MIN } from '../../lib/heatmapColours';
 
@@ -207,21 +208,8 @@ const BAND_TABS: Array<{ value: BandChoice; label: string }> = [
   { value: '6', label: '6 GHz' },
 ];
 
-function buildRssiMeshesTimed(
-  rows: Parameters<typeof buildRssiMeshes>[0],
-  plan: Parameters<typeof buildRssiMeshes>[1],
-  options: Parameters<typeof buildRssiMeshes>[2]
-): ReturnType<typeof buildRssiMeshes> {
-  const start = performance.now();
-  const result = buildRssiMeshes(rows, plan, options);
-  console.info(
-    `[heatmap] buildRssiMeshes ${(performance.now() - start).toFixed(1)} ms · rows.length=${rows.length} · meshes.length=${result.meshes.length}`
-  );
-  return result;
-}
-
 export function HeatmapPage() {
-  const { plan, imageUrl, loading: planLoading, imageMissing, error: planError } = usePlanImage();
+  const { plan, imageUrl, loading: planLoading, imageMissing, error: planError } = usePlanImage({ waitForImageCheck: false });
   const { positions: apPositions, save: saveApPosition } = useApPositions(
     plan?.id ?? null
   );
@@ -248,17 +236,21 @@ export function HeatmapPage() {
   } | null>(null);
   const [metric, setMetric] = useState<'rssi' | 'speed'>('rssi');
   const [loading, setLoading] = useState(true);
+  const [speedLoading, setSpeedLoading] = useState(true);
+  const [speedError, setSpeedError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedRadius, setSelectedRadius] = useState<number | null>(
     () => getHeatmapRadius()
   );
   const recenterRef = useRef<(() => void) | null>(null);
   const loadRequestRef = useRef(0);
+  const speedRequestRef = useRef(0);
 
   // Mode dessin : polygones validés et tracé en cours, propres au plan actif.
   const [drawing, setDrawing] = useState(false);
   const [activeVertices, setActiveVertices] = useState<NormalizedCoord[]>([]);
   const [polygons, setPolygons] = useState<PlanPolygon[]>([]);
+  const [polygonsLoading, setPolygonsLoading] = useState(true);
   const [polygonError, setPolygonError] = useState<string | null>(null);
   const [selectedPolygonId, setSelectedPolygonId] = useState<string | null>(null);
   const [editing, setEditing] = useState<PolygonEditingState | null>(null);
@@ -467,7 +459,8 @@ export function HeatmapPage() {
         setPolygonError(
           apiErr?.message ?? 'Impossible de charger les zones de délimitation.'
         );
-      });
+      })
+      .finally(() => { if (alive) setPolygonsLoading(false); });
     return () => {
       alive = false;
     };
@@ -556,20 +549,10 @@ export function HeatmapPage() {
         connected: onlyConnected || undefined,
         band: band || undefined,
       });
-      const speedStart = performance.now();
-      const speedRequest = getHeatmapSpeed(plan.id).catch(
-        () => [] as SpeedHeatmapRow[]
-      );
-      const [data, speeds] = await Promise.all([heatmapRequest, speedRequest]);
-      console.info(
-        `[heatmap] getHeatmap ${(performance.now() - heatmapStart).toFixed(1)} ms · rows.length=${data.length}`
-      );
-      console.info(
-        `[heatmap] getHeatmapSpeed ${(performance.now() - speedStart).toFixed(1)} ms · speedRows.length=${speeds.length}`
-      );
+      const data = await heatmapRequest;
+      console.info(`[heatmap] getHeatmap ${(performance.now() - heatmapStart).toFixed(1)} ms · rows.length=${data.length}`);
       if (loadRequestRef.current !== requestId) return;
       setRows(data);
-      setSpeedRows(speeds);
     } catch (err) {
       if (loadRequestRef.current !== requestId) return;
       const apiErr = err instanceof ApiError ? err : null;
@@ -582,6 +565,7 @@ export function HeatmapPage() {
   useEffect(
     () => () => {
       loadRequestRef.current += 1;
+      speedRequestRef.current += 1;
     },
     []
   );
@@ -592,6 +576,22 @@ export function HeatmapPage() {
       await load();
     })();
   }, [planLoading, load]);
+
+  const loadSpeed = useCallback(async () => {
+    if (!plan) return;
+    const requestId = ++speedRequestRef.current;
+    setSpeedLoading(true);
+    setSpeedError(null);
+    try {
+      const data = await getHeatmapSpeed(plan.id);
+      if (speedRequestRef.current === requestId) setSpeedRows(data);
+    } catch (err) {
+      if (speedRequestRef.current !== requestId) return;
+      setSpeedError(err instanceof ApiError ? err.message : 'Impossible de charger les mesures de débit.');
+    } finally {
+      if (speedRequestRef.current === requestId) setSpeedLoading(false);
+    }
+  }, [plan]);
 
   const ssids = useMemo(
     () => [...new Set(networks.map((n) => n.ssid).filter((s): s is string => !!s))],
@@ -633,26 +633,29 @@ export function HeatmapPage() {
     [speedRows]
   );
 
-  const rssiMeshModel = useMemo(() => {
-    if (showingSpeed || !plan) return null;
-    return buildRssiMeshesTimed(
-      rows,
-      {
-        id: plan.id,
-        width: plan.width,
-        height: plan.height,
-      },
-      { polygons: visiblePolygons }
-    );
-  }, [showingSpeed, rows, plan, visiblePolygons]);
+  const dataLoading = (showingSpeed ? speedLoading : loading) || polygonsLoading;
+  const dataError = showingSpeed ? speedError : error;
+  const visibleAccessPoints = useMemo(
+    () => plan && accessPoints?.planId === plan.id ? accessPoints.items : [],
+    [accessPoints, plan],
+  );
+  const renderInput = useMemo<HeatmapRenderInput | null>(() => {
+    if (!plan || dataLoading || imageMissing || (showingSpeed ? !speedRows.length : !rows.length)) return null;
+    return {
+      metric, calculation, plan: { id: plan.id, width: plan.width, height: plan.height },
+      measurements: rows, points: coveragePoints, polygons: visiblePolygons,
+      apPositions, accessPoints: visibleAccessPoints, radius,
+      bands: showingSpeed ? SPEED_BANDS : RSSI_BANDS, lut: rssiLut, showEstimated,
+    };
+  }, [plan, dataLoading, imageMissing, showingSpeed, speedRows, rows, metric, calculation,
+    coveragePoints, visiblePolygons, apPositions, visibleAccessPoints, radius, rssiLut, showEstimated]);
+  const rendering = useHeatmapRender(renderInput);
 
   const displayedBssid = useMemo(() => {
     if (bssid) return bssid;
-    const visible = [
-      ...new Set((rssiMeshModel?.meshes ?? []).map((mesh) => mesh.scope.bssid)),
-    ];
+    const visible = rendering.metadata.bssids;
     return visible.length === 1 ? visible[0] : null;
-  }, [bssid, rssiMeshModel]);
+  }, [bssid, rendering.metadata.bssids]);
 
   const selectedApPositions = useMemo(() => {
     if (!displayedBssid) return [];
@@ -682,22 +685,14 @@ export function HeatmapPage() {
     [plan, saveApPosition]
   );
 
-  // Retour discret sur les zones présentes sur le plan mais non couvertes :
-  // `findUncoveredZones` ne remonte que les zones réellement sans triangle
-  // (status + skipped[].polygonId) et renvoie une liste vide quand tout va
-  // bien — aucun message n'est alors affiché.
   const zoneCoverageNotice = useMemo<string | null>(() => {
-    if (showingSpeed || !plan || !rssiMeshModel) return null;
-    const uncovered = findUncoveredZones(rssiMeshModel, visiblePolygons, plan);
-    if (uncovered.length === 0) return null;
-
-    const labels = uncovered.map(
-      (zone) => `Zone ${zone.zoneNumber} (${zone.reason})`
-    );
+    const uncovered = rendering.metadata.uncoveredZones;
+    if (showingSpeed || !uncovered.length) return null;
+    const labels = uncovered.map(zone => `Zone ${zone.zoneNumber} (${zone.reason})`);
     return labels.length === 1
       ? `${labels[0]} : la zone reste transparente.`
       : `${labels.join(' · ')} : ces zones restent transparentes.`;
-  }, [showingSpeed, plan, rssiMeshModel, visiblePolygons]);
+  }, [showingSpeed, rendering.metadata.uncoveredZones]);
 
   const stats = useMemo(() => {
     const values = showingSpeed
@@ -714,8 +709,8 @@ export function HeatmapPage() {
     };
   }, [showingSpeed, speedRows, bestPerPoint]);
 
-  if (planLoading || loading) {
-    return <div className="fixed inset-0 bg-bg" />;
+  if (planLoading) {
+    return <div role="status" className="max-w-300 mx-auto px-4 py-8 text-text-dim">Chargement du plan…</div>;
   }
 
   if ((planError && !plan) || (!plan && !planLoading)) {
@@ -761,9 +756,7 @@ export function HeatmapPage() {
   const estimatedColor = `rgb(${estimatedRgb[0]}, ${estimatedRgb[1]}, ${estimatedRgb[2]})`;
   const showEstimatedControls =
     !showingSpeed && rows.length > 0 && (calculation === 'regularized' || visiblePolygons.length > 0);
-  const isEmpty = showingSpeed ? speedRows.length === 0 : rows.length === 0;
-  const visibleAccessPoints =
-    accessPoints?.planId === plan.id ? accessPoints.items : [];
+  const isEmpty = !dataLoading && (showingSpeed ? speedRows.length === 0 : rows.length === 0);
 
   const emptyMessage = showingSpeed
     ? 'Aucune mesure de débit : configure un serveur iperf3 dans Paramètres, puis effectue des scans.'
@@ -822,7 +815,10 @@ export function HeatmapPage() {
               key={m}
               type="button"
               aria-pressed={metric === m}
-              onClick={() => setMetric(m)}
+              onClick={() => {
+                setMetric(m);
+                if (m === 'speed' && metric !== 'speed') void loadSpeed();
+              }}
               className={[
                 'px-4 text-sm font-medium transition-colors',
                 metric === m ? 'bg-accent-soft text-accent' : 'text-text-dim hover:text-text',
@@ -933,16 +929,28 @@ export function HeatmapPage() {
         )}
       </div>
 
-      {error && (
+      {dataError && (
         <div className="mb-4 px-4 py-3 rounded-xl border border-danger bg-danger-soft text-sm text-text">
-          {error}{' '}
-          <button type="button" onClick={load} className="underline font-medium">
+          {dataError}{' '}
+          <button type="button" onClick={showingSpeed ? loadSpeed : load} className="underline font-medium">
             Réessayer
           </button>
         </div>
       )}
 
-      {isEmpty && !error ? (
+      {(dataLoading || rendering.processing) && (
+        <div role="status" aria-live="polite" className="mb-3 px-4 py-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
+          {dataLoading ? 'Chargement des mesures…' : 'Préparation de la couverture…'}
+        </div>
+      )}
+      {rendering.error && (
+        <div role="alert" className="mb-3 px-4 py-3 rounded-xl border border-danger bg-danger-soft text-sm text-text">
+          {rendering.error}{' '}
+          <button type="button" onClick={rendering.retry} className="underline font-medium">Réessayer</button>
+        </div>
+      )}
+
+      {isEmpty && !dataError ? (
         <div className="text-center py-16">
           <p className="text-text text-[15px] mb-2">
             {emptyMessage}
@@ -960,11 +968,24 @@ export function HeatmapPage() {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            <button type="button" aria-pressed={showMeasurements}
+            <button
+              type="button"
+              aria-pressed={showMeasurements}
               onClick={() => setShowMeasurements((value) => !value)}
-              className="inline-flex items-center gap-2 h-11 px-4 rounded-xl border border-glass-border-soft text-sm text-text-dim hover:text-text">
-              {showMeasurements ? <Eye size={16} aria-hidden /> : <EyeOff size={16} aria-hidden />}
-              Points mesurés
+              title={showMeasurements ? 'Masquer les points de mesure noirs' : 'Afficher les points de mesure noirs'}
+              className={[
+                'inline-flex items-center gap-2 h-11 px-4 rounded-xl border text-sm font-medium transition-colors',
+                showMeasurements
+                  ? 'bg-accent-soft text-accent border-accent-border'
+                  : 'text-text-dim border-glass-border-soft hover:text-text',
+              ].join(' ')}
+            >
+              {showMeasurements ? (
+                <EyeOff size={16} strokeWidth={1.75} aria-hidden />
+              ) : (
+                <Eye size={16} strokeWidth={1.75} aria-hidden />
+              )}
+              {showMeasurements ? 'Masquer les points' : 'Afficher les points'}
             </button>
             <button
               type="button"
@@ -1225,57 +1246,17 @@ export function HeatmapPage() {
                 onPlace={handlePlaceAp}
               />
               <ImageOverlay url={imageUrl} bounds={bounds} />
-              {/* Champ interpolé sous les points de mesure. Le RSSI utilise
-                  Delaunay + barycentrique, contraint aux zones ; seul le débit
-                  garde l'IDW, masqué hors des zones. */}
-              {showingSpeed ? (
-                <CoverageOverlay
-                  interpolation="idw"
-                  points={coveragePoints}
-                  width={plan.width}
-                  height={plan.height}
-                  radius={radius}
-                  bounds={bounds}
-                  bands={activeBands}
-                  polygons={visiblePolygons}
-                  opacity={layerOpacity}
+              <CoverageOverlay imageUrl={rendering.imageUrl} bounds={bounds} opacity={layerOpacity} />
+              {!showingSpeed && (
+                <RssiProbeLayer
+                  calculation={calculation}
+                  sampleAt={rendering.sampleAt}
+                  lut={rssiLut}
+                  enabled={!rendering.processing && !dataLoading && showProbe && !drawing && !editing && !placingAp}
+                  showEstimated={showEstimated}
                 />
-              ) : (
-                <>
-                  <CoverageOverlay
-                    interpolation="triangulation"
-                    calculation={calculation}
-                    measurements={rows}
-                    planId={plan.id}
-                    meshes={rssiMeshModel?.meshes ?? []}
-                    width={plan.width}
-                    height={plan.height}
-                    bounds={bounds}
-                    bands={RSSI_BANDS}
-                    apPositions={apPositions}
-                    accessPoints={visibleAccessPoints}
-                    polygons={visiblePolygons}
-                    showEstimated={showEstimated}
-                    lut={rssiLut}
-                    opacity={layerOpacity}
-                  />
-                  <RssiProbeLayer
-                    calculation={calculation}
-                    measurements={rows}
-                    planId={plan.id}
-                    width={plan.width}
-                    height={plan.height}
-                    meshes={rssiMeshModel?.meshes ?? []}
-                    polygons={visiblePolygons}
-                    apPositions={apPositions}
-                    accessPoints={visibleAccessPoints}
-                    lut={rssiLut}
-                    enabled={showProbe && !drawing && !editing && !placingAp}
-                    showEstimated={showEstimated}
-                  />
-                </>
               )}
-              {showMeasurements && (showingSpeed
+              {showMeasurements && !dataLoading && (showingSpeed
                 ? speedRows.map((row) => ({ id: row.scan_point_id, x: row.x, y: row.y, value: row.speed_bps / 1_000_000 }))
                 : bestPerPoint.map((row) => ({ id: row.scan_point_id, x: row.x, y: row.y, value: row.rssi }))
               ).map((point) => (
@@ -1477,3 +1458,4 @@ export function HeatmapPage() {
     </div>
   );
 }
+

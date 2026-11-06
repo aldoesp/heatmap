@@ -8,7 +8,8 @@ export type RssiCalculation = 'hybrid' | 'regularized';
 type Node = { x: number; y: number; value: number };
 type Zone = { id: string | null; mask: ZoneMask | null; nodes: Map<string, Node> };
 const empty = (): HybridSample => ({ status: 'NO_DATA', rssi: null });
-const kernel = (r: number) => r > 0 ? r * r * Math.log(r) : 0;
+// r² log(r) = ½ r² log(r²): avoid a square root for every node/pixel.
+const kernelSquared = (r2: number) => r2 > 0 ? .5 * r2 * Math.log(r2) : 0;
 const median = (values: number[]) => quantile(values, .5);
 function quantile(values: number[], q: number): number {
   const ordered = [...values].sort((a, b) => a - b);
@@ -47,7 +48,10 @@ export function fitRegularizedRssi(nodes: readonly Node[], scale: number, smooth
   if (n >= 3) {
     const matrix = Array.from({ length: n + 3 }, () => Array<number>(n + 3).fill(0));
     for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) matrix[i][j] = kernel(Math.hypot(x[i] - x[j], y[i] - y[j])) + (i === j ? smoothing : 0);
+      for (let j = 0; j < n; j++) {
+        const dx = x[i] - x[j], dy = y[i] - y[j];
+        matrix[i][j] = kernelSquared(dx * dx + dy * dy) + (i === j ? smoothing : 0);
+      }
       matrix[i][n] = matrix[n][i] = 1;
       matrix[i][n + 1] = matrix[n + 1][i] = x[i];
       matrix[i][n + 2] = matrix[n + 2][i] = y[i];
@@ -58,14 +62,27 @@ export function fitRegularizedRssi(nodes: readonly Node[], scale: number, smooth
     if (!Number.isFinite(px) || !Number.isFinite(py)) return null;
     let value: number;
     if (coefficients) {
-      value = coefficients[n] + coefficients[n + 1] * px / scale + coefficients[n + 2] * py / scale;
-      for (let i = 0; i < n; i++) value += coefficients[i] * kernel(Math.hypot(px / scale - x[i], py / scale - y[i]));
+      const nx = px / scale, ny = py / scale;
+      value = coefficients[n] + coefficients[n + 1] * nx + coefficients[n + 2] * ny;
+      for (let i = 0; i < n; i++) {
+        const dx = nx - x[i], dy = ny - y[i];
+        value += coefficients[i] * kernelSquared(dx * dx + dy * dy);
+      }
     } else {
       // Sparse/collinear data: local IDW, still bounded by the field's radius.
-      const nearest = nodes.map(p => ({ value: p.value, distance: Math.hypot(px - p.x, py - p.y) })).sort((a, b) => a.distance - b.distance).slice(0, 4);
-      if (nearest[0].distance < 1e-6) return nearest[0].value;
+      const nearest: { value: number; distanceSquared: number }[] = [];
+      for (const p of nodes) {
+        const dx = px - p.x, dy = py - p.y, distanceSquared = dx * dx + dy * dy;
+        let index = 0;
+        while (index < nearest.length && nearest[index].distanceSquared <= distanceSquared) index++;
+        if (index < 4) {
+          nearest.splice(index, 0, { value: p.value, distanceSquared });
+          if (nearest.length > 4) nearest.pop();
+        }
+      }
+      if (nearest[0].distanceSquared < 1e-12) return nearest[0].value;
       let sum = 0, weights = 0;
-      for (const point of nearest) { const w = 1 / Math.max(point.distance, 1e-6) ** 2; sum += point.value * w; weights += w; }
+      for (const point of nearest) { const w = 1 / Math.max(point.distanceSquared, 1e-12); sum += point.value * w; weights += w; }
       value = sum / weights;
     }
     return Number.isFinite(value) ? Math.max(lo, Math.min(hi, value)) : null;
@@ -104,7 +121,15 @@ export function buildRegularizedRssiField(
   const radii = new Map<Zone, number>();
   for (const zone of zones) {
     const points = [...zone.nodes.values()];
-    const distances = points.map((p, i) => Math.min(...points.filter((_, j) => i !== j).map(q => Math.hypot(p.x - q.x, p.y - q.y))));
+    const distances = points.map((p, i) => {
+      let nearestSquared = Infinity;
+      for (let j = 0; j < points.length; j++) {
+        if (i === j) continue;
+        const dx = p.x - points[j].x, dy = p.y - points[j].y;
+        nearestSquared = Math.min(nearestSquared, dx * dx + dy * dy);
+      }
+      return Math.sqrt(nearestSquared);
+    });
     radii.set(zone, points.length > 1 ? quantile(distances, .9) : Math.max(1, Math.min(plan.width, plan.height) * .02));
   }
   const geometry = meshes ?? buildRssiMeshes([...rows], plan, { polygons }).meshes;
@@ -120,17 +145,21 @@ export function buildRegularizedRssiField(
       let best: HybridSample = empty();
       for (const field of fields) {
         if (!inside(field.zone, x, y)) continue;
-        let distance = Infinity;
-        for (const node of field.nodes) distance = Math.min(distance, Math.hypot(node.x - x, node.y - y));
-        if (distance > field.radius) continue;
+        let distanceSquared = Infinity;
+        for (const node of field.nodes) {
+          const dx = node.x - x, dy = node.y - y;
+          distanceSquared = Math.min(distanceSquared, dx * dx + dy * dy);
+        }
+        if (distanceSquared > field.radius * field.radius) continue;
         const value = field.predict(x, y);
         if (value === null || best.status !== 'NO_DATA' && value <= best.rssi) continue;
         const triangle = field.mesh ? sampleTriangleMesh(field.mesh, x, y) : null;
         const supported = triangle?.status === 'INTERPOLATED' && triangle.supported;
         best = { status: supported ? 'INTERPOLATED' : 'EXTRAPOLATED', rssi: value,
-          confidence: Math.exp(-distance / Math.max(field.radius, 1)), source: field.source };
+          confidence: Math.exp(-Math.sqrt(distanceSquared) / Math.max(field.radius, 1)), source: field.source };
       }
       return best;
     },
   };
 }
+
