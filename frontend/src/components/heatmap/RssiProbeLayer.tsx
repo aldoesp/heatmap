@@ -1,24 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CircleMarker, Tooltip, useMapEvents } from 'react-leaflet';
 import type { LatLng } from 'leaflet';
-import { buildRegularizedRssiField, type RssiCalculation } from '../../lib/regularizedRssi';
-import type { HeatmapRow } from '../../types/api';
-import { buildCoverageField } from '../../lib/coverageField';
+import type { RssiCalculation } from '../../lib/regularizedRssi';
 import { lutColourForRssi } from '../../lib/heatmapColours';
-import type { HybridField, HybridSample } from '../../lib/rssiHybridField';
-import type { InterpolationMesh } from '../../lib/triangulation';
-import type { PlanPolygon } from '../../types/polygon';
+import type { HybridSample } from '../../lib/rssiHybridField';
+
+type SampleAt = (x: number, y: number) => Promise<HybridSample>;
 
 interface RssiProbeLayerProps {
   calculation: RssiCalculation;
-  measurements: HeatmapRow[];
-  planId: string;
-  width: number;
-  height: number;
-  meshes: InterpolationMesh[];
-  polygons: PlanPolygon[];
-  apPositions: readonly { bssid: string; x: number; y: number }[];
-  accessPoints: readonly { id: string; x: number; y: number; bssids?: string[] }[];
+  sampleAt: SampleAt;
   lut: Uint8ClampedArray;
   enabled: boolean;
   showEstimated: boolean;
@@ -27,24 +18,19 @@ interface RssiProbeLayerProps {
 type Probe = {
   latlng: LatLng;
   sample: Exclude<HybridSample, { status: 'NO_DATA' }>;
-  field: HybridField;
+  sampler: SampleAt;
 };
 
 export function RssiProbeLayer({
-  meshes, polygons, apPositions, accessPoints, lut, enabled, showEstimated,
-  calculation, measurements, planId, width, height,
+  sampleAt, lut, enabled, showEstimated, calculation,
 }: RssiProbeLayerProps) {
-  const field = useMemo(
-    () => calculation === 'regularized'
-      ? buildRegularizedRssiField(measurements, { id: planId, width, height }, polygons, meshes)
-      : buildCoverageField(meshes, polygons, apPositions, accessPoints),
-    [calculation, measurements, planId, width, height, meshes, polygons, apPositions, accessPoints],
-  );
   const [probe, setProbe] = useState<Probe | null>(null);
   const raf = useRef<number | null>(null);
   const pending = useRef<LatLng | null>(null);
+  const requestToken = useRef(0);
 
   const cancelRaf = useCallback(() => {
+    requestToken.current++;
     if (raf.current !== null) cancelAnimationFrame(raf.current);
     raf.current = null;
     pending.current = null;
@@ -55,9 +41,12 @@ export function RssiProbeLayer({
     const latlng = pending.current;
     pending.current = null;
     if (!latlng) return;
-    const sample = field.sample(latlng.lng, latlng.lat);
-    setProbe(sample.status === 'NO_DATA' ? null : { latlng, sample, field });
-  }, [field]);
+    const token = ++requestToken.current;
+    void sampleAt(latlng.lng, latlng.lat).then(sample => {
+      if (token !== requestToken.current) return;
+      setProbe(sample.status === 'NO_DATA' ? null : { latlng, sample, sampler: sampleAt });
+    });
+  }, [sampleAt]);
 
   // Annule aussi les callbacks capturant un ancien plan ou filtre.
   useEffect(() => cancelRaf, [cancelRaf, flush, enabled]);
@@ -83,7 +72,7 @@ export function RssiProbeLayer({
     zoomstart: clear,
   });
 
-  if (!enabled || !probe || probe.field !== field) return null;
+  if (!enabled || !probe || probe.sampler !== sampleAt) return null;
   const { sample } = probe;
   if (sample.status === 'EXTRAPOLATED' && !showEstimated) return null;
   const colour = lutColourForRssi(lut, sample.rssi);
@@ -106,3 +95,4 @@ export function RssiProbeLayer({
     </CircleMarker>
   );
 }
+

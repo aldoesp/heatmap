@@ -16,9 +16,9 @@ Choisir un SSID et une bande pour examiner son réseau. Sans filtre, le fond rep
 - Masquage au-delà du percentile 90 des distances au plus proche point de la zone ; une zone sans données reste transparente. Aucun signal ne traverse les limites des polygones.
 - Sélection du meilleur signal après estimation séparée des radios admissibles. Les positions supposées des AP ne sont pas nécessaires.
 
-La régularisation λ = 1 est celle retenue pour l’exemple analysé ; son bénéfice ne constitue pas une garantie sur chaque futur relevé. La distance d’appui et le maillage décrivent le support spatial, pas une probabilité de précision. Les polygones limitent le calcul, sans modéliser l’atténuation physique des murs. Les grands relevés nécessiteront un calcul déporté ou un traitement dans un worker : l’ajustement dense et le rendu restent synchrones.
+La régularisation λ = 1 est celle retenue pour l’exemple analysé ; son bénéfice ne constitue pas une garantie sur chaque futur relevé. La distance d’appui et le maillage décrivent le support spatial, pas une probabilité de précision. Les polygones limitent le calcul, sans modéliser l’atténuation physique des murs. Les grands relevés restent coûteux à ajuster (matrices denses). Le calcul et la rasterisation s’exécutent désormais dans un Web Worker, avec annulation des traitements remplacés par un nouveau filtre.
 
-## Validation
+## Validation initiale de l’intégration
 
 - `cd frontend && npm test` : 130 tests réussis, dont référence numérique SciPy, groupes radio, zones, données manquantes et rendu.
 - `cd frontend && npm run build` : compilation TypeScript et build Vite réussis.
@@ -30,3 +30,18 @@ Les données du relevé restent hors des fichiers intégrés. Aucune dépendance
 ## Dépôt Kali
 
 Les fichiers sont transférés et relus avec `kali-mcp`. Le plugin disponible expose uniquement des opérations de fichiers ; il ne fournit pas de terminal. Les tests ci-dessus ont été exécutés dans la copie de préparation, sur la même base de code. Le commit et le push du dépôt Kali doivent être effectués depuis son terminal après examen des changements ; cette intégration ne prétend pas les avoir exécutés.
+
+## Optimisation du chargement de la page Heatmap
+
+- Le plan s’affiche pendant le chargement des mesures ; sa vérification HEAD ne retarde plus cette page.
+- Les mesures de débit sont chargées à l’ouverture de la métrique Débit, sans retarder le Signal.
+- Un Web Worker construit le maillage, ajuste le champ et produit le raster. La sonde interroge le même champ, sans second ajustement dans l’interface.
+- Les changements de filtre terminent le worker précédent. Les réponses périmées sont ignorées, les sondes en attente sont résolues et les URL d’image sont libérées à la fermeture.
+- Les distances au carré évitent les racines carrées répétées dans le calcul régularisé ; la sélection des quatre voisins du repli IDW évite de trier tout le relevé à chaque pixel.
+- La page indique le chargement et la préparation de la couverture, avec une action Réessayer en cas d’échec.
+
+Validation dans la copie de préparation : 138 tests Node réussis, contrôle TypeScript et ESLint des fichiers modifiés, build Vite ciblé de la page Heatmap et de son worker. Le worker compilé a été testé pour le transfert du raster, la sonde après transfert, l’annulation et les erreurs. Le hook React a été testé pour la réutilisation du worker, les changements de filtre, la reprise après erreur et la libération des images, y compris après un encodage tardif.
+
+Sur un jeu synthétique de 16 radios × 64 positions et une grille de 512 × 358 pixels, l’optimisation numérique a accéléré le calcul d’environ 10 fois dans l’environnement de test : pixels identiques et écart RSSI maximal inférieur à 0,000000001 dBm. Ce gain ne constitue pas une mesure sur le PC utilisateur. Le contrôle visuel dans le navigateur de ce PC reste à confirmer.
+
+Pour une version compilée, exécuter `npm run build` depuis `frontend` pour régénérer `dist` avec le nouveau fichier worker. Le plugin de fichiers ne permet pas d’exécuter cette commande sur Kali.
