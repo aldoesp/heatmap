@@ -1,3 +1,6 @@
+import { PngZip, sanitizeZipName, type HeatmapZipManifestImage } from '../../lib/exportZip';
+import { planRegionFromBounds, type ExportArea, type PlanRegion } from '../../lib/exportRegion';
+import type { HeatmapWorkerResponse } from '../../lib/heatmapWorkerClient';
 import type { RssiCalculation } from '../../lib/regularizedRssi';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -8,7 +11,7 @@ import {
   useMap,
   useMapEvents,
 } from 'react-leaflet';
-import { Check, Eye, EyeOff, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, X, ScanLine } from 'lucide-react';
+import { Check, Download, Eye, EyeOff, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, X, ScanLine } from 'lucide-react';
 import L from 'leaflet';
 import { useApPositions } from '../../hooks/useApPositions';
 import { usePlanImage } from '../../hooks/usePlanImage';
@@ -28,8 +31,9 @@ import {
   calculateAutoRadius,
 } from '../../lib/heatmap';
 import { CoverageOverlay } from './CoverageOverlay';
+import { BatchExportPanel } from './BatchExportPanel';
 import { useHeatmapRender } from '../../hooks/useHeatmapRender';
-import type { CoverageBand, CoveragePoint, HeatmapRenderInput } from '../../lib/heatmapRender';
+import type { CoverageBand, CoveragePoint, HeatmapRenderInput, HeatmapRenderResult } from '../../lib/heatmapRender';
 import { RssiProbeLayer } from './RssiProbeLayer';
 import {
   PolygonEditorLayer,
@@ -50,6 +54,8 @@ import { average, RSSI_BANDS } from '../../lib/signal';
 import type { AccessPoint } from '../../types/plan';
 import { useHeatmapColours } from '../../hooks/useHeatmapColours';
 import { buildColourLut, colourLutToCssGradient, lutColourForRssi, rssiToPosition, RSSI_MAX, RSSI_MIN } from '../../lib/heatmapColours';
+import { createPlanPngBlob, downloadBlob, exportPlanPng, planPngFileName } from '../../lib/exportPng';
+import { EXPORT_RASTER_DIMENSION } from '../../lib/heatmapRaster';
 
 function MapSetup({
   width,
@@ -219,9 +225,19 @@ export function HeatmapPage() {
   const rssiLut = useMemo(() => buildColourLut(colours), [colours]);
   const legendGradient = useMemo(() => colourLutToCssGradient(rssiLut), [rssiLut]);
   const [layerOpacity, setLayerOpacity] = useState(1);
+  const mapRef = useRef<L.Map | null>(null);
+  const batchRef = useRef<AbortController | null>(null);
+  const measureCache = useRef<Map<string, HeatmapRow[]>>(new Map());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchProgress, setBatchProgress] = useState('');
+  const [batchError, setBatchError] = useState<string | null>(null);
+  useEffect(() => () => { batchRef.current?.abort(); }, [plan?.id]);
+  const [exportingPng, setExportingPng] = useState(false);
+  const [exportPngError, setExportPngError] = useState<string | null>(null);
   const [showMeasurements, setShowMeasurements] = useState(true);
   const [calculation, setCalculation] = useState<RssiCalculation>('regularized');
   const [networks, setNetworks] = useState<NetworkInfo[]>([]);
+  const [networksPlanId, setNetworksPlanId] = useState<string | null>(null);
   const [ssid, setSsid] = useState('');
   const [bssid, setBssid] = useState('');
   // Bande affichée ('' = toutes), façon sélecteur 2.4/5/6 GHz d'UniFi.
@@ -505,7 +521,10 @@ export function HeatmapPage() {
     let alive = true;
     getNetworks(plan.id)
       .then((n) => {
-        if (alive) setNetworks(n);
+        if (alive) {
+          setNetworks(n);
+          setNetworksPlanId(plan.id);
+        }
       })
       .catch(() => {
         /* filtres indisponibles : la heatmap reste affichable sans filtre */
@@ -650,6 +669,201 @@ export function HeatmapPage() {
   }, [plan, dataLoading, imageMissing, showingSpeed, speedRows, rows, metric, calculation,
     coveragePoints, visiblePolygons, apPositions, visibleAccessPoints, radius, rssiLut, showEstimated]);
   const rendering = useHeatmapRender(renderInput);
+  const renderForExport = rendering.renderForExport;
+
+  const handleExportZip = async (selected: string[], area: ExportArea) => {
+    if (!plan || !imageUrl || batchRef.current || !selected.length) return;
+    const controller = new AbortController();
+    batchRef.current = controller;
+    setBatchBusy(true); setBatchError(null); setBatchProgress('Préparation…');
+    let added = 0;
+    const errors: Array<{ bssid: string; message: string }> = [];
+    const manifestImages: HeatmapZipManifestImage[] = [];
+    const zip = new PngZip();
+    const base = planPngFileName(plan.name).replace(/-heatmap\.png$/, '');
+    const exportedAt = new Date();
+    const workers = [0, 1].map(() => new Worker(new URL('../../lib/heatmap.worker.ts', import.meta.url), { type: 'module' }));
+    let region: PlanRegion | undefined;
+
+    // Semaphore : concurrence 2 sur les pipelines BSSID.
+    let slots = 2;
+    const waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
+    const onAbort = () => {
+      for (const waiter of waiters) waiter.reject(new DOMException('Export annulé', 'AbortError'));
+      waiters.length = 0;
+    };
+    controller.signal.addEventListener('abort', onAbort, { once: true });
+    const acquire = (): Promise<void> => new Promise((resolve, reject) => {
+      if (controller.signal.aborted) { reject(new DOMException('Export annulé', 'AbortError')); return; }
+      if (slots > 0) { slots--; resolve(); return; }
+      waiters.push({ resolve, reject: () => undefined });
+    });
+    const release = () => {
+      slots++;
+      const waiter = waiters.shift();
+      if (waiter) { slots--; waiter.resolve(); }
+    };
+
+    // zip.add touche un état partagé : les écritures sont sérialisées.
+    let addQueue = Promise.resolve();
+    const serializeAdd = (task: () => Promise<void>): Promise<void> => {
+      const next = addQueue.then(task);
+      addQueue = next.catch(() => undefined);
+      return next;
+    };
+
+    const renderExport = (worker: Worker, input: HeatmapRenderInput, id: number): Promise<HeatmapRenderResult> =>
+      new Promise((resolve, reject) => {
+        const cancel = () => { worker.terminate(); reject(new DOMException('Export annulé', 'AbortError')); };
+        controller.signal.addEventListener('abort', cancel, { once: true });
+        const cleanup = () => controller.signal.removeEventListener('abort', cancel);
+        worker.onmessage = ({ data }: MessageEvent<HeatmapWorkerResponse>) => {
+          if (data.type === 'export' && data.id === id) { cleanup(); resolve(data.result); }
+          else if (data.type === 'export-error' && 'id' in data && data.id === id) { cleanup(); reject(new Error(data.message)); }
+          else if (data.type === 'error') { cleanup(); reject(new Error(data.message)); }
+        };
+        worker.onerror = () => { cleanup(); reject(new Error('Calcul de l’export interrompu.')); };
+        worker.postMessage({ type: 'export', id, input });
+      });
+
+    const exportOne = async (target: string, index: number): Promise<void> => {
+      let acquired = false;
+      const step = (text: string) => setBatchProgress(`${index + 1} / ${selected.length} · ${target} · ${text}`);
+      try {
+        await acquire();
+        acquired = true;
+        step('Récupération…');
+        const key = `${plan.id}|${ssid ?? ''}|${target}|${band ?? ''}|${onlyConnected}`;
+        let measurements = measureCache.current.get(key);
+        if (!measurements) {
+          measurements = await getHeatmap(plan.id, { ssid: ssid || undefined, bssid: target, band: band || undefined, connected: onlyConnected || undefined });
+          measureCache.current.set(key, measurements);
+        }
+        controller.signal.throwIfAborted();
+        if (!measurements.length) throw new Error(`${target} : aucune mesure pour les filtres actuels.`);
+        const best = new Map<string, HeatmapRow>();
+        for (const row of measurements) {
+          if (!best.has(row.scan_point_id) || row.rssi > best.get(row.scan_point_id)!.rssi) best.set(row.scan_point_id, row);
+        }
+        const points = [...best.values()];
+        const input: HeatmapRenderInput = {
+          metric: 'rssi', calculation, plan: { id: plan.id, width: plan.width, height: plan.height },
+          measurements, points: [], polygons: visiblePolygons, apPositions, accessPoints: visibleAccessPoints,
+          radius: selectedRadius ?? calculateAutoRadius(points, plan.width, plan.height),
+          bands: RSSI_BANDS, lut: rssiLut, showEstimated, maxRasterDimension: EXPORT_RASTER_DIMENSION,
+        };
+        step('Rasterisation…');
+        const result = await renderExport(workers[index % workers.length], input, index);
+        controller.signal.throwIfAborted();
+        const fileName = `${sanitizeZipName(base, 50)}_${sanitizeZipName(target, 30) || 'bssid'}_${area}.png`;
+        step('Compression…');
+        const blob = await createPlanPngBlob({
+          planImageUrl: imageUrl, heatmapImage: result.image, width: plan.width, height: plan.height,
+          opacity: layerOpacity, fileName, rssiLut, region,
+          metadata: { planName: plan.name, ssid, bssid: target, band, calculation, exportedAt },
+          measurementPoints: points, showMeasurementPoints: showMeasurements,
+        });
+        controller.signal.throwIfAborted();
+        step('Écriture ZIP…');
+        await serializeAdd(() => zip.add(fileName, blob));
+        added++;
+        manifestImages.push({ file: fileName, bssid: target, ssid: ssid ?? '', band: band ?? '', calculation });
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        errors.push({ bssid: target, message: err instanceof Error ? err.message : String(err) });
+      } finally {
+        if (acquired) release();
+      }
+    };
+
+    try {
+      const bounds = mapRef.current?.getBounds();
+      if (area === 'visible' && !bounds) throw new Error('Zone visible indisponible.');
+      region = area === 'visible' && bounds ? planRegionFromBounds({
+        south: bounds.getSouth(), north: bounds.getNorth(), west: bounds.getWest(), east: bounds.getEast(),
+      }, plan.width, plan.height) : undefined;
+
+      await Promise.all(selected.map((target, index) => exportOne(target, index)));
+      controller.signal.throwIfAborted();
+
+      if (added === 0) throw new Error(errors.length ? errors[0].message : 'Aucune image à exporter.');
+      zip.addManifest({
+        format: 'heatmap-zip', version: 1,
+        exportedAt: exportedAt.toISOString(),
+        plan: { id: plan.id, name: plan.name, width: plan.width, height: plan.height },
+        images: manifestImages,
+      });
+      const zipBlob = zip.finish();
+      const fileName = `${sanitizeZipName(base, 50)}-heatmaps-${area}.zip`;
+      if (!downloadBlob(zipBlob, fileName)) { setBatchProgress('Téléchargement annulé.'); return; }
+
+      if (errors.length) {
+        setBatchProgress(`${added} images exportées (ZIP partiel).`);
+        setBatchError(`${added} exportée${added > 1 ? 'es' : ''}, ${errors.length} en erreur : ${errors.map((entry) => `${entry.bssid} (${entry.message})`).join('; ')}`);
+      } else {
+        setBatchProgress(`${added} images exportées en ZIP.`);
+      }
+    } catch (error) {
+      if (controller.signal.aborted) setBatchProgress('Export annulé.');
+      else { setBatchProgress(''); setBatchError(error instanceof Error ? error.message : 'Export ZIP impossible.'); }
+    } finally {
+      controller.signal.removeEventListener('abort', onAbort);
+      for (const worker of workers) worker.terminate();
+      batchRef.current = null; setBatchBusy(false);
+    }
+  };
+
+  const handleExportPng = useCallback(async () => {
+    if (!plan || !imageUrl || !renderInput || exportingPng || showingSpeed) return;
+    setExportingPng(true);
+    setExportPngError(null);
+    try {
+      const exported = await renderForExport({
+        ...renderInput,
+        maxRasterDimension: EXPORT_RASTER_DIMENSION,
+      });
+      await exportPlanPng({
+        planImageUrl: imageUrl,
+        heatmapImage: exported.image,
+        width: plan.width,
+        height: plan.height,
+        opacity: layerOpacity,
+        fileName: planPngFileName(plan.name),
+        rssiLut,
+        metadata: {
+          planName: plan.name,
+          ssid,
+          bssid,
+          band,
+          calculation,
+          exportedAt: new Date(),
+        },
+        measurementPoints: bestPerPoint,
+        showMeasurementPoints: showMeasurements,
+      });
+    } catch (err) {
+      setExportPngError(
+        err instanceof Error ? err.message : 'Impossible d’exporter le plan en PNG.'
+      );
+    } finally {
+      setExportingPng(false);
+    }
+  }, [
+    plan,
+    imageUrl,
+    renderInput,
+    renderForExport,
+    exportingPng,
+    showingSpeed,
+    layerOpacity,
+    rssiLut,
+    ssid,
+    bssid,
+    band,
+    calculation,
+    bestPerPoint,
+    showMeasurements,
+  ]);
 
   const displayedBssid = useMemo(() => {
     if (bssid) return bssid;
@@ -949,6 +1163,25 @@ export function HeatmapPage() {
           <button type="button" onClick={rendering.retry} className="underline font-medium">Réessayer</button>
         </div>
       )}
+      {exportPngError && (
+        <div role="alert" className="mb-3 px-4 py-3 rounded-xl border border-danger bg-danger-soft text-sm text-text">
+          {exportPngError}{' '}
+          <button type="button" onClick={() => setExportPngError(null)} className="underline font-medium">Fermer</button>
+        </div>
+      )}
+
+      {plan && (
+        <BatchExportPanel
+          key={plan.id}
+          onExport={handleExportZip}
+          busy={batchBusy}
+          progress={batchProgress}
+          error={batchError}
+          disabled={showingSpeed || dataLoading || !imageUrl || imageMissing || exportingPng}
+          onCancel={() => batchRef.current?.abort()}
+          networks={networksPlanId === plan.id ? networks : []}
+        />
+      )}
 
       {isEmpty && !dataError ? (
         <div className="text-center py-16">
@@ -1044,6 +1277,30 @@ export function HeatmapPage() {
                 Valeurs RSSI
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={() => {
+                void handleExportPng();
+              }}
+              disabled={
+                showingSpeed ||
+                !renderInput ||
+                !rendering.imageUrl ||
+                rendering.processing ||
+                dataLoading ||
+                exportingPng
+              }
+              title={
+                showingSpeed
+                  ? 'Export disponible en mode Signal'
+                  : 'Exporter le plan complet avec la heatmap RSSI'
+              }
+              className="inline-flex items-center gap-2 h-11 px-4 rounded-xl border border-glass-border-soft text-sm font-medium text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Download size={16} strokeWidth={1.75} aria-hidden />
+              {exportingPng ? 'Export…' : 'Exporter PNG'}
+            </button>
 
             {displayedBssid && (
               <button
@@ -1224,6 +1481,7 @@ export function HeatmapPage() {
               <LocateFixed size={18} strokeWidth={1.75} aria-hidden />
             </button>
             <MapContainer
+              ref={mapRef}
               center={[plan.height / 2, plan.width / 2]}
               zoom={0}
               crs={L.CRS.Simple}

@@ -12,6 +12,12 @@ import {
 /** Résolution maximale de la texture, indépendante du zoom Leaflet. */
 export const MAX_RASTER_DIMENSION = 512;
 
+/** Résolution demandée pour l'export PNG, sans modifier le rendu interactif. */
+export const EXPORT_RASTER_DIMENSION = 2048;
+
+/** Plafond de sécurité mémoire pour le raster d'export. */
+export const MAX_EXPORT_RASTER_DIMENSION = 4096;
+
 export interface RasterSize {
   width: number;
   height: number;

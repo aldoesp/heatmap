@@ -3,10 +3,13 @@ import type { HybridSample } from './rssiHybridField.js';
 
 export type HeatmapWorkerRequest =
   | { type: 'build'; input: HeatmapRenderInput }
-  | { type: 'probe'; id: number; x: number; y: number };
+  | { type: 'probe'; id: number; x: number; y: number }
+  | { type: 'export'; id: number; input: HeatmapRenderInput };
 export type HeatmapWorkerResponse =
   | { type: 'ready'; result: HeatmapRenderResult }
   | { type: 'sample'; id: number; sample: HybridSample }
+  | { type: 'export'; id: number; result: HeatmapRenderResult }
+  | { type: 'export-error'; id: number; message: string }
   | { type: 'error'; message: string };
 
 export interface HeatmapWorkerPort {
@@ -27,6 +30,10 @@ export function createHeatmapSession(
 ) {
   let closed = false, ready = false, nextId = 0;
   const pending = new Map<number, (sample: HybridSample) => void>();
+  const pendingExports = new Map<
+    number,
+    { resolve: (result: HeatmapRenderResult) => void; reject: (error: Error) => void }
+  >();
   const dispose = () => {
     if (closed) return;
     closed = true;
@@ -34,11 +41,23 @@ export function createHeatmapSession(
     port.terminate();
     for (const resolve of pending.values()) resolve(noData());
     pending.clear();
+    for (const { reject } of pendingExports.values()) {
+      reject(new Error('Export interrompu.'));
+    }
+    pendingExports.clear();
   };
   port.onmessage = ({ data }) => {
     if (closed) return;
     if (data.type === 'ready') { ready = true; onReady(data.result); }
     if (data.type === 'sample') { pending.get(data.id)?.(data.sample); pending.delete(data.id); }
+    if (data.type === 'export') {
+      pendingExports.get(data.id)?.resolve(data.result);
+      pendingExports.delete(data.id);
+    }
+    if (data.type === 'export-error') {
+      pendingExports.get(data.id)?.reject(new Error(data.message));
+      pendingExports.delete(data.id);
+    }
     if (data.type === 'error') { dispose(); onError(data.message); }
   };
   port.onerror = ({ message }) => { if (!closed) { dispose(); onError(message || 'Calcul de la couverture interrompu.'); } };
@@ -53,6 +72,20 @@ export function createHeatmapSession(
         pending.set(id, resolve);
         try { port.postMessage({ type: 'probe', id, x, y }); }
         catch { pending.delete(id); resolve(noData()); }
+      });
+    },
+    renderForExport(input: HeatmapRenderInput): Promise<HeatmapRenderResult> {
+      if (closed) {
+        return Promise.reject(new Error('Calcul de la couverture indisponible.'));
+      }
+      const id = ++nextId;
+      return new Promise((resolve, reject) => {
+        pendingExports.set(id, { resolve, reject });
+        try { port.postMessage({ type: 'export', id, input }); }
+        catch (error) {
+          pendingExports.delete(id);
+          reject(error instanceof Error ? error : new Error('Export indisponible.'));
+        }
       });
     },
   };

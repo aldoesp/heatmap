@@ -66,9 +66,15 @@ export function useHeatmapRender(input: HeatmapRenderInput | null) {
       ? current.session.sample(x, y)
       : Promise.resolve({ status: 'NO_DATA' as const, rssi: null });
   }, [request]);
+  const renderForExport = useCallback((input: HeatmapRenderInput) => {
+    const current = active.current;
+    return current?.request === request
+      ? current.session.renderForExport(input)
+      : Promise.reject(new Error('Calcul de la couverture indisponible.'));
+  }, [request]);
   const current = result?.request === request ? result : null;
   const retry = useCallback(() => setAttempt(value => value + 1), []);
   return { imageUrl: current?.url ?? null, metadata: current?.metadata ?? EMPTY_METADATA,
     processing: request !== null && current === null, error: current?.error ?? null, sampleAt,
-    retry };
+    renderForExport, retry };
 }
