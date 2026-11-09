@@ -4,7 +4,14 @@ import { buildRssiMeshes, findUncoveredZones, type RssiPolygonConstraint, type U
 import { buildRegularizedRssiField, type RssiCalculation } from './regularizedRssi.js';
 import { buildCoverageField } from './coverageField.js';
 import { rasterizeRegularizedRssi, type RssiContour } from './regularizedRaster.js';
-import { chooseRasterSize, rasterizeRssiHybrid, rasterizeRssiMeshes, type RssiRaster } from './heatmapRaster.js';
+import {
+  chooseRasterSize,
+  MAX_RASTER_DIMENSION,
+  MAX_EXPORT_RASTER_DIMENSION,
+  rasterizeRssiHybrid,
+  rasterizeRssiMeshes,
+  type RssiRaster,
+} from './heatmapRaster.js';
 import { buildZoneMask, pointInPolygonPx } from './polygon.js';
 import type { HybridSample } from './rssiHybridField.js';
 
@@ -24,6 +31,8 @@ export interface HeatmapRenderInput {
   bands: CoverageBand[];
   lut: Uint8ClampedArray;
   showEstimated: boolean;
+  /** Limite du grand côté du raster ; 512 px par défaut, 2048 px pour l'export. */
+  maxRasterDimension?: number;
 }
 
 export interface HeatmapMetadata { bssids: string[]; uncoveredZones: UncoveredZone[] }
@@ -32,6 +41,18 @@ export interface HeatmapRenderResult {
   image: HeatmapImage;
   metadata: HeatmapMetadata;
   durationMs: number;
+}
+
+function rasterDimensionLimit(
+  input: HeatmapRenderInput,
+  fallback: number,
+): number {
+  const requested = input.maxRasterDimension;
+  if (requested === undefined || !Number.isFinite(requested)) return fallback;
+  return Math.min(
+    Math.max(2, Math.floor(requested)),
+    MAX_EXPORT_RASTER_DIMENSION,
+  );
 }
 
 function zonePredicate(input: HeatmapRenderInput): (x: number, y: number) => boolean {
@@ -47,7 +68,11 @@ function zonePredicate(input: HeatmapRenderInput): (x: number, y: number) => boo
 /** Same banded IDW as the previous canvas renderer, now independent of the DOM. */
 function rasterizeSpeed(input: HeatmapRenderInput): HeatmapImage {
   const { plan, points, radius, bands } = input;
-  const { width, height } = chooseRasterSize(plan.width, plan.height, 360);
+  const { width, height } = chooseRasterSize(
+    plan.width,
+    plan.height,
+    rasterDimensionLimit(input, 360),
+  );
   const data = new Uint8ClampedArray(width * height * 4);
   const allowed = zonePredicate(input);
   const samples = points.map(p => ({ x: p.x * plan.width, y: (1 - p.y) * plan.height, value: p.value }));
@@ -90,7 +115,11 @@ export function createHeatmapRender(input: HeatmapRenderInput): HeatmapRenderRes
   const field = input.calculation === 'regularized'
     ? buildRegularizedRssiField(measurements, plan, polygons, model.meshes)
     : buildCoverageField(model.meshes, polygons, input.apPositions, input.accessPoints);
-  const size = chooseRasterSize(plan.width, plan.height);
+  const size = chooseRasterSize(
+    plan.width,
+    plan.height,
+    rasterDimensionLimit(input, MAX_RASTER_DIMENSION),
+  );
   let image: HeatmapImage;
   if (input.calculation === 'regularized') {
     image = rasterizeRegularizedRssi(field, plan.width, plan.height, size.width, size.height, lut, showEstimated);

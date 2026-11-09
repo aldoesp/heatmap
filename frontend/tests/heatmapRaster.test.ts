@@ -55,6 +55,10 @@ describe('rasterisation de la heatmap RSSI', () => {
   it('plafonne la résolution des grands plans et garde les petits plans', () => {
     assert.deepEqual(chooseRasterSize(100, 80), { width: 100, height: 80 });
     assert.deepEqual(chooseRasterSize(4000, 2000), { width: 512, height: 256 });
+    assert.deepEqual(chooseRasterSize(4000, 2000, 2048), {
+      width: 2048,
+      height: 1024,
+    });
   });
 
   it('colore uniquement l’intérieur des triangles et laisse le reste transparent', () => {

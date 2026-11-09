@@ -52,6 +52,22 @@ describe('calcul transféré dans le worker', () => {
     assert.deepEqual(render.sample(20, 20), { status: 'NO_DATA', rssi: null });
   });
 
+  it('utilise 512 px par défaut et la limite demandée pour l’export', () => {
+    const plan = { id: 'p', width: 1200, height: 600 };
+    const display = createHeatmapRender(input({ plan, calculation: 'hybrid' }));
+    const exported = createHeatmapRender(
+      input({ plan, calculation: 'hybrid', maxRasterDimension: 1024 }),
+    );
+    assert.deepEqual(
+      [display.image.width, display.image.height],
+      [512, 256],
+    );
+    assert.deepEqual(
+      [exported.image.width, exported.image.height],
+      [1024, 512],
+    );
+  });
+
   it('garde les quatre voisins les plus proches pour un grand relevé colinéaire', () => {
     const nodes = Array.from({ length: 20 }, (_, x) => ({ x, y: 0, value: -40 - x * 2 }));
     assert.ok(Math.abs(fitRegularizedRssi(nodes, 100)(3.5, 0)! + 47) < 1e-10);
@@ -110,5 +126,42 @@ describe('cycle de vie du worker', () => {
     port.onerror!({ message: 'worker unavailable' });
     assert.equal((await pending).status, 'NO_DATA');
     assert.equal(message, 'worker unavailable'); assert.equal(port.terminated, true);
+  });
+
+  it('demande un raster d’export séparé sans remplacer le rendu interactif', async () => {
+    const port = new FakeWorker();
+    const session = createHeatmapSession(port, input(), () => {}, assert.fail);
+    port.receive({ type: 'ready', result: createHeatmapRender(input()) });
+    const promise = session.renderForExport(input({ maxRasterDimension: 2048 }));
+    const request = port.sent.find((message) => message.type === 'export');
+    assert.ok(request && request.type === 'export');
+    assert.equal(request.input.maxRasterDimension, 2048);
+    const exported = createHeatmapRender(input());
+    port.receive({ type: 'export', id: request.id, result: exported });
+    assert.deepEqual((await promise).image.data, exported.image.data);
+    port.receive({
+      type: 'sample',
+      id: 999,
+      sample: { status: 'INTERPOLATED', rssi: -60, confidence: 1 },
+    });
+    session.dispose();
+  });
+
+  it('isole les erreurs d’export et rejette les exports interrompus', async () => {
+    const port = new FakeWorker();
+    const session = createHeatmapSession(port, input(), () => {}, assert.fail);
+    const failed = session.renderForExport(input());
+    const failedRequest = port.sent.find((message) => message.type === 'export');
+    assert.ok(failedRequest && failedRequest.type === 'export');
+    port.receive({
+      type: 'export-error',
+      id: failedRequest.id,
+      message: 'mémoire insuffisante',
+    });
+    await assert.rejects(failed, /mémoire insuffisante/);
+
+    const interrupted = session.renderForExport(input());
+    session.dispose();
+    await assert.rejects(interrupted, /Export interrompu/);
   });
 });
