@@ -1,4 +1,4 @@
-import type { AntennaPattern } from '../types/wifi';
+import type { AntennaPattern } from '../types/wifi.js';
 
 export const normalizeDeg = (deg: number): number => ((deg % 360) + 360) % 360;
 
