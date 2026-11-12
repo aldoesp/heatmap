@@ -18,8 +18,8 @@
  * ni fading ; diagramme d'antenne approché par deux coupes (azimut + élévation).
  * Les valeurs sont simulées, pas mesurées.
  */
-import type { AntennaPattern, Point, RadioParams, SignalSample } from '../types/wifi';
-import { normalizeDeg, txGainDbi } from './antennaPattern';
+import type { AntennaPattern, Point, RadioParams, SignalSample } from '../types/wifi.js';
+import { normalizeDeg, txGainDbi } from './antennaPattern.js';
 
 export const FSPL_CONSTANT_DB = 32.44;
 export const DEFAULT_MIN_DISTANCE_M = 0.1;

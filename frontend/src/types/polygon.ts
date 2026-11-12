@@ -1,4 +1,4 @@
-import type { NormalizedCoord } from '../lib/coords';
+import type { NormalizedCoord } from '../lib/coords.js';
 
 /**
  * Zone de délimitation dessinée à la main sur un plan.

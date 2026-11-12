@@ -6,6 +6,7 @@ import {
   selectVisibleMeasurementPoints,
   type MeasurementPoint,
 } from './exportPoints.js';
+import type { AccessPoint } from '../types/plan.js';
 import {
   fullPlanRegion,
   planRegionIsExportable,
@@ -40,6 +41,8 @@ export interface PlanPngExportOptions {
   metadata: HeatmapExportMetadata;
   measurementPoints?: readonly MeasurementPoint[];
   showMeasurementPoints?: boolean;
+  accessPoints?: readonly AccessPoint[];
+  showAccessPoints?: boolean;
   /** Région du plan à exporter ; par défaut, le plan complet. */
   region?: PlanRegion;
 }
@@ -171,6 +174,66 @@ function drawMeasurementPoints(
   context.lineWidth = Math.max(1, radius * 0.5);
   context.strokeStyle = 'rgba(255,255,255,0.95)';
   context.stroke();
+  context.restore();
+}
+
+function drawAccessPoints(
+  context: CanvasRenderingContext2D,
+  planWidth: number,
+  planHeight: number,
+  region: PlanRegion,
+  points: readonly AccessPoint[],
+): void {
+  if (!points.length) return;
+
+  const radius = measurementPointRadius(region.width, region.height) * 2;
+  const scale = radius / 6;
+  const padding = 6 * scale;
+  const labelHeight = 21 * scale;
+  const labelInset = scale;
+
+  context.save();
+  context.beginPath();
+  context.rect(0, 0, region.width, region.height);
+  context.clip();
+  context.font = `500 ${11 * scale}px ui-monospace, monospace`;
+  context.textAlign = 'left';
+  context.textBaseline = 'middle';
+
+  for (const point of points) {
+    const position = measurementPointToRegionCanvas(point, planWidth, planHeight, region);
+    if (!position) continue;
+    const { x, y } = position;
+
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.fillStyle = 'rgba(16,185,129,0.95)';
+    context.fill();
+    context.lineWidth = 1.5 * scale;
+    context.strokeStyle = '#0d1319';
+    context.stroke();
+
+    const label = truncateText(point.name, region.width - 2 * (padding + labelInset),
+      (text) => context.measureText(text).width);
+    if (!label || labelHeight + 2 * labelInset > region.height) continue;
+    const labelWidth = context.measureText(label).width + 2 * padding;
+    const right = x + radius + 8 * scale;
+    const left = x - radius - 8 * scale - labelWidth;
+    const maxX = region.width - labelWidth - labelInset;
+    const labelX = Math.max(labelInset, Math.min(maxX, right <= maxX ? right : left));
+    const labelY = Math.max(labelInset,
+      Math.min(region.height - labelHeight - labelInset, y - labelHeight / 2));
+
+    context.beginPath();
+    context.roundRect(labelX, labelY, labelWidth, labelHeight, 6 * scale);
+    context.fillStyle = 'rgba(11,15,20,0.82)';
+    context.fill();
+    context.lineWidth = scale;
+    context.strokeStyle = 'rgba(16,185,129,0.45)';
+    context.stroke();
+    context.fillStyle = '#e6edf3';
+    context.fillText(label, labelX + padding, labelY + labelHeight / 2);
+  }
   context.restore();
 }
 
@@ -356,6 +419,8 @@ export async function createPlanPngBlob({
   metadata,
   measurementPoints = [],
   showMeasurementPoints = true,
+  accessPoints = [],
+  showAccessPoints = true,
   region = fullPlanRegion(width, height),
 }: PlanPngExportOptions): Promise<Blob> {
   if (!Number.isSafeInteger(width) || width <= 0) {
@@ -429,6 +494,16 @@ export async function createPlanPngBlob({
         measurementPoints,
         showMeasurementPoints,
       );
+
+      if (showAccessPoints) {
+        drawAccessPoints(
+          context,
+          width,
+          height,
+          region,
+          accessPoints,
+        );
+      }
 
       const metadataTop = region.height;
       drawMetadata(context, outputWidth, metadataTop, metadataFields, metadataLayout);

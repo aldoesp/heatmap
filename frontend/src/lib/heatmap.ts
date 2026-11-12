@@ -7,9 +7,9 @@ import type {
   RadioParams,
   Rgb,
   Surface,
-} from '../types/wifi';
-import { txGainDbi } from './antennaPattern';
-import { linkGeometry, receivedPowerDbm } from './radioPropagation';
+} from '../types/wifi.js';
+import { txGainDbi } from './antennaPattern.js';
+import { linkGeometry, receivedPowerDbm } from './radioPropagation.js';
 
 export const MAX_CELLS = 250_000;
 

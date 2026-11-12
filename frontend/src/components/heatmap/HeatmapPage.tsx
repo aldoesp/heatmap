@@ -761,6 +761,7 @@ export function HeatmapPage() {
           planImageUrl: imageUrl, heatmapImage: result.image, width: plan.width, height: plan.height,
           opacity: layerOpacity, fileName, rssiLut, region,
           metadata: { planName: plan.name, ssid, bssid: target, band, calculation, exportedAt },
+          accessPoints: visibleAccessPoints,
           measurementPoints: points, showMeasurementPoints: showMeasurements,
         });
         controller.signal.throwIfAborted();
@@ -838,6 +839,7 @@ export function HeatmapPage() {
           calculation,
           exportedAt: new Date(),
         },
+        accessPoints: visibleAccessPoints,
         measurementPoints: bestPerPoint,
         showMeasurementPoints: showMeasurements,
       });
@@ -861,6 +863,7 @@ export function HeatmapPage() {
     bssid,
     band,
     calculation,
+    visibleAccessPoints,
     bestPerPoint,
     showMeasurements,
   ]);
