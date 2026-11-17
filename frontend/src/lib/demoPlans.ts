@@ -1,5 +1,4 @@
 import heroUrl from '../assets/hero.png';
-import whatsappUrl from '../assets/WhatsApp Image 2026-09-17 at 1.36.00 PM.jpeg';
 
 export interface DemoPlan {
   /** Nom de fichier envoyé au backend (sert aussi à nommer le plan) */
@@ -15,13 +14,7 @@ export const DEMO_PLANS: DemoPlan[] = [
     fileName: 'hero.png',
     mime: 'image/png',
     url: heroUrl,
-    label: 'Plan démo (PNG)',
-  },
-  {
-    fileName: 'WhatsApp Image 2026-09-17 at 1.36.00 PM.jpeg',
-    mime: 'image/jpeg',
-    url: whatsappUrl,
-    label: 'Plan démo (JPEG)',
+    label: "Plan d'exemple",
   },
 ];
 

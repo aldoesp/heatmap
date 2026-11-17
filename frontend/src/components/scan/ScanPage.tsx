@@ -4,7 +4,6 @@ import { usePlanImage } from '../../hooks/usePlanImage';
 import { useScanStore } from '../../hooks/useScanStore';
 import { listAccessPoints, getStatus } from '../../lib/api';
 import { latlngToData, dataToLatLng, clampCoord } from '../../lib/coords';
-import { formatPercent } from '../../lib/format';
 import { ScanMap } from './ScanMap';
 import { InfoChip } from './InfoChip';
 import { ActionPanel } from './ActionPanel';
@@ -26,13 +25,17 @@ export function ScanPage() {
     addScan,
     removeLast,
     dismissError,
+    refresh,
   } = useScanStore(plan?.id ?? null);
 
   const [pendingLatLng, setPendingLatLng] = useState<L.LatLng | null>(null);
   const [scanConfirmed, setScanConfirmed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [mode, setMode] = useState<'live' | 'test' | null>(null);
-  // Position du dernier scan, pour le dialogue de confirmation
+  const [statusError, setStatusError] = useState(false);
+  const [statusAttempt, setStatusAttempt] = useState(0);
+  const [operation, setOperation] = useState<'measure' | 'undo' | null>(null);
+  // Position du dernier relevé, pour sa fiche de détails.
   const [lastCoords, setLastCoords] = useState<{ x: number; y: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const fitRef = useRef<(() => void) | null>(null);
@@ -62,10 +65,16 @@ export function ScanPage() {
     const fetchMode = () => {
       getStatus()
         .then((st) => {
-          if (alive) setMode(st.scan_mode);
+          if (alive) {
+            setMode(st.scan_mode);
+            setStatusError(false);
+          }
         })
         .catch(() => {
-          /* badge masqué si serveur injoignable */
+          if (alive) {
+            setMode(null);
+            setStatusError(true);
+          }
         });
     };
     fetchMode();
@@ -81,7 +90,7 @@ export function ScanPage() {
       alive = false;
       window.removeEventListener('hashchange', onHash);
     };
-  }, []);
+  }, [statusAttempt]);
 
   const handleMapClick = useCallback(
     (latlng: L.LatLng) => {
@@ -107,15 +116,22 @@ export function ScanPage() {
   const handleScan = useCallback(async () => {
     if (!plan || !pendingLatLng || scanning) return;
     const data = clampCoord(latlngToData(pendingLatLng, plan.width, plan.height));
+    setOperation('measure');
     const result = await addScan(data.x, data.y);
+    setOperation(null);
     if (result) {
       setPendingLatLng(null);
       setLastCoords({ x: data.x, y: data.y });
-      setConfirmOpen(true);
+      setMode(result.mode);
       setScanConfirmed(true);
-      window.setTimeout(() => setScanConfirmed(false), 1200);
     }
   }, [plan, pendingLatLng, scanning, addScan]);
+
+  useEffect(() => {
+    if (!scanConfirmed) return;
+    const timer = window.setTimeout(() => setScanConfirmed(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [scanConfirmed]);
 
   const handleKeepScan = useCallback(() => {
     setConfirmOpen(false);
@@ -123,13 +139,18 @@ export function ScanPage() {
 
   const handleDiscardScan = useCallback(async () => {
     // Le point venant d'être créé est toujours le dernier (verrou scanning).
+    setOperation('undo');
     const removed = await removeLast();
+    setOperation(null);
     if (removed) setConfirmOpen(false);
     // En cas d'échec, le dialogue reste ouvert avec l'erreur affichée.
   }, [removeLast]);
 
-  const handleUndo = useCallback(() => {
-    removeLast();
+  const handleUndo = useCallback(async () => {
+    setOperation('undo');
+    await removeLast();
+    setScanConfirmed(false);
+    setOperation(null);
   }, [removeLast]);
 
   const handleRecenter = useCallback(() => {
@@ -142,30 +163,24 @@ export function ScanPage() {
   }, [scanPoints.length]);
 
   const handleImport = useCallback(() => {
-    location.hash = '#/upload?test=1';
+    location.hash = '#/upload';
   }, []);
 
   const handleSurveys = useCallback(() => {
     setDialogOpen(false);
-    location.hash = '#/releves';
+    location.hash = '#/heatmap';
   }, []);
 
   const hint = useMemo(() => {
-    if (scanning) return 'Scan en cours… ne bouge pas.';
+    if (scanning) return operation === 'undo' ? 'Suppression de la dernière mesure…' : 'Mesure en cours… reste à cet emplacement.';
     if (scanError) return scanError;
-    if (lastResult) {
-      return `${lastResult.count} réseau${lastResult.count > 1 ? 'x' : ''} enregistré${lastResult.count > 1 ? 's' : ''} (${lastResult.mode === 'test' ? 'mode test' : 'mesure réelle'}).`;
-    }
-    if (!plan) return '';
-    if (pendingLatLng) {
-      const data = latlngToData(pendingLatLng, plan.width, plan.height);
-      return `Position définie · x ${formatPercent(data.x)} · y ${formatPercent(data.y)}`;
-    }
-    return 'Touche le plan à ton emplacement, puis appuie sur Scan.';
-  }, [plan, pendingLatLng, scanning, scanError, lastResult]);
+    if (pendingLatLng) return 'Position choisie. Tu peux déplacer le repère avant de mesurer.';
+    if (lastResult) return 'Déplace-toi et touche le plan à ton prochain emplacement.';
+    return 'Touche le plan à ton emplacement pour prendre une mesure.';
+  }, [scanning, operation, scanError, pendingLatLng, lastResult]);
 
   if (loading || (plan && pointsLoading)) {
-    return <div className="fixed inset-0 bg-bg" />;
+    return <div role="status" className="mx-auto max-w-150 px-4 py-16 text-center text-text-dim">Chargement du plan et des mesures…</div>;
   }
 
   if (planError && !plan) {
@@ -174,10 +189,10 @@ export function ScanPage() {
         <p className="text-text text-[15px] mb-4">{planError}</p>
         <button
           type="button"
-          onClick={handleImport}
-          className="inline-flex items-center h-12 px-5 rounded-[14px] bg-accent text-bg font-medium text-[15px]"
+          onClick={() => window.location.reload()}
+          className="btn-primary h-12 px-5 text-[15px]"
         >
-          Importer un plan
+          Réessayer
         </button>
       </div>
     );
@@ -196,7 +211,7 @@ export function ScanPage() {
           <button
             type="button"
             onClick={handleImport}
-            className="inline-flex items-center h-12 px-5 rounded-[14px] bg-accent text-bg font-medium text-[15px]"
+            className="btn-primary h-12 px-5 text-[15px]"
           >
             Importer un plan
           </button>
@@ -224,8 +239,15 @@ export function ScanPage() {
 
       <ActionPanel
         hint={hint}
+        busy={scanning}
+        measuring={scanning && operation === 'measure'}
+        result={lastResult}
+        onDetails={() => setConfirmOpen(true)}
+        statusError={statusError}
+        onRetryStatus={() => setStatusAttempt(value => value + 1)}
+        onRetryPoints={scanError && scanPoints.length === 0 && !pendingLatLng ? () => { void refresh(); } : undefined}
         hasPin={!!pendingLatLng}
-        canScan={!!pendingLatLng && !scanning && !confirmOpen}
+        canScan={!!pendingLatLng && !scanning && !confirmOpen && !statusError && mode !== null}
         canUndo={scanPoints.length > 0 && !scanning && !confirmOpen}
         canDone={scanPoints.length > 0 && !scanning && !confirmOpen}
         scanConfirmed={scanConfirmed}

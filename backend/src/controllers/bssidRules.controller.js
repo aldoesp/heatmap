@@ -25,8 +25,8 @@ export const createBssidRule = (req, res, next) => {
   if (!BSSID_RE.test(bssid)) {
     return next(new AppError('Adresse MAC invalide (ex. 9e:05:d6:96:e8:30).', 400));
   }
-  if (name.length > 64 || (!name && !blacklisted)) {
-    return next(new AppError('Donne un nom, ou ajoute ce BSSID à la liste noire.', 400));
+  if (name.length > 64) {
+    return next(new AppError('Nom de borne invalide.', 400));
   }
   if (req.body?.blacklisted !== undefined && typeof req.body.blacklisted !== 'boolean') {
     return next(new AppError('blacklisted doit être un booléen.', 400));
@@ -57,9 +57,6 @@ export const patchBssidRule = (req, res, next) => {
   }
   if (typeof blacklisted !== 'boolean') {
     return next(new AppError('blacklisted doit être un booléen.', 400));
-  }
-  if (!name && !blacklisted) {
-    return next(new AppError('Donne un nom ou active la liste noire.', 400));
   }
   res.json(updateBssidRule(existing.id, { name, blacklisted }));
 };

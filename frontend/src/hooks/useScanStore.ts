@@ -121,6 +121,7 @@ export function useScanStore(planId: string | null) {
       await deleteScanPoint(planId, last.id);
       if (!aliveRef.current) return true;
       setScanPoints((prev) => prev.slice(0, -1));
+      setLastResult(null);
       return true;
     } catch (err) {
       if (!aliveRef.current) return false;

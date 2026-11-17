@@ -760,6 +760,40 @@ describe('réglages, mapping et export', () => {
     assert.equal(deleted.status, 204);
   });
 
+  it('autorise une règle BSSID sans nom d’affichage', async () => {
+    const bssid = '8c:30:66:74:50:84';
+    const created = await api('POST', '/api/v1/bssid-rules', {
+      bssid,
+      name: '',
+      blacklisted: false,
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.json.name, '');
+    assert.equal(created.json.blacklisted, false);
+
+    const renamedToEmpty = await api('PATCH', `/api/v1/bssid-rules/${created.json.id}`, {
+      name: '',
+    });
+    assert.equal(renamedToEmpty.status, 200);
+    assert.equal(renamedToEmpty.json.name, '');
+
+    const blacklisted = await api('PATCH', `/api/v1/bssid-rules/${created.json.id}`, {
+      blacklisted: true,
+    });
+    assert.equal(blacklisted.status, 200);
+    assert.equal(blacklisted.json.blacklisted, true);
+
+    const unblacklisted = await api('PATCH', `/api/v1/bssid-rules/${created.json.id}`, {
+      blacklisted: false,
+    });
+    assert.equal(unblacklisted.status, 200);
+    assert.equal(unblacklisted.json.blacklisted, false);
+    assert.equal(unblacklisted.json.name, '');
+
+    const deleted = await api('DELETE', `/api/v1/bssid-rules/${created.json.id}`);
+    assert.equal(deleted.status, 204);
+  });
+
   it('coupe un point : exclu de la heatmap, visible dans le CSV', async () => {
     const off = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
       is_enabled: 0,

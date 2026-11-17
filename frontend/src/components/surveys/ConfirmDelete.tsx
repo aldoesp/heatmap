@@ -23,7 +23,7 @@ export function ConfirmDelete({ surveyName, pointCount, onCancel, onConfirm, bus
         role="dialog"
         aria-modal="true"
         aria-label={`Supprimer ${surveyName} ?`}
-        className="w-full max-w-sm rounded-[16px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] p-4"
+        className="w-full max-w-sm rounded-[16px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 shadow-glass-light p-4"
       >
         <h2 className="text-[15px] font-medium text-text mb-2">Supprimer ce survey ?</h2>
         <p className="text-[13px] text-text-dim mb-4">
@@ -35,7 +35,7 @@ export function ConfirmDelete({ surveyName, pointCount, onCancel, onConfirm, bus
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="flex-1 h-11 rounded-[12px] border border-glass-border-soft text-text text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            className="flex-1 h-11 rounded-[12px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui text-text text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
           >
             Annuler
           </button>

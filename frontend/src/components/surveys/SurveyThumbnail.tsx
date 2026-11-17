@@ -19,7 +19,7 @@ export function SurveyThumbnail({ survey, size = 64 }: Props) {
     <div
       aria-label={label}
       role="img"
-      className="shrink-0 rounded-lg border border-glass-border-soft bg-bg overflow-hidden relative flex items-center justify-center text-text-dim"
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-glass-border-soft bg-glass-bg backdrop-blur-ui text-muted"
       style={{ width: size, height: size }}
     >
       {survey.pointCount === 0 ? (

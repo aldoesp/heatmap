@@ -42,6 +42,20 @@ export function UploadPage() {
   }
   const planName = plan?.name;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const exampleRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (loading || plan) return;
+    const showExamples = () => {
+      const query = new URLSearchParams(window.location.hash.split('?')[1]);
+      if (query.get('example') !== '1') return;
+      exampleRef.current?.scrollIntoView({ block: 'center' });
+      exampleRef.current?.focus({ preventScroll: true });
+    };
+    showExamples();
+    window.addEventListener('hashchange', showExamples);
+    return () => window.removeEventListener('hashchange', showExamples);
+  }, [loading, plan]);
 
   useEffect(() => {
     if (!plan) return;
@@ -104,21 +118,29 @@ export function UploadPage() {
   };
 
   if (loading) {
-    return <div className="fixed inset-0 bg-bg" />;
+    return <div role="status" className="mx-auto max-w-[1320px] px-4 py-12 text-sm text-text-dim">Chargement de ton plan…</div>;
   }
 
   return (
-    <div className="max-w-300 mx-auto px-4 pt-6 pb-48 md:pb-8 lg:px-6 lg:py-8">
-      <div className="mb-6">
-        <h1 className="text-[22px] font-medium tracking-tight mb-1">
+    <div className="mx-auto max-w-[1320px] px-4 pb-48 pt-8 md:px-6 md:pb-12">
+      <nav aria-label="Étapes du relevé" className="mb-6">
+        <ol className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <li><a href="#/upload" aria-current="step" className="font-medium text-accent no-underline">1. Plan</a></li>
+          <li>{plan ? <a href="#/scan" className="text-text-dim hover:text-text">2. Mesures</a> : <span className="text-muted">2. Mesures</span>}</li>
+          <li>{plan ? <a href="#/heatmap" className="text-text-dim hover:text-text">3. Couverture</a> : <span className="text-muted">3. Couverture</span>}</li>
+        </ol>
+      </nav>
+      <div className="mb-8">
+        <p className="label mb-2">Plan</p>
+        <h1 className="text-[28px] font-medium leading-tight tracking-[-0.02em]">
           Plan du site
         </h1>
-        <p className="text-text-dim text-sm">
-          Importe une photo ou une capture de ton plan.
+        <p className="mt-1.5 max-w-prose text-sm text-text-dim">
+          {plan ? `Plan actif : ${plan.name}. Tu peux poursuivre les mesures ou préparer le plan ci-dessous.` : 'Une photo ou une capture d’écran du plan suffit.'}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 lg:gap-6 lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] lg:items-start lg:gap-6">
         <div className="flex flex-col gap-4">
           {!plan ? (
             <>
@@ -127,20 +149,19 @@ export function UploadPage() {
                 hasError={!!error}
                 loading={uploading}
               />
-              <div className="glass-fallback bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 border border-glass-border-soft shadow-glass-light rounded-card p-4 lg:p-5">
-                <div className="text-sm font-medium mb-1">Plans de démo</div>
-                <p className="text-[13px] text-text-dim mb-3">
-                  Pas d’image sous la main ? Touche un plan pour l’importer
-                  directement (même validation, même nommage).
+              <div id="plan-examples" ref={exampleRef} tabIndex={-1} aria-labelledby="plan-examples-title" className="surface scroll-mt-20 p-4 lg:p-5">
+                <h2 id="plan-examples-title" className="mb-1 text-sm font-medium">Choisis un plan d’exemple</h2>
+                <p className="mb-4 max-w-prose text-[13px] leading-relaxed text-text-dim">
+                  Importe un exemple pour découvrir le parcours. Le mode de mesure se choisit dans les paramètres.
                 </p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {DEMO_PLANS.map((demo) => (
                     <button
                       key={demo.fileName}
                       type="button"
                       disabled={uploading}
                       onClick={() => loadDemoPlan(demo)}
-                      className="flex flex-col gap-1.5 p-2 rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] text-left transition-opacity hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40 disabled:cursor-wait focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                      className="flex flex-col gap-2 rounded-item border border-glass-border-soft bg-glass-bg-soft p-2 text-left backdrop-blur-ui backdrop-saturate-150 transition-colors duration-ui ease-ui hover:border-glass-border hover:bg-glass-bg disabled:cursor-wait disabled:opacity-40"
                     >
                       <img
                         src={demo.url}
@@ -182,7 +203,7 @@ export function UploadPage() {
         </div>
 
         <div className="flex flex-col gap-4 lg:max-w-90">
-          <PlanInfoCard value={nameDraft} onChange={setNameDraft} />
+          {plan && <PlanInfoCard value={nameDraft} onChange={setNameDraft} />}
 
           {plan && (
             <AccessPointsCard
@@ -208,18 +229,9 @@ export function UploadPage() {
             type="button"
             disabled={!plan || busyUI}
             onClick={handleValidate}
-            className={[
-              'w-full h-12 rounded-[14px] bg-accent text-bg font-medium text-[15px] transition-opacity',
-              (!plan || busyUI) && 'opacity-40 cursor-not-allowed',
-              'hover:opacity-95',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-              // Sur mobile, la validation passe par la barre fixe ci-dessous
-              'hidden md:block',
-            ]
-              .filter(Boolean)
-              .join(' ')}
+            className="btn-primary hidden h-12 w-full text-[15px] md:inline-flex"
           >
-            Valider le plan
+            Commencer les mesures
           </button>
 
           <input
@@ -245,15 +257,9 @@ export function UploadPage() {
             type="button"
             disabled={busyUI}
             onClick={handleValidate}
-            className={[
-              'w-full h-12 rounded-[14px] bg-accent text-bg font-medium text-[15px] shadow-glass transition-opacity',
-              busyUI && 'opacity-40 cursor-not-allowed',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-            ]
-              .filter(Boolean)
-              .join(' ')}
+            className="btn-primary h-12 w-full text-[15px]"
           >
-            Valider le plan
+            Commencer les mesures
           </button>
         </div>
       )}

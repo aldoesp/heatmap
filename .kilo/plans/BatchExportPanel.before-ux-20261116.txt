@@ -1,0 +1,106 @@
+import { useId, useState } from 'react';
+import type { ExportArea } from '../../lib/exportRegion';
+import type { NetworkInfo } from '../../types/api';
+
+export function BatchExportPanel({ networks, onExport, busy, progress, error, disabled, onCancel }: {
+  networks: NetworkInfo[];
+  onExport: (bssids: string[], area: ExportArea) => void;
+  busy: boolean; progress: string; error: string | null; disabled: boolean; onCancel: () => void;
+}) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [region, setRegion] = useState<ExportArea>('full');
+  const bssids = [...new Set(networks.map((network) => network.bssid).filter(Boolean))];
+  const selectedBssids = bssids.filter((bssid) => selected.includes(bssid));
+  const count = selectedBssids.length;
+  const buttonClass = 'min-h-11 px-4 rounded-xl border border-glass-border-soft text-sm text-text hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors';
+  const cardClass = 'rounded-xl border border-glass-border-soft bg-glass-bg-soft p-3 sm:p-4';
+
+  return (
+    <div className="mb-4">
+      <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}
+        className={buttonClass}>
+        Exporter plusieurs BSSID <span aria-hidden="true">{open ? '−' : '+'}</span>
+      </button>
+      {open && (
+        <section id={id} aria-label="Export en lot" className="mt-3 rounded-2xl border border-glass-border-soft p-3 sm:p-5 space-y-4 text-sm text-text">
+          <div className="space-y-1">
+            <h2 className="font-semibold text-base">Export de plusieurs BSSID</h2>
+            <p className="text-text-dim">Choisis les réseaux et la zone à exporter. Les filtres de la carte restent inchangés.</p>
+          </div>
+
+          <fieldset disabled={busy} className={cardClass}>
+            <legend className="font-semibold px-1">1. Sélection des réseaux</legend>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <span className="text-text-dim">{count} sur {bssids.length} sélectionné{count > 1 ? 's' : ''}</span>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className={buttonClass} disabled={count === bssids.length}
+                  onClick={() => setSelected(bssids)}>Tout sélectionner</button>
+                <button type="button" className={buttonClass} disabled={count === 0}
+                  onClick={() => setSelected([])}>Effacer</button>
+              </div>
+            </div>
+            <div className="max-h-64 overflow-y-auto space-y-2" aria-label="BSSID disponibles">
+              {bssids.length === 0 && <p className="text-text-dim">Aucun BSSID disponible pour ce plan.</p>}
+              {bssids.map((bssid) => {
+                const network = networks.find((item) => item.bssid === bssid)!;
+                return (
+                  <label key={bssid} className="flex items-start gap-3 rounded-lg border border-glass-border-soft p-3 cursor-pointer hover:bg-white/5">
+                    <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-accent"
+                      checked={selected.includes(bssid)} onChange={(event) => {
+                        const checked = event.target.checked;
+                        setSelected((previous) => checked
+                          ? [...previous.filter((item) => item !== bssid), bssid]
+                          : previous.filter((item) => item !== bssid));
+                      }} />
+                    <span className="min-w-0 break-all">
+                      {network.bssid_name && network.bssid_name !== bssid && <span className="block font-medium">{network.bssid_name}</span>}
+                      <span className="block">{bssid}</span>
+                      {network.ssid && <span className="block text-text-dim">{network.ssid}</span>}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <fieldset disabled={busy} className={cardClass}>
+            <legend className="font-semibold px-1">2. Zone d’export</legend>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              {([
+                { value: 'full', title: 'Plan complet', description: 'Exporter toute la surface du plan' },
+                { value: 'visible', title: 'Zone visible', description: 'Exporter la portion actuellement affichée' },
+              ] as const).map((option) => (
+                <label key={option.value} className={`flex gap-3 rounded-xl border p-3 cursor-pointer min-h-16 ${region === option.value ? 'border-accent bg-accent-soft' : 'border-glass-border-soft'}`}>
+                  <input type="radio" className="accent-accent shrink-0" name={`${id}-region`}
+                    value={option.value} checked={region === option.value} onChange={() => setRegion(option.value)} />
+                  <span><span className="block font-medium">{option.title}</span>
+                    <span className="block text-xs text-text-dim mt-1">{option.description}</span></span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <div className={cardClass}>
+            <h3 className="font-semibold mb-2">3. Récapitulatif</h3>
+            <p role="status" aria-live="polite">{count} BSSID · {region === 'full' ? 'Plan complet' : 'Zone visible'} · Archive ZIP</p>
+            <p id={`${id}-help`} className="mt-2 text-xs text-text-dim">
+              Un PNG par BSSID, avec les filtres SSID, bande et connexion actuels.
+            </p>
+          </div>
+          {progress && <p role="status" aria-live="polite" className="rounded-lg bg-glass-bg-soft p-3">{progress}</p>}
+          {error && <p role="alert" className="text-danger rounded-lg border border-danger p-3">{error}</p>}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button type="button" disabled={busy || disabled || count === 0}
+              onClick={() => onExport(selectedBssids, region)} aria-describedby={`${id}-help`}
+              className="min-h-11 rounded-xl bg-accent text-bg font-semibold px-5 disabled:opacity-40 disabled:cursor-not-allowed">
+              {busy ? 'Export en cours…' : `Exporter ${count} BSSID en ZIP`}
+            </button>
+            {busy && <button type="button" className={buttonClass} onClick={onCancel}>Annuler l’export</button>}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}

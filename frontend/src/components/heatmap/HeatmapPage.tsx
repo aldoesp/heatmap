@@ -11,7 +11,7 @@ import {
   useMap,
   useMapEvents,
 } from 'react-leaflet';
-import { Check, Download, Eye, EyeOff, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, X, ScanLine } from 'lucide-react';
+import { Check, Download, Eye, EyeOff, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, Wifi, X, ScanLine } from 'lucide-react';
 import L from 'leaflet';
 import { useApPositions } from '../../hooks/useApPositions';
 import { usePlanImage } from '../../hooks/usePlanImage';
@@ -47,6 +47,7 @@ import {
   type NormalizedCoord,
 } from '../../lib/coords';
 import { ApMarkersLayer } from '../scan/markers/ApMarkersLayer';
+import { Combobox, type ComboboxOption } from '../ui/Combobox';
 import { isValidPolygon, polygonSelfIntersects } from '../../lib/polygon';
 import type { PlanPolygon } from '../../types/polygon';
 import { formatPercent, formatMbps } from '../../lib/format';
@@ -118,7 +119,7 @@ function ZoomControl() {
         className="leaflet-control"
         style={{ pointerEvents: 'auto', marginTop: 56 }}
       >
-        <div className="flex flex-col rounded-xl overflow-hidden border border-white/10 bg-[#0d1319]/90 backdrop-blur">
+        <div className="flex flex-col rounded-xl overflow-hidden border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150">
           <button
             type="button"
             aria-label="Zoomer"
@@ -177,11 +178,11 @@ const SPEED_BANDS: CoverageBand[] = [
 ];
 
 const RSSI_LABELS: Record<string, string> = {
-  '-55': '≥ −55 dBm · excellent',
-  '-67': '≥ −67 dBm · bon',
-  '-75': '≥ −75 dBm · moyen',
-  '-85': '≥ −85 dBm · faible',
-  '-inf': '< −85 dBm · très faible',
+  '-55': 'Excellent · ≥ −55 dBm',
+  '-67': 'Bon · −67 à −55 dBm',
+  '-75': 'Moyen · −75 à −67 dBm',
+  '-85': 'Faible · −85 à −75 dBm',
+  '-inf': 'Très faible · < −85 dBm',
 };
 
 const SPEED_LABELS: Record<string, string> = {
@@ -225,6 +226,7 @@ export function HeatmapPage() {
   const rssiLut = useMemo(() => buildColourLut(colours), [colours]);
   const legendGradient = useMemo(() => colourLutToCssGradient(rssiLut), [rssiLut]);
   const [layerOpacity, setLayerOpacity] = useState(1);
+  const [showDisplayOptions, setShowDisplayOptions] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
   const batchRef = useRef<AbortController | null>(null);
   const measureCache = useRef<Map<string, HeatmapRow[]>>(new Map());
@@ -250,7 +252,7 @@ export function HeatmapPage() {
     planId: string;
     items: AccessPoint[];
   } | null>(null);
-  const [metric, setMetric] = useState<'rssi' | 'speed'>('rssi');
+  const [metric] = useState<'rssi' | 'speed'>('rssi');
   const [loading, setLoading] = useState(true);
   const [speedLoading, setSpeedLoading] = useState(true);
   const [speedError, setSpeedError] = useState<string | null>(null);
@@ -366,19 +368,20 @@ export function HeatmapPage() {
     [drawing]
   );
 
-  const handleStartEdit = useCallback(() => {
-    if (!selectedPolygonId) return;
-    const polygon = polygons.find((item) => item.id === selectedPolygonId);
+  const handleStartEdit = useCallback((polygonId: string) => {
+    const polygon = polygons.find((item) => item.id === polygonId);
     if (!polygon) return;
     setDrawing(false);
     setActiveVertices([]);
     setPendingDeleteId(null);
     setPolygonError(null);
+    setShowZones(true);
+    setSelectedPolygonId(polygonId);
     setEditing({
       polygonId: polygon.id,
       vertices: polygon.vertices.map((vertex) => ({ x: vertex.x, y: vertex.y })),
     });
-  }, [selectedPolygonId, polygons]);
+  }, [polygons]);
 
   const handleMoveVertex = useCallback(
     (index: number, moved: NormalizedCoord) => {
@@ -421,7 +424,8 @@ export function HeatmapPage() {
           prev.map((polygon) => (polygon.id === polygonId ? updated : polygon))
         );
         setEditing(null);
-        setSelectedPolygonId(polygonId);
+        setSelectedPolygonId(null);
+        setPendingDeleteId(null);
         setPolygonError(null);
       })
       .catch((err) => {
@@ -431,12 +435,19 @@ export function HeatmapPage() {
       .finally(() => setPolygonBusy(false));
   }, [plan, editing, polygonBusy]);
 
-  const handleRequestDelete = useCallback(() => {
-    if (!selectedPolygonId) return;
+  const handleRequestDelete = useCallback((polygonId: string) => {
     setEditing(null);
-    setPendingDeleteId(selectedPolygonId);
+    setPendingDeleteId(polygonId);
     setPolygonError(null);
-  }, [selectedPolygonId]);
+  }, []);
+
+  const handleSelectZone = useCallback(
+    (polygonId: string) => {
+      setShowZones(true);
+      handleSelectPolygon(polygonId);
+    },
+    [handleSelectPolygon]
+  );
 
   const handleConfirmDelete = useCallback(() => {
     const polygonId = pendingDeleteId;
@@ -497,7 +508,6 @@ export function HeatmapPage() {
   const editingZoneNumber = editing
     ? polygonNumber(polygons, editing.polygonId)
     : null;
-  const pendingDeleteZoneNumber = polygonNumber(polygons, pendingDeleteId);
 
   const draftSelfIntersects = useMemo(
     () =>
@@ -612,11 +622,33 @@ export function HeatmapPage() {
     }
   }, [plan]);
 
-  const ssids = useMemo(
-    () => [...new Set(networks.map((n) => n.ssid).filter((s): s is string => !!s))],
-    [networks]
-  );
+  // Options du combobox « Réseau Wi-Fi » : « Tous les réseaux » en tête,
+  // puis les SSID triés par ordre alphabétique. La recherche filtre la liste
+  // instantanément, comme pour le sélecteur de radio.
+  const ssidOptions = useMemo<ComboboxOption[]>(() => {
+    const items = [...new Set(networks.map((n) => n.ssid).filter((s): s is string => !!s))]
+      .sort((a, b) => a.localeCompare(b, 'fr'))
+      .map<ComboboxOption>((s) => ({ value: s, label: s }));
+    return [{ value: '', label: 'Tous les réseaux' }, ...items];
+  }, [networks]);
   const bssids = useMemo(() => [...new Set(networks.map((n) => n.bssid))], [networks]);
+
+  // Options du combobox « Borne / radio » : « Toutes les radios » en tête,
+  // puis chaque BSSID avec libellé = bssid_name (fallback BSSID). La recherche
+  // couvre le BSSID, son alias et le SSID, à l'identique de l'ancien sélecteur.
+  const radioOptions = useMemo<ComboboxOption[]>(() => {
+    const items = bssids.map<ComboboxOption>((b) => {
+      const network = networks.find((n) => n.bssid === b);
+      return {
+        value: b,
+        label: network?.bssid_name ?? b,
+        searchText: [b, network?.bssid_name, network?.ssid]
+          .filter((part): part is string => !!part)
+          .join(' '),
+      };
+    });
+    return [{ value: '', label: 'Toutes les radios' }, ...items];
+  }, [bssids, networks]);
 
   const bounds = useMemo<L.LatLngBoundsExpression | null>(
     () => (plan ? [[0, 0], [plan.height, plan.width]] : null),
@@ -989,221 +1021,95 @@ export function HeatmapPage() {
     showingSpeed ? formatMbps(v * 1_000_000) : `${Math.round(v)} dBm`;
 
   return (
-    <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
-      <div className="mb-4">
-        <h1 className="text-[22px] font-medium tracking-tight mb-1">Heatmap</h1>
+    <div className="page-shell max-w-none">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-glass-border-soft bg-glass-bg-soft p-4">
+        <h1 className="page-title">Couverture</h1>
         <p className="text-text-dim text-sm">
           {plan.name} · {visibleCount} mesure{visibleCount > 1 ? 's' : ''}
         </p>
       </div>
 
-      {!showingSpeed && calculation === 'regularized' && (
-        <p className="mb-3 text-xs text-text-dim">
-          Fond régularisé · points = mesures brutes · trame = extrapolation.
-          {!ssid && !bssid && !onlyConnected ? ' Tous réseaux : meilleur signal disponible. Sélectionne un SSID et une bande pour analyser ton réseau.' : ' Chaque radio et chaque zone sont calculées séparément.'}
-        </p>
-      )}
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-6">
+      <aside aria-label="Réglages de la couverture" className="order-2 rounded-2xl border border-glass-border-soft bg-glass-bg-soft p-3 sm:p-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <h2 className="mb-3 text-sm font-semibold text-text">Analyser mon réseau</h2>
         {!showingSpeed && (
-          <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
-            <span>Calcul</span>
-            <select aria-label="Calcul de couverture" value={calculation}
-              onChange={(event) => setCalculation(event.target.value as RssiCalculation)}
-              className="bg-bg text-text outline-none">
-              <option value="regularized">Régularisé</option>
-              <option value="hybrid">Hybride existant</option>
-            </select>
-          </label>
-        )}
-        <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
-          <span className="whitespace-nowrap">Opacité {Math.round(layerOpacity * 100)} %</span>
-          <input type="range" aria-label="Opacité de la heatmap" min={0} max={100} step={5}
-            value={Math.round(layerOpacity * 100)}
-            onChange={(event) => setLayerOpacity(Number(event.target.value) / 100)}
-            className="w-24 accent-[#10b981]" />
-        </label>
-        <div
-          role="group"
-          aria-label="Métrique affichée"
-          className="flex h-11 rounded-xl border border-glass-border-soft overflow-hidden"
-        >
-          {(['rssi', 'speed'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              aria-pressed={metric === m}
-              onClick={() => {
-                setMetric(m);
-                if (m === 'speed' && metric !== 'speed') void loadSpeed();
-              }}
-              className={[
-                'px-4 text-sm font-medium transition-colors',
-                metric === m ? 'bg-accent-soft text-accent' : 'text-text-dim hover:text-text',
-              ].join(' ')}
-            >
-              {m === 'rssi' ? 'Signal' : 'Débit'}
-            </button>
-          ))}
-        </div>
-        {!showingSpeed && (
-          <>
-            <div
-              role="group"
-              aria-label="Bande de fréquence"
-              className="flex h-11 rounded-xl border border-glass-border-soft overflow-hidden"
-            >
+          <div className="space-y-3">
+            <Combobox
+              label="Réseau Wi-Fi"
+              value={ssid}
+              onChange={setSsid}
+              options={ssidOptions}
+              icon={<Wifi size={16} strokeWidth={1.75} />}
+              searchPlaceholder="Rechercher un réseau…"
+              emptyMessage="Aucun réseau ne correspond à la recherche."
+            />
+            <div role="group" aria-label="Bande de fréquence" className="flex h-11 overflow-hidden rounded-xl border border-glass-border-soft">
               {BAND_TABS.map((b) => (
-                <button
-                  key={b.value || 'all'}
-                  type="button"
-                  aria-pressed={band === b.value}
-                  onClick={() => setBand(b.value)}
-                  className={[
-                    'px-3 text-sm font-medium transition-colors whitespace-nowrap',
-                    band === b.value ? 'bg-accent-soft text-accent' : 'text-text-dim hover:text-text',
-                  ].join(' ')}
-                >
+                <button key={b.value || 'all'} type="button" aria-pressed={band === b.value} onClick={() => setBand(b.value)}
+                  className={`min-w-0 flex-1 whitespace-nowrap px-1 text-xs font-medium ${band === b.value ? 'bg-accent-soft text-accent' : 'text-text-dim hover:text-text'}`}>
                   {b.label}
                 </button>
               ))}
             </div>
-            <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm cursor-pointer select-none">
-              <input
-                type="checkbox"
-                aria-label="Réseau connecté uniquement"
-                checked={onlyConnected}
-                onChange={(e) => setOnlyConnected(e.target.checked)}
-                className="w-4 h-4 accent-[#10b981]"
-              />
-              <span className={onlyConnected ? 'text-text font-medium' : 'text-text-dim'}>
-                Connecté
-              </span>
+            {!ssid && !bssid && !onlyConnected && <p className="text-xs leading-relaxed text-text-dim">Tous réseaux : meilleur signal disponible. Choisis ton réseau pour évaluer sa couverture.</p>}
+          </div>
+        )}
+        <button type="button" aria-expanded={showDisplayOptions} aria-controls="heatmap-display-options"
+          onClick={() => setShowDisplayOptions((value) => !value)}
+          className="mt-3 min-h-11 w-full rounded-xl border border-glass-border-soft px-3 text-sm text-text hover:bg-white/5">
+          {showDisplayOptions ? 'Masquer les réglages avancés' : 'Réglages avancés'}{!showDisplayOptions && (bssid || onlyConnected) ? ' · filtre actif' : ''}
+        </button>
+        <div id="heatmap-display-options" hidden={!showDisplayOptions} className="mt-3 space-y-3">
+          {!showingSpeed && <>
+            <label className="flex min-h-11 items-center gap-2 text-sm text-text-dim">
+              <input type="checkbox" checked={onlyConnected} onChange={(e) => setOnlyConnected(e.target.checked)} className="h-4 w-4 accent-accent" />
+              Réseau connecté uniquement
             </label>
-            <select
-              aria-label="Filtrer par SSID"
-              value={ssid}
-              onChange={(e) => {
-                setSsid(e.target.value);
-              }}
-              className="h-11 px-3 bg-[rgba(255,255,255,0.03)] border border-glass-border-soft rounded-xl text-sm text-text outline-none"
-            >
-              <option value="">Tous les SSID</option>
-              {ssids.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filtrer par BSSID"
+            <Combobox
+              label="Borne / radio (BSSID)"
               value={bssid}
-              onChange={(e) => {
-                setBssid(e.target.value);
-              }}
-              className="h-11 px-3 bg-[rgba(255,255,255,0.03)] border border-glass-border-soft rounded-xl text-sm text-text outline-none"
-            >
-              <option value="">Tous les BSSID</option>
-              {bssids.map((b) => (
-                <option key={b} value={b}>
-                  {networks.find((network) => network.bssid === b)?.bssid_name ?? b}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
-        {hasFilter && (
-          <button
-            type="button"
-            onClick={() => {
-              setSsid('');
-              setBssid('');
-              setBand('');
-              setOnlyConnected(true);
-            }}
-            className="h-11 px-4 rounded-xl text-sm font-medium text-text-dim border border-glass-border hover:text-text"
-          >
-            Réinitialiser
-          </button>
-        )}
-        {showingSpeed && (
-          <label className="flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
-            <span className="whitespace-nowrap">Lissage {radius} px</span>
-            <input
-              type="range"
-              aria-label="Rayon de lissage du champ de couverture en pixels"
-              min={10}
-              max={120}
-              step={1}
-              value={radius}
-              onChange={(e) => {
-                const nextRadius = Number(e.target.value);
-                setSelectedRadius(nextRadius);
-                setHeatmapRadius(nextRadius);
-              }}
-              className="w-28 accent-[#10b981]"
+              onChange={setBssid}
+              options={radioOptions}
+              searchPlaceholder="Rechercher une radio…"
+              emptyMessage="Aucune radio ne correspond à la recherche."
             />
+            <fieldset className="min-w-0">
+              <legend className="mb-1.5 text-xs text-text-dim">Méthode de calcul</legend>
+              <div className="grid grid-cols-2 gap-1 rounded-xl border border-glass-border-soft bg-black/15 p-1" role="group" aria-label="Méthode de calcul de couverture">
+                {([
+                  { value: 'regularized', label: 'Régularisé', help: 'Lisse le signal et estime au-delà des points.' },
+                  { value: 'hybrid', label: 'Hybride', help: 'Privilégie les mesures proches.' },
+                ] as const).map((option) => {
+                  const active = calculation === option.value;
+                  return (
+                    <button key={option.value} type="button" aria-pressed={active}
+                      aria-label={`${option.label} : ${option.help}`}
+                      onClick={() => setCalculation(option.value as RssiCalculation)}
+                      className={`min-h-11 rounded-lg px-2 text-xs font-medium transition-colors sm:text-sm ${active ? 'border border-accent-border bg-accent-soft text-accent shadow-sm' : 'border border-transparent text-text-dim hover:bg-white/5 hover:text-text'}`}>
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 min-h-8 text-[11px] leading-relaxed text-text-dim" aria-live="polite">
+                {calculation === 'regularized'
+                  ? 'Carte lissée, avec estimation possible hors des points mesurés.'
+                  : 'Combine les mesures proches et limite les estimations éloignées.'}
+              </p>
+            </fieldset>
+          </>}
+          <label className="block text-xs text-text-dim">Opacité {Math.round(layerOpacity * 100)} %
+            <input type="range" min={0} max={100} step={5} value={Math.round(layerOpacity * 100)} onChange={(e) => setLayerOpacity(Number(e.target.value) / 100)} className="mt-2 block h-8 w-full accent-accent" />
           </label>
-        )}
-      </div>
-
-      {dataError && (
-        <div className="mb-4 px-4 py-3 rounded-xl border border-danger bg-danger-soft text-sm text-text">
-          {dataError}{' '}
-          <button type="button" onClick={showingSpeed ? loadSpeed : load} className="underline font-medium">
-            Réessayer
-          </button>
+          {showingSpeed && <label className="block text-xs text-text-dim">Lissage {radius} px
+            <input type="range" min={10} max={120} step={1} value={radius}
+              onChange={(e) => { const nextRadius = Number(e.target.value); setSelectedRadius(nextRadius); setHeatmapRadius(nextRadius); }} className="mt-2 block h-8 w-full accent-accent" />
+          </label>}
         </div>
-      )}
-
-      {(dataLoading || rendering.processing) && (
-        <div role="status" aria-live="polite" className="mb-3 px-4 py-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
-          {dataLoading ? 'Chargement des mesures…' : 'Préparation de la couverture…'}
-        </div>
-      )}
-      {rendering.error && (
-        <div role="alert" className="mb-3 px-4 py-3 rounded-xl border border-danger bg-danger-soft text-sm text-text">
-          {rendering.error}{' '}
-          <button type="button" onClick={rendering.retry} className="underline font-medium">Réessayer</button>
-        </div>
-      )}
-      {exportPngError && (
-        <div role="alert" className="mb-3 px-4 py-3 rounded-xl border border-danger bg-danger-soft text-sm text-text">
-          {exportPngError}{' '}
-          <button type="button" onClick={() => setExportPngError(null)} className="underline font-medium">Fermer</button>
-        </div>
-      )}
-
-      {plan && (
-        <BatchExportPanel
-          key={plan.id}
-          onExport={handleExportZip}
-          busy={batchBusy}
-          progress={batchProgress}
-          error={batchError}
-          disabled={showingSpeed || dataLoading || !imageUrl || imageMissing || exportingPng}
-          onCancel={() => batchRef.current?.abort()}
-          networks={networksPlanId === plan.id ? networks : []}
-        />
-      )}
-
-      {isEmpty && !dataError ? (
-        <div className="text-center py-16">
-          <p className="text-text text-[15px] mb-2">
-            {emptyMessage}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              location.hash = '#/scan';
-            }}
-            className="inline-flex items-center h-12 px-5 rounded-[14px] bg-accent text-bg font-medium text-[15px]"
-          >
-            Aller au scan
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-2 mb-2">
+        {(hasFilter || onlyConnected) && <button type="button" onClick={() => { setSsid(''); setBssid(''); setBand(''); setOnlyConnected(false); }} className="mt-2 min-h-11 w-full rounded-xl px-3 text-sm text-text-dim hover:text-text">Réinitialiser les filtres</button>}
+        <a href="#/scan" className="btn-secondary mt-3 min-h-11 w-full">Ajouter des mesures</a>
+        <h3 className="mb-2 mt-4 text-xs font-semibold text-text-dim">Outils de la carte</h3>
+          <div id="heatmap-map-tools" aria-label="Outils de la carte" className="mb-3 flex flex-col items-stretch gap-2 rounded-xl border border-glass-border-soft bg-glass-bg-soft p-2 sm:p-3 [&>button]:w-full [&>button]:justify-start">
             <button
               type="button"
               aria-pressed={showMeasurements}
@@ -1397,7 +1303,7 @@ export function HeatmapPage() {
                 </span>
                 <button
                   type="button"
-                  onClick={handleStartEdit}
+                  onClick={() => handleStartEdit(selectedPolygon.id)}
                   disabled={polygonBusy}
                   className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-glass-border-soft text-sm text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -1406,7 +1312,7 @@ export function HeatmapPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleRequestDelete}
+                  onClick={() => handleRequestDelete(selectedPolygon.id)}
                   disabled={polygonBusy}
                   className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-danger text-danger text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -1422,32 +1328,150 @@ export function HeatmapPage() {
               </span>
             )}
           </div>
+        {polygons.length > 0 && (
+          <>
+            <h3 className="mb-2 mt-4 text-xs font-semibold text-text-dim">Zones dessinées ({polygons.length})</h3>
+            <ul className="mb-3 space-y-1 rounded-xl border border-glass-border-soft bg-glass-bg-soft p-2">
+              {visiblePolygons.map((polygon) => {
+                const zoneNumber = polygonNumber(polygons, polygon.id);
+                const isSelected = polygon.id === selectedPolygonId;
+                const isPendingDelete = pendingDeleteId === polygon.id;
+                return (
+                  <li
+                    key={polygon.id}
+                    className={`flex items-center gap-1 rounded-lg px-1 ${isSelected ? 'bg-accent-soft' : ''}`}
+                  >
+                    {isPendingDelete ? (
+                      <>
+                        <span className="min-w-0 flex-1 px-1 text-xs text-text">
+                          Supprimer la zone {zoneNumber ?? '?'} ?
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleConfirmDelete}
+                          disabled={polygonBusy}
+                          aria-label={`Confirmer la suppression de la zone ${zoneNumber ?? ''}`}
+                          title="Confirmer la suppression"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-danger hover:bg-danger-soft disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Check size={16} strokeWidth={2} aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCancelDelete}
+                          disabled={polygonBusy}
+                          aria-label="Annuler la suppression"
+                          title="Annuler"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-text-dim hover:bg-white/5 hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <X size={16} strokeWidth={1.75} aria-hidden />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectZone(polygon.id)}
+                          title="Sélectionner la zone sur la carte"
+                          className="min-w-0 flex-1 px-1 py-2 text-left text-sm text-text hover:text-accent"
+                        >
+                          Zone {zoneNumber ?? '?'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(polygon.id)}
+                          disabled={polygonBusy}
+                          aria-label={`Modifier la zone ${zoneNumber ?? ''}`}
+                          title="Modifier les sommets"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-text-dim hover:bg-white/5 hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Pencil size={16} strokeWidth={1.75} aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRequestDelete(polygon.id)}
+                          disabled={polygonBusy}
+                          aria-label={`Supprimer la zone ${zoneNumber ?? ''}`}
+                          title="Supprimer la zone"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-danger hover:bg-danger-soft disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Trash size={16} strokeWidth={1.75} aria-hidden />
+                        </button>
+                      </>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+        <h3 className="mb-2 mt-4 text-xs font-semibold text-text-dim">Exporter</h3>
+        <div className="rounded-xl border border-glass-border-soft bg-glass-bg-soft p-3">
+          <p className="mb-2 text-xs leading-relaxed text-text-dim">Créer une archive ZIP des relevés de plusieurs radios.</p>
+          {plan && <BatchExportPanel
+            key={plan.id}
+            onExport={handleExportZip}
+            busy={batchBusy}
+            progress={batchProgress}
+            error={batchError}
+            disabled={showingSpeed || dataLoading || !imageUrl || imageMissing || exportingPng}
+            onCancel={() => batchRef.current?.abort()}
+            networks={networksPlanId === plan.id ? networks : []}
+            activeBssid={bssid}
+          />}
+        </div>
+      </aside>
+      <section aria-label="Résultat de couverture" className="order-1 min-w-0">
+      {dataError && (
+        <div className="mb-4 px-4 py-3 rounded-xl border border-danger bg-danger-soft text-sm text-text">
+          {dataError}{' '}
+          <button type="button" onClick={showingSpeed ? loadSpeed : load} className="underline font-medium">
+            Réessayer
+          </button>
+        </div>
+      )}
 
-          {pendingDeleteId && (
-            <div className="mb-2 flex flex-wrap items-center gap-2 px-4 py-2.5 rounded-xl border border-danger bg-danger-soft text-sm text-text">
-              <span className="flex-1 min-w-[12rem]">
-                Supprimer la zone {pendingDeleteZoneNumber ?? '?'} ? Cette action est définitive.
-              </span>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                disabled={polygonBusy}
-                className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-danger text-danger font-medium disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Check size={16} strokeWidth={1.75} aria-hidden />
-                Confirmer la suppression
-              </button>
-              <button
-                type="button"
-                onClick={handleCancelDelete}
-                disabled={polygonBusy}
-                className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-glass-border-soft text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <X size={16} strokeWidth={1.75} aria-hidden />
-                Annuler
-              </button>
-            </div>
-          )}
+      {(dataLoading || rendering.processing) && (
+        <div role="status" aria-live="polite" className="mb-3 px-4 py-3 rounded-xl border border-glass-border-soft text-sm text-text-dim">
+          {dataLoading ? 'Chargement des mesures…' : 'Préparation de la couverture…'}
+        </div>
+      )}
+      {rendering.error && (
+        <div role="alert" className="mb-3 px-4 py-3 rounded-xl border border-danger bg-danger-soft text-sm text-text">
+          {rendering.error}{' '}
+          <button type="button" onClick={rendering.retry} className="underline font-medium">Réessayer</button>
+        </div>
+      )}
+      {exportPngError && (
+        <div role="alert" className="mb-3 px-4 py-3 rounded-xl border border-danger bg-danger-soft text-sm text-text">
+          {exportPngError}{' '}
+          <button type="button" onClick={() => setExportPngError(null)} className="underline font-medium">Fermer</button>
+        </div>
+      )}
+
+
+
+      {isEmpty && !dataError ? (
+        <div className="text-center py-16">
+          <p className="text-text text-[15px] mb-2">
+            {emptyMessage}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              location.hash = '#/scan';
+            }}
+            className="inline-flex items-center h-12 px-5 rounded-[14px] bg-accent text-bg font-medium text-[15px]"
+          >
+            Prendre des mesures
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-semibold text-text">Carte de couverture</h2>
+            <span className="text-xs text-text-dim">Déplace et zoome sur le plan</span>
+          </div>
 
           {drawing && draftSelfIntersects && (
             <div className="mb-2 px-4 py-2.5 rounded-xl border border-[rgba(251,191,36,0.35)] bg-[rgba(251,191,36,0.12)] text-sm text-text">
@@ -1473,13 +1497,13 @@ export function HeatmapPage() {
             </div>
           )}
 
-          <div className="relative rounded-2xl overflow-hidden border border-glass-border-soft">
+          <div className="relative rounded-2xl overflow-hidden border-2 border-glass-border-soft shadow-xl">
             <button
               type="button"
               aria-label="Recentrer la carte sur le plan"
               title="Recentrer la carte sur le plan"
               onClick={handleRecenter}
-              className="absolute top-3 right-3 z-10 inline-flex items-center justify-center h-11 w-11 rounded-xl text-text bg-[#0d1319]/90 border border-white/10 hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="absolute top-3 right-3 z-10 inline-flex items-center justify-center h-11 w-11 rounded-xl text-text bg-glass-bg-soft border border-glass-border-soft backdrop-blur-ui hover:bg-glass-bg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
               <LocateFixed size={18} strokeWidth={1.75} aria-hidden />
             </button>
@@ -1494,7 +1518,7 @@ export function HeatmapPage() {
               zoomDelta={0.5}
               scrollWheelZoom
               touchZoom
-              className="w-full h-[60vh] z-0"
+              className="w-full h-[62vh] min-h-[360px] sm:h-[72vh] lg:h-[78vh] z-0"
             >
               <MapSetup
                 width={plan.width}
@@ -1575,6 +1599,12 @@ export function HeatmapPage() {
               />
             </MapContainer>
           </div>
+
+          <p className="mt-3 rounded-xl border border-glass-border-soft px-3 py-2 text-xs leading-relaxed text-text-dim">
+            Les points indiquent les mesures. Les couleurs entre les points sont estimées.
+            {!showingSpeed && calculation === 'regularized' && ' Les hachures signalent une estimation au-delà des points mesurés.'}
+            {' '}Une zone sans couleur ne signifie pas un signal faible : elle peut manquer de mesures ou être exclue de l’affichage. Ajoute des mesures pour la vérifier.
+          </p>
 
           {/* Légende : barre segmentée par seuil + meilleur relevé, comme
               le bandeau « Primary Coverage » d'UniFi. */}
@@ -1681,25 +1711,27 @@ export function HeatmapPage() {
             )}
           </div>
 
+
+
           {/* Panneau de synthèse : l'état du parc en un coup d'œil. */}
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div className="rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] px-3 py-2.5">
+            <div className="rounded-xl border border-glass-border-soft bg-glass-bg-soft px-3 py-2.5">
               <div className="text-[12px] text-text-dim">Points mesurés</div>
               <div className="text-text text-[15px] font-medium font-mono">{stats.count}</div>
             </div>
-            <div className="rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] px-3 py-2.5">
+            <div className="rounded-xl border border-glass-border-soft bg-glass-bg-soft px-3 py-2.5">
               <div className="text-[12px] text-text-dim">Moyen</div>
               <div className="text-text text-[15px] font-medium font-mono">
                 {stats.avg !== null ? formatValue(stats.avg) : '—'}
               </div>
             </div>
-            <div className="rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] px-3 py-2.5">
+            <div className="rounded-xl border border-glass-border-soft bg-glass-bg-soft px-3 py-2.5">
               <div className="text-[12px] text-text-dim">Plus faible</div>
               <div className="text-text text-[15px] font-medium font-mono">
                 {stats.worst !== null ? formatValue(stats.worst) : '—'}
               </div>
             </div>
-            <div className="rounded-xl border border-glass-border-soft bg-[rgba(255,255,255,0.03)] px-3 py-2.5">
+            <div className="rounded-xl border border-glass-border-soft bg-glass-bg-soft px-3 py-2.5">
               <div className="text-[12px] text-text-dim">À améliorer</div>
               <div
                 className="text-[15px] font-medium font-mono"
@@ -1716,6 +1748,8 @@ export function HeatmapPage() {
           </div>
         </>
       )}
+      </section>
+      </div>
     </div>
   );
 }

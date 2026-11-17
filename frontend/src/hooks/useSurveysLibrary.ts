@@ -193,7 +193,7 @@ export function useSurveysLibrary() {
   }, []);
 
   /** Rend le survey actif puis ouvre la section demandée. */
-  const openSection = useCallback((survey: SurveySummary, section: 'analyse' | 'heatmap') => {
+  const openSection = useCallback((survey: SurveySummary, section: 'heatmap') => {
     setActivePlanId(survey.id);
     location.hash = `#/${section}`;
   }, []);

@@ -5,8 +5,8 @@ export type Route =
   | 'upload'
   | 'surveys'
   | 'releves'
-  | 'analyse'
   | 'heatmap'
+  | 'channels'
   | 'settings';
 
 const DEFAULT_ROUTE: Route = 'scan';
@@ -15,8 +15,8 @@ const VALID_ROUTES: Route[] = [
   'upload',
   'surveys',
   'releves',
-  'analyse',
   'heatmap',
+  'channels',
   'settings',
 ];
 
