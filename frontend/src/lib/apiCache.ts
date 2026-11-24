@@ -253,6 +253,10 @@ export function createApiCache(options: ApiCacheOptions = {}) {
     has(key: string): boolean {
       return lookup(key) !== undefined;
     },
+    /** Protège aussi les erreurs, qui ne passent pas par ApiCacheResult. */
+    captureCurrent(key: string): () => boolean {
+      return resultFor(key, undefined).isCurrent;
+    },
     set<T>(key: string, value: T, ttlMs = defaultTtlMs): boolean {
       const size = measure(key, value, ttlMs);
       recordInvalidation(key);

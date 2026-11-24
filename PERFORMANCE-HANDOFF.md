@@ -98,3 +98,40 @@ Un `AbortSignal` annule l’attente individuelle avec `signal.reason`. Le loader
 Depuis `frontend`, `npm test`, `npm run build` et le lint ciblé passent. Les 19 tests du moteur utilisent une horloge injectable et des promesses pilotées explicitement. Le lint global reproduit les quatre erreurs `react-hooks/set-state-in-effect` mesurées avant la phase dans `SettingsPage.tsx` (85 et 183), `SimulatorControls.tsx` (42) et `useApPositions.ts` (12).
 
 En phase 5B, choisir les GET à mettre en cache, normaliser leurs clés et filtres, raccorder les invalidations aux mutations API réussies et utiliser `isCurrent()` avant publication dans les hooks React. Couvrir les parcours intégrés de lecture, mutation et actualisation.
+
+## Phase 5B · Intégration du cache API frontend
+
+`api.ts` passe les GET autorisés par `ApiRead` et `apiCache.getOrFetch()`. Le cache accepte les corps HTTP réussis qui déclarent du JSON, se décodent et respectent la forme attendue à l’entrée de la couche API. Le moteur 5A conserve ses plafonds de 100 entrées, 16 Mio au total, 2 Mio par entrée et 100 loaders simultanés. Les statuts serveur et iperf, les scans live, les mutations, les téléchargements et les exports restent hors cache.
+
+- **30 s** pour `listPlans`, `getPlan` et `getScanDetail`.
+- **15 s** pour `listAccessPoints`, `listPolygons`, `listScanPoints`, `getHistory`, `getHeatmap`, `getHeatmapSpeed`, `getHeatmapGateway`, `getNetworks`, `listBssidRules`, `listSeenBssids`, `getSettings`, `listApMappings`, `fetchApPositions` et `listSimulationScenarios`. La fonction gateway est conservée pour compatibilité. Le backend de cette branche ne publie pas cette route, donc sa réponse 404 reste hors cache.
+
+La bibliothèque représente un survey par un plan et réutilise ses GET. Le frontend ne consomme aucun GET de la famille backend `/surveys/:id`. L’historique et les heatmaps de plan incluent les mesures des surveys rattachés. Aucun identifiant de survey ne sert de clé de plan pour une route de survey. Les clés commencent par `api:<VITE_API_BASE>:`, suivies de segments comme `plans:all`, `plan:ID:detail`, `history:plan:ID:all` et `heatmap:plan:ID:FILTRES`. Chaque segment est encodé avec `encodeURIComponent`. Les groupes se terminent par `:`. Le frontend utilise une base par build et les identifiants d’accès implicites de même origine. Il ne sélectionne pas plusieurs sessions API dans une page. Les détails de scans utilisent la portée plan/point quand le consommateur la connaît et une famille distincte sinon. Les filtres RSSI utilisent la query dans un ordre fixe. Le BSSID est mis en minuscules comme dans le backend. Une chaîne vide ou `connected=false` équivaut à l’absence du filtre correspondant. Le SSID conserve sa casse et ses espaces.
+
+### Invalidation locale
+
+- **Nouveau scan**. Historique, variantes RSSI, réseaux, débit et gateway du plan identifié par le point, plus les BSSID vus. Les mêmes familles sont invalidées sur tous les plans si le plan est inconnu à réception du statut HTTP.
+- **Points**. Création et modification de note invalident les points et l’historique. L’activation invalide aussi le RSSI, le débit et gateway. Une suppression ajoute les réseaux, les BSSID vus et les détails du point qui peuvent disparaître en cascade. Les détails sans portée déclarée sont invalidés par prudence.
+- **Plans**. Un téléversement invalide la liste. Renommage et calibration invalident aussi le détail. Une suppression ajoute les mesures, points, AP, polygones, mappings, positions et scénarios du plan, les détails de scans du plan et sans portée déclarée, ainsi que les BSSID vus.
+- **AP, polygones, mappings et positions**. Chaque écriture invalide la famille du plan. La suppression d’un AP invalide aussi les scénarios liés. Pour les mutations adressées par ID dont le plan n’est pas connu, l’invalidation couvre la famille sur tous les plans.
+- **Règles BSSID**. Règles, BSSID vus, historiques, RSSI, réseaux et détails de scans sur tous les plans. L’analyse des canaux est reconstruite à partir de l’historique et des détails invalidés.
+- **Réglages et simulations**. La modification d’un réglage invalide les réglages, y compris la source des couleurs de heatmap. Une écriture de scénario invalide la liste du plan concerné, ou la famille si le plan est inconnu.
+- **Imports ZIP et CSV**. Vidage global sur toute issue de l’écriture, y compris un CSV partiellement appliqué. La prévisualisation garde le cache courant.
+
+L’invalidation commence dès le succès HTTP et précède le décodage du corps. Les erreurs réseau, HTTP 408 et 5xx déclenchent l’invalidation de la même portée, et les imports invalident aussi en cas d’autres statuts d’erreur. La mutation est envoyée une seule fois. Une perte de connexion peut précéder la fin de l’écriture serveur, ce qui rend son résultat final incertain.
+
+### Publication dans React
+
+`useApiQuery` annule l’attente du consommateur précédent lors d’un changement de plan, de filtre ou d’un démontage. Chaque chargement retient les garanties `isCurrent()` de ses lectures, ainsi qu’une garantie de révision pour les erreurs. La vérification précède la publication du résultat composé. Une invalidation correspondante coupe immédiatement l’attente en cours puis programme une seule relecture pour les invalidations reçues dans la même tâche. Les relectures forcées contournent les valeurs stockées et utilisent le mode HTTP `reload`. Les requêtes normales utilisent `no-cache` pour revalider auprès du serveur. Chaque loader partagé a son propre signal de 30 s, qui couvre le téléchargement et le décodage du corps. Le désabonnement d’un consommateur laisse le loader partagé terminer.
+
+Hooks intégrés. `useSurveysLibrary`, `useChannelAnalysis`, `usePlanStore`, `useScanStore`, `usePlanImage`, `useApPositions` et `useHeatmapColours`. Les pages Heatmap, Scan, Relevés, Bibliothèque, Paramètres et Simulation, ainsi que la table des points, vérifient leurs chargements via le même hook. La table de la bibliothèque réutilise l’historique et le RSSI déjà chargés pour ses cartes. L’analyse des canaux et la table des points dédupliquent les identifiants de scans avant de charger les détails.
+
+### Validation et activation
+
+Depuis `frontend`, `npm test`, `npm run build` et le lint ciblé passent. Les 16 nouveaux tests vérifient les contenus et les appels HTTP avec des réponses simulées. Le lint global conserve l’erreur préexistante `react-hooks/set-state-in-effect` dans `SimulatorControls.tsx:42`. Les trois autres erreurs de référence ont disparu dans le code des lectures modifiées.
+
+Le scénario React de [apiRead.browser.html](frontend/tests/apiRead.browser.html), ouvert via Vite dans Chromium, passe avec 9 GET et 1 POST. Il couvre les changements rapides de plan et de BSSID, les réponses et erreurs dans le désordre, la réactualisation après une mutation, l’actualisation forcée et le démontage. Le parcours simulé avec deux consommateurs simultanés de A, puis B, puis un retour à A, donne 6 GET avec déduplication seule et 4 GET avec stockage activé, pour 8 GET sans les deux optimisations. Ouvrir la table des points depuis une carte de la bibliothèque réutilise deux lectures déjà réalisées, puis demande les détails de scans nécessaires.
+
+Le stockage est désactivé par défaut. Pour un test, démarrer Vite ou reconstruire le frontend avec `VITE_API_CACHE_ENABLED=true`. La déduplication, l’invalidation et les contrôles de publication restent actifs lorsque le stockage est désactivé. Le cache et ses notifications restent dans le même contexte JavaScript.
+
+En phase 5C, mesurer le coût et les gains sur les parcours complets, vérifier la cohérence des données visibles entre PC et smartphone, et valider le comportement du HTTPS, du cache HTTP, des délais et des TTL sur les appareils cibles avant de décider de l’activation du stockage par défaut.

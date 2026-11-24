@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { PlanData } from '../types/plan';
-import { getActivePlanId } from '../lib/storage';
+import { getActivePlanId, subscribeActivePlan } from '../lib/storage';
 import { getPlan, listPlans } from '../lib/api';
+import { READ_TIMEOUT_MS, type ApiRead } from '../lib/apiRead';
 import { ApiError } from '../types/api';
+import { useApiQuery } from './useApiQuery';
 
 interface PlanImageResult {
   plan: PlanData | null;
@@ -13,66 +15,46 @@ interface PlanImageResult {
   error: string | null;
 }
 
-/**
- * Plan actif depuis le backend (source de vérité).
- * Vérifie aussi que le fichier image existe encore : si la ligne SQLite
- * référence une image manquante, on l'indique sans effacer de données.
- */
 export function usePlanImage({ waitForImageCheck = true }: { waitForImageCheck?: boolean } = {}): PlanImageResult {
-  const [plan, setPlan] = useState<PlanData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [imageMissing, setImageMissing] = useState(false);
+  const activeId = useSyncExternalStore(subscribeActivePlan, getActivePlanId);
+  const [result, setResult] = useState<{ activeId: string | null; plan: PlanData | null } | null>(null);
+  const [image, setImage] = useState<{ url: string; missing: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const id = getActivePlanId();
-        const p = id ? await getPlan(id) : (await listPlans())[0] ?? null;
-        if (!p) {
-          if (alive) setLoading(false);
-          return;
-        }
-        if (alive) {
-          setPlan({
-            id: p.id,
-            name: p.name,
-            fileName: p.fileName,
-            width: p.width,
-            height: p.height,
-            sizeBytes: p.sizeBytes,
-            imageUrl: p.imageUrl,
-          });
-          // Heatmap can display the plan while its optional existence check finishes.
-          if (!waitForImageCheck) setLoading(false);
-        }
-        // L'image existe-t-elle encore sur le serveur ?
-        try {
-          const head = await fetch(p.imageUrl, { method: 'HEAD' });
-          if (alive) setImageMissing(!head.ok);
-        } catch {
-          if (alive) setImageMissing(true);
-        }
-      } catch (err) {
-        if (!alive) return;
-        const apiErr = err instanceof ApiError ? err : null;
-        setError(apiErr?.message ?? 'Impossible de charger le plan.');
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [waitForImageCheck]);
+  const load = useCallback(async (read: ApiRead) => {
+    const p = activeId ? await getPlan(activeId, read) : (await listPlans(read))[0];
+    if (!p) return null;
+    const { id, name, fileName, width, height, sizeBytes, imageUrl } = p;
+    return { id, name, fileName, width, height, sizeBytes, imageUrl };
+  }, [activeId]);
+  useApiQuery(load, {
+    start: () => setError(null),
+    success: plan => setResult({ activeId, plan }),
+    error: err => {
+      setResult({ activeId, plan: null });
+      setError(err instanceof ApiError ? err.message : 'Impossible de charger le plan.');
+    },
+  });
 
+  const plan = result?.activeId === activeId ? result.plan : null;
+  const url = plan?.imageUrl;
+  useEffect(() => {
+    if (!url) return;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(READ_TIMEOUT_MS)]);
+    const publish = (missing: boolean) => {
+      if (!controller.signal.aborted) setImage({ url, missing });
+    };
+    void fetch(url, { method: 'HEAD', signal }).then(head => publish(!head.ok), () => publish(true));
+    return () => controller.abort();
+  }, [url]);
+
+  const imageMissing = !!image && image.url === url && image.missing;
   return {
     plan,
-    imageUrl: imageMissing ? null : (plan?.imageUrl ?? null),
-    loading,
+    imageUrl: imageMissing ? null : (url ?? null),
+    loading: !result || result.activeId !== activeId || (waitForImageCheck && !!url && image?.url !== url),
     imageMissing,
     error,
   };
 }
-

@@ -1,4 +1,10 @@
 const ACTIVE_PLAN_KEY = 'heatmap:activePlanId';
+const activePlanListeners = new Set<() => void>();
+
+export function subscribeActivePlan(listener: () => void): () => void {
+  activePlanListeners.add(listener);
+  return () => { activePlanListeners.delete(listener); };
+}
 
 /* ==========================================================================
    Plan actif : seul l'identifiant serveur est persisté localement.
@@ -15,8 +21,12 @@ export function getActivePlanId(): string | null {
 
 export function setActivePlanId(id: string | null): void {
   try {
+    const previous = getActivePlanId();
     if (id) localStorage.setItem(ACTIVE_PLAN_KEY, id);
     else localStorage.removeItem(ACTIVE_PLAN_KEY);
+    if (getActivePlanId() !== previous) {
+      for (const listener of activePlanListeners) listener();
+    }
   } catch {
     /* stockage indisponible : on ignore */
   }

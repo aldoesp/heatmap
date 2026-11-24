@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { getHistory, getScanDetail } from '../lib/api';
 import type { ChannelSample } from '../lib/channelAnalysis';
 import { ApiError } from '../types/api';
+import type { ApiRead } from '../lib/apiRead';
+import { useApiQuery } from './useApiQuery';
 import { usePlanImage } from './usePlanImage';
 
 const MAX_PARALLEL_SCAN_REQUESTS = 6;
@@ -9,27 +11,26 @@ const MAX_PARALLEL_SCAN_REQUESTS = 6;
 /** Récupère les observations du dernier scan de chaque point du plan. */
 async function collectChannelSamples(
   planId: string,
+  read: ApiRead,
 ): Promise<{ samples: ChannelSample[]; failures: number }> {
-  const history = await getHistory(planId);
-
-  const scanIds = [
-    ...new Set(
-      history
-        .map((point) => point.scans[point.scans.length - 1]?.id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ];
+  const history = await getHistory(planId, read);
+  const scans = new Map<string, { planId: string; pointId: string }>();
+  for (const point of history) {
+    const scanId = point.scans.at(-1)?.id;
+    if (scanId) scans.set(scanId, { planId, pointId: point.id });
+  }
+  const scanIds = [...scans.keys()];
 
   const collected: ChannelSample[] = [];
   let failures = 0;
   let next = 0;
 
   const worker = async () => {
-    while (next < scanIds.length) {
+    while (next < scanIds.length && read.isCurrent()) {
       const scanId = scanIds[next];
       next += 1;
       try {
-        const detail = await getScanDetail(scanId);
+        const detail = await getScanDetail(scanId, read, scans.get(scanId));
         for (const observation of detail.observations) {
           collected.push({
             ...observation,
@@ -69,52 +70,22 @@ export function useChannelAnalysis() {
   const [samples, setSamples] = useState<ChannelSample[]>([]);
   const [loadedPlanId, setLoadedPlanId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reloadToken, setReloadToken] = useState(0);
-  const requestRef = useRef(0);
+  const planId = plan?.id;
+  const load = useCallback((read: ApiRead) => collectChannelSamples(planId!, read), [planId]);
+  const reload = useApiQuery(planLoading || !planId ? null : load, {
+    start: () => setLoadedPlanId(null),
+    success: ({ samples: collected, failures }) => {
+      setSamples(collected);
+      setError(collected.length === 0 && failures > 0 ? 'Impossible de charger les observations des scans.' : null);
+    },
+    error: err => {
+      setSamples([]);
+      setError(err instanceof ApiError ? err.message : 'Impossible de charger les observations Wi-Fi.');
+    },
+    settled: () => setLoadedPlanId(planId ?? null),
+  });
 
-  useEffect(() => {
-    if (planLoading || !plan) return;
-
-    const targetPlanId = plan.id;
-    const requestId = requestRef.current + 1;
-    requestRef.current = requestId;
-    let cancelled = false;
-
-    collectChannelSamples(targetPlanId)
-      .then(({ samples: collected, failures }) => {
-        if (cancelled || requestRef.current !== requestId) return;
-        if (collected.length === 0 && failures > 0) {
-          setSamples([]);
-          setError('Impossible de charger les observations des scans.');
-        } else {
-          setSamples(collected);
-          setError(null);
-        }
-        setLoadedPlanId(targetPlanId);
-      })
-      .catch((err: unknown) => {
-        if (cancelled || requestRef.current !== requestId) return;
-        const apiErr = err instanceof ApiError ? err : null;
-        setSamples([]);
-        setError(
-          apiErr?.message ?? 'Impossible de charger les observations Wi-Fi.',
-        );
-        setLoadedPlanId(targetPlanId);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [plan, planLoading, reloadToken]);
-
-  // Chargement dérivé du plan, sans setState synchrone dans l'effet.
-  const loading = planLoading || (plan !== null && loadedPlanId !== plan.id);
-
-  const reload = useCallback(() => {
-    setLoadedPlanId(null);
-    setReloadToken((token) => token + 1);
-  }, []);
-
+  const loading = planLoading || (!!planId && loadedPlanId !== planId);
   return {
     plan,
     planLoading,

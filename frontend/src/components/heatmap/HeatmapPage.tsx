@@ -14,11 +14,14 @@ import {
 import { Check, Download, Eye, EyeOff, LocateFixed, Pencil, Plus, Minus, Trash, Undo2, Wifi, X, ScanLine } from 'lucide-react';
 import L from 'leaflet';
 import { useApPositions } from '../../hooks/useApPositions';
+import type { ApiRead } from '../../lib/apiRead';
+import { useApiQuery } from '../../hooks/useApiQuery';
 import { usePlanImage } from '../../hooks/usePlanImage';
 import {
   createPolygon,
   deletePolygon,
   getHeatmap,
+  getHeatmapForExport,
   getHeatmapSpeed,
   getNetworks,
   listAccessPoints,
@@ -217,6 +220,7 @@ const BAND_TABS: Array<{ value: BandChoice; label: string }> = [
 
 export function HeatmapPage() {
   const { plan, imageUrl, loading: planLoading, imageMissing, error: planError } = usePlanImage({ waitForImageCheck: false });
+  const planId = plan?.id;
   const { positions: apPositions, save: saveApPosition } = useApPositions(
     plan?.id ?? null
   );
@@ -229,7 +233,6 @@ export function HeatmapPage() {
   const [showDisplayOptions, setShowDisplayOptions] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
   const batchRef = useRef<AbortController | null>(null);
-  const measureCache = useRef<Map<string, HeatmapRow[]>>(new Map());
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchProgress, setBatchProgress] = useState('');
   const [batchError, setBatchError] = useState<string | null>(null);
@@ -261,8 +264,6 @@ export function HeatmapPage() {
     () => getHeatmapRadius()
   );
   const recenterRef = useRef<(() => void) | null>(null);
-  const loadRequestRef = useRef(0);
-  const speedRequestRef = useRef(0);
 
   // Mode dessin : polygones validés et tracé en cours, propres au plan actif.
   const [drawing, setDrawing] = useState(false);
@@ -343,7 +344,6 @@ export function HeatmapPage() {
     setPolygonBusy(true);
     createPolygon(plan.id, vertices)
       .then((created) => {
-        setPolygons((prev) => [...prev, created]);
         setActiveVertices([]);
         setSelectedPolygonId(created.id);
         setPolygonError(null);
@@ -418,11 +418,8 @@ export function HeatmapPage() {
     }
 
     setPolygonBusy(true);
-    updatePolygon(polygonId, vertices)
-      .then((updated) => {
-        setPolygons((prev) =>
-          prev.map((polygon) => (polygon.id === polygonId ? updated : polygon))
-        );
+    updatePolygon(polygonId, vertices, plan.id)
+      .then(() => {
         setEditing(null);
         setSelectedPolygonId(null);
         setPendingDeleteId(null);
@@ -453,9 +450,8 @@ export function HeatmapPage() {
     const polygonId = pendingDeleteId;
     if (!polygonId || polygonBusy) return;
     setPolygonBusy(true);
-    deletePolygon(polygonId)
+    deletePolygon(polygonId, planId)
       .then(() => {
-        setPolygons((prev) => prev.filter((polygon) => polygon.id !== polygonId));
         setSelectedPolygonId((prev) => (prev === polygonId ? null : prev));
         setPendingDeleteId(null);
         setPolygonError(null);
@@ -465,33 +461,18 @@ export function HeatmapPage() {
         setPolygonError(apiErr?.message ?? 'Impossible de supprimer la zone.');
       })
       .finally(() => setPolygonBusy(false));
-  }, [pendingDeleteId, polygonBusy]);
+  }, [pendingDeleteId, planId, polygonBusy]);
 
   const handleCancelDelete = useCallback(() => {
     setPendingDeleteId(null);
   }, []);
 
-  // Chargement des zones persistées du plan actif (backend = source de vérité).
-  useEffect(() => {
-    if (!plan) return;
-    let alive = true;
-    listPolygons(plan.id)
-      .then((loaded) => {
-        if (!alive) return;
-        setPolygons(loaded.filter((polygon) => polygon.planId === plan.id));
-      })
-      .catch((err) => {
-        if (!alive) return;
-        const apiErr = err instanceof ApiError ? err : null;
-        setPolygonError(
-          apiErr?.message ?? 'Impossible de charger les zones de délimitation.'
-        );
-      })
-      .finally(() => { if (alive) setPolygonsLoading(false); });
-    return () => {
-      alive = false;
-    };
-  }, [plan]);
+  const loadPolygons = useCallback((read: ApiRead) => listPolygons(planId!, read), [planId]);
+  useApiQuery(planId ? loadPolygons : null, {
+    success: loaded => setPolygons(loaded.filter(polygon => polygon.planId === planId)),
+    error: err => setPolygonError(err instanceof ApiError ? err.message : 'Impossible de charger les zones de délimitation.'),
+    settled: () => setPolygonsLoading(false),
+  });
 
   const visiblePolygons = useMemo(
     () =>
@@ -525,102 +506,44 @@ export function HeatmapPage() {
     [editing, plan]
   );
 
-  // Liste des réseaux pour les filtres
-  useEffect(() => {
-    if (!plan) return;
-    let alive = true;
-    getNetworks(plan.id)
-      .then((n) => {
-        if (alive) {
-          setNetworks(n);
-          setNetworksPlanId(plan.id);
-        }
-      })
-      .catch(() => {
-        /* filtres indisponibles : la heatmap reste affichable sans filtre */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [plan]);
-
-  // AP placés sur le plan (page Import) : seuls repères affichés sur la carte.
-  useEffect(() => {
-    if (!plan) return;
-    let alive = true;
-    listAccessPoints(plan.id)
-      .then((aps) => {
-        if (alive) setAccessPoints({ planId: plan.id, items: aps });
-      })
-      .catch(() => {
-        /* AP indisponibles : la heatmap reste affichable sans eux */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [plan]);
-
-  const load = useCallback(async () => {
-    const requestId = loadRequestRef.current + 1;
-    loadRequestRef.current = requestId;
-
-    if (!plan) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const heatmapStart = performance.now();
-      const heatmapRequest = getHeatmap(plan.id, {
-        ssid: ssid || undefined,
-        bssid: bssid || undefined,
-        connected: onlyConnected || undefined,
-        band: band || undefined,
-      });
-      const data = await heatmapRequest;
-      console.info(`[heatmap] getHeatmap ${(performance.now() - heatmapStart).toFixed(1)} ms · rows.length=${data.length}`);
-      if (loadRequestRef.current !== requestId) return;
-      setRows(data);
-    } catch (err) {
-      if (loadRequestRef.current !== requestId) return;
-      const apiErr = err instanceof ApiError ? err : null;
-      setError(apiErr?.message ?? 'Impossible de charger la heatmap.');
-    } finally {
-      if (loadRequestRef.current === requestId) setLoading(false);
-    }
-  }, [plan, ssid, bssid, onlyConnected, band]);
-
-  useEffect(
-    () => () => {
-      loadRequestRef.current += 1;
-      speedRequestRef.current += 1;
+  const loadNetworks = useCallback((read: ApiRead) => getNetworks(planId!, read), [planId]);
+  useApiQuery(planId ? loadNetworks : null, {
+    success: rows => {
+      setNetworks(rows);
+      setNetworksPlanId(planId ?? null);
     },
-    []
-  );
+  });
 
-  useEffect(() => {
-    if (planLoading) return;
-    (async () => {
-      await load();
-    })();
-  }, [planLoading, load]);
+  const loadAccessPoints = useCallback((read: ApiRead) => listAccessPoints(planId!, read), [planId]);
+  useApiQuery(planId ? loadAccessPoints : null, {
+    success: items => { if (planId) setAccessPoints({ planId, items }); },
+  });
 
-  const loadSpeed = useCallback(async () => {
-    if (!plan) return;
-    const requestId = ++speedRequestRef.current;
-    setSpeedLoading(true);
-    setSpeedError(null);
-    try {
-      const data = await getHeatmapSpeed(plan.id);
-      if (speedRequestRef.current === requestId) setSpeedRows(data);
-    } catch (err) {
-      if (speedRequestRef.current !== requestId) return;
-      setSpeedError(err instanceof ApiError ? err.message : 'Impossible de charger les mesures de débit.');
-    } finally {
-      if (speedRequestRef.current === requestId) setSpeedLoading(false);
-    }
-  }, [plan]);
+  const loadRssiRows = useCallback(async (read: ApiRead) => {
+    const start = performance.now();
+    const data = await getHeatmap(planId!, {
+      ssid: ssid || undefined,
+      bssid: bssid || undefined,
+      connected: onlyConnected || undefined,
+      band: band || undefined,
+    }, read);
+    console.info(`[heatmap] getHeatmap ${(performance.now() - start).toFixed(1)} ms · rows.length=${data.length}`);
+    return data;
+  }, [planId, ssid, bssid, onlyConnected, band]);
+  const load = useApiQuery(planLoading || !planId ? null : loadRssiRows, {
+    start: () => { setLoading(true); setError(null); },
+    success: setRows,
+    error: err => setError(err instanceof ApiError ? err.message : 'Impossible de charger la heatmap.'),
+    settled: () => setLoading(false),
+  });
+
+  const loadSpeedRows = useCallback((read: ApiRead) => getHeatmapSpeed(planId!, read), [planId]);
+  const loadSpeed = useApiQuery(planId && metric === 'speed' ? loadSpeedRows : null, {
+    start: () => { setSpeedLoading(true); setSpeedError(null); },
+    success: setSpeedRows,
+    error: err => setSpeedError(err instanceof ApiError ? err.message : 'Impossible de charger les mesures de débit.'),
+    settled: () => setSpeedLoading(false),
+  });
 
   // Options du combobox « Réseau Wi-Fi » : « Tous les réseaux » en tête,
   // puis les SSID triés par ordre alphabétique. La recherche filtre la liste
@@ -765,12 +688,9 @@ export function HeatmapPage() {
         await acquire();
         acquired = true;
         step('Récupération…');
-        const key = `${plan.id}|${ssid ?? ''}|${target}|${band ?? ''}|${onlyConnected}`;
-        let measurements = measureCache.current.get(key);
-        if (!measurements) {
-          measurements = await getHeatmap(plan.id, { ssid: ssid || undefined, bssid: target, band: band || undefined, connected: onlyConnected || undefined });
-          measureCache.current.set(key, measurements);
-        }
+        const measurements = await getHeatmapForExport(plan.id, {
+          ssid: ssid || undefined, bssid: target, band: band || undefined, connected: onlyConnected || undefined,
+        }, controller.signal);
         controller.signal.throwIfAborted();
         if (!measurements.length) throw new Error(`${target} : aucune mesure pour les filtres actuels.`);
         const best = new Map<string, HeatmapRow>();

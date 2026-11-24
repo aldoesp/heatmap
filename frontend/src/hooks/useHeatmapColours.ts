@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { getSettings, patchSetting } from '../lib/api.js';
+import { useApiQuery } from './useApiQuery.js';
 import {
   DEFAULT_HEATMAP_COLOURS,
   sanitizeHeatmapColours,
@@ -7,51 +8,32 @@ import {
 } from '../lib/heatmapColours.js';
 
 export function useHeatmapColours() {
-  const [colours, setColours] = useState<HeatmapColours>(() =>
-    sanitizeHeatmapColours(DEFAULT_HEATMAP_COLOURS)
-  );
+  const [raw, setRaw] = useState('');
+  const colours = useMemo(() => {
+    try {
+      return sanitizeHeatmapColours(JSON.parse(raw));
+    } catch {
+      return sanitizeHeatmapColours(DEFAULT_HEATMAP_COLOURS);
+    }
+  }, [raw]);
 
-  useEffect(() => {
-    let cancelled = false;
-    getSettings()
-      .then((settings) => {
-        if (cancelled) {
-          return;
-        }
-        const raw = settings.heatmap_colours;
-        if (raw && typeof raw === 'string' && raw.trim() !== '') {
-          try {
-            const parsed = JSON.parse(raw);
-            setColours(sanitizeHeatmapColours(parsed));
-          } catch {
-            setColours(sanitizeHeatmapColours(DEFAULT_HEATMAP_COLOURS));
-          }
-        } else {
-          setColours(sanitizeHeatmapColours(DEFAULT_HEATMAP_COLOURS));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setColours(sanitizeHeatmapColours(DEFAULT_HEATMAP_COLOURS));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  useApiQuery(getSettings, {
+    success: settings => setRaw(settings.heatmap_colours),
+    error: () => setRaw(''),
+  });
 
   const save = useCallback(async (next: HeatmapColours) => {
     const sanitized = sanitizeHeatmapColours(next);
-    setColours(sanitized);
-    await patchSetting('heatmap_colours', JSON.stringify(sanitized));
+    const value = JSON.stringify(sanitized);
+    setRaw(value);
+    await patchSetting('heatmap_colours', value);
     return sanitized;
   }, []);
 
   const reset = useCallback(async () => {
-    const sanitized = sanitizeHeatmapColours(DEFAULT_HEATMAP_COLOURS);
-    setColours(sanitized);
+    setRaw('');
     await patchSetting('heatmap_colours', '');
-    return sanitized;
+    return sanitizeHeatmapColours(DEFAULT_HEATMAP_COLOURS);
   }, []);
 
   return { colours, save, reset };

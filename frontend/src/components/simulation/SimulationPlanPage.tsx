@@ -9,6 +9,8 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react';
+import type { ApiRead } from '../../lib/apiRead';
+import { useApiQuery } from '../../hooks/useApiQuery';
 import { SignalLegend } from './SignalLegend';
 import { SimulatedOverlay } from './SimulatedOverlay';
 import { SimulatorControls } from './SimulatorControls';
@@ -123,6 +125,7 @@ export function SimulationPlanPage() {
   const [plans, setPlans] = useState<PlanResponse[] | null>(null);
   const [plansError, setPlansError] = useState<string | null>(null);
   const [planId, setPlanId] = useState('');
+  const activePlan = useRef('');
 
   const plan = useMemo(
     () => plans?.find((p) => p.id === planId) ?? null,
@@ -133,25 +136,10 @@ export function SimulationPlanPage() {
     [plan],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    listPlans()
-      .then((result) => {
-        if (!cancelled) setPlans(result);
-      })
-      .catch((e: Error) => {
-        if (!cancelled) setPlansError(e.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const refreshPlan = useCallback((updated: PlanResponse) => {
-    setPlans((prev) =>
-      prev ? prev.map((p) => (p.id === updated.id ? updated : p)) : prev,
-    );
-  }, []);
+  useApiQuery(listPlans, {
+    success: value => { setPlans(value); setPlansError(null); },
+    error: e => setPlansError((e as Error).message),
+  });
 
   /* ----------------------------------------------------------------- APs  */
   const [aps, setAps] = useState<AccessPoint[]>([]);
@@ -181,7 +169,9 @@ export function SimulationPlanPage() {
   const imageRef = useRef<HTMLImageElement>(null);
 
   const selectPlan = useCallback((nextId: string) => {
+    activePlan.current = nextId;
     setPlanId(nextId);
+    setBusy(null);
     setSourceApId('');
     setScenario(null);
     setScenarios([]);
@@ -191,22 +181,22 @@ export function SimulationPlanPage() {
     setCalibDistance('');
     setCalibError(null);
     setPageError(null);
-    if (!nextId) return;
-    let cancelled = false;
-    Promise.all([listAccessPoints(nextId), listSimulationScenarios(nextId)])
-      .then(([apList, scenarioList]) => {
-        if (cancelled) return;
-        setAps(apList);
-        setScenarios(scenarioList);
-        if (apList.length > 0) setSourceApId(apList[0].id);
-      })
-      .catch((e: Error) => {
-        if (!cancelled) setPageError(e.message);
-      });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  const loadAccessPoints = useCallback((read: ApiRead) => listAccessPoints(planId, read), [planId]);
+  useApiQuery(planId ? loadAccessPoints : null, {
+    success: list => {
+      setAps(list);
+      setSourceApId(prev => list.some(ap => ap.id === prev) ? prev : (list[0]?.id ?? ''));
+    },
+    error: e => setPageError((e as Error).message),
+  });
+
+  const loadScenarios = useCallback((read: ApiRead) => listSimulationScenarios(planId, read), [planId]);
+  useApiQuery(planId ? loadScenarios : null, {
+    success: setScenarios,
+    error: e => setPageError((e as Error).message),
+  });
 
   const handlePlanImageClick = (e: ReactMouseEvent<HTMLImageElement>) => {
     if (!plan || surface) return;
@@ -239,14 +229,14 @@ export function SimulationPlanPage() {
     setCalibError(null);
     setPageError(null);
     try {
-      const updated = await calibratePlan(plan.id, mpp);
-      refreshPlan(updated);
+      await calibratePlan(plan.id, mpp);
+      if (activePlan.current !== plan.id) return;
       setCalibPoints([]);
       setCalibDistance('');
     } catch (e) {
-      setCalibError((e as Error).message);
+      if (activePlan.current === plan.id) setCalibError((e as Error).message);
     } finally {
-      setBusy(null);
+      if (activePlan.current === plan.id) setBusy(null);
     }
   };
 
@@ -275,17 +265,17 @@ export function SimulationPlanPage() {
         name: name.trim() || `Copie de ${sourceAp.name}`,
         radio: SIM_DEFAULT_RADIO,
       });
-      setScenarios((prev) => [...prev, created]);
+      if (activePlan.current !== plan.id) return;
       loadScenario(created);
     } catch (e) {
-      setPageError((e as Error).message);
+      if (activePlan.current === plan.id) setPageError((e as Error).message);
     } finally {
-      setBusy(null);
+      if (activePlan.current === plan.id) setBusy(null);
     }
   };
 
   const handleSave = async () => {
-    if (!scenario || !current) return;
+    if (!scenario || !current || !plan) return;
     setBusy('sauvegarde');
     setPageError(null);
     try {
@@ -294,44 +284,44 @@ export function SimulationPlanPage() {
         currentX: current.x,
         currentY: current.y,
         radio,
-      });
-      setScenarios((prev) => prev.map((s) => (s.id === saved.id ? saved : s)));
+      }, plan.id);
+      if (activePlan.current !== plan.id) return;
       setScenario(saved);
     } catch (e) {
-      setPageError((e as Error).message);
+      if (activePlan.current === plan.id) setPageError((e as Error).message);
     } finally {
-      setBusy(null);
+      if (activePlan.current === plan.id) setBusy(null);
     }
   };
 
   const handleScenarioReset = async () => {
-    if (!scenario) return;
+    if (!scenario || !plan) return;
     setBusy('réinitialisation');
     setPageError(null);
     try {
-      const restored = await resetSimulationScenario(scenario.id);
-      setScenarios((prev) => prev.map((s) => (s.id === restored.id ? restored : s)));
+      const restored = await resetSimulationScenario(scenario.id, plan.id);
+      if (activePlan.current !== plan.id) return;
       loadScenario(restored);
     } catch (e) {
-      setPageError((e as Error).message);
+      if (activePlan.current === plan.id) setPageError((e as Error).message);
     } finally {
-      setBusy(null);
+      if (activePlan.current === plan.id) setBusy(null);
     }
   };
 
   const handleDeleteScenario = async () => {
-    if (!scenario) return;
+    if (!scenario || !plan) return;
     setBusy('suppression');
     setPageError(null);
     try {
-      await deleteSimulationScenario(scenario.id);
-      setScenarios((prev) => prev.filter((s) => s.id !== scenario.id));
+      await deleteSimulationScenario(scenario.id, plan.id);
+      if (activePlan.current !== plan.id) return;
       setScenario(null);
       setCurrent(null);
     } catch (e) {
-      setPageError((e as Error).message);
+      if (activePlan.current === plan.id) setPageError((e as Error).message);
     } finally {
-      setBusy(null);
+      if (activePlan.current === plan.id) setBusy(null);
     }
   };
 

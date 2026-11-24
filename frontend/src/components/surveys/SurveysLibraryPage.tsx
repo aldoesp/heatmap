@@ -3,8 +3,6 @@ import { Check, ChevronDown, Download, FileUp, Search, Upload } from 'lucide-rea
 import { useSurveysLibrary, type SurveySummary } from '../../hooks/useSurveysLibrary';
 import {
   exportPlansZip,
-  getHeatmap,
-  getHistory,
   importSurveys,
   previewSurveyImport,
   type SurveyImportPreview,
@@ -46,6 +44,7 @@ function downloadBlob(blob: Blob, filename: string) {
 export function SurveysLibraryPage() {
   const {
     surveys,
+    details,
     loading,
     error,
     importing,
@@ -65,9 +64,7 @@ export function SurveysLibraryPage() {
   const [sheet, setSheet] = useState<SurveySummary | null>(null);
   const [renaming, setRenaming] = useState<SurveySummary | null>(null);
   const [confirming, setConfirming] = useState<SurveySummary | null>(null);
-  const [viewPoints, setViewPoints] = useState<{ survey: SurveySummary; rows: PointRow[] } | null>(
-    null,
-  );
+  const [viewPoints, setViewPoints] = useState<SurveySummary | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
@@ -166,11 +163,6 @@ export function SurveysLibraryPage() {
     const result = await importSurveys(file, resolutions);
     setPendingImport(null);
     setImportResult(result);
-    try {
-      await load();
-    } catch (err) {
-      void err;
-    }
   };
 
   const onPickZip = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -224,46 +216,52 @@ export function SurveysLibraryPage() {
     }
   };
 
-  const openPoints = async (s: SurveySummary) => {
-    try {
-      const [history, heat] = await Promise.all([getHistory(s.id), getHeatmap(s.id)]);
-      const best = new Map<string, number>();
-      for (const row of heat) {
-        const prev = best.get(row.scan_point_id);
-        if (prev === undefined || row.rssi > prev) best.set(row.scan_point_id, row.rssi);
-      }
-      const rows: PointRow[] = history.map((h) => {
-        const last = h.scans[h.scans.length - 1];
-        return {
-          id: h.id,
-          x: h.x,
-          y: h.y,
-          surveyId: h.survey_id,
-          note: h.note,
-          isEnabled: h.is_enabled,
-          planId: h.plan_id,
-          createdAt: h.created_at,
-          rssi: best.get(h.id) ?? null,
-          scans: h.scans,
-          networks: last?.network_count ?? 0,
-          scannedAt: last?.scanned_at ?? null,
-          ping: last?.gateway_rtt_ms ?? null,
-          down: last?.tcp_down_bps ?? null,
-          up: last?.tcp_up_bps ?? null,
-        };
-      });
-      setViewPoints({ survey: s, rows });
-      setSheet(null);
-    } catch {
+  const openPoints = (survey: SurveySummary) => {
+    if (!details.has(survey.id)) {
       showToast('Impossible de charger les points.');
+      load();
+      return;
     }
+    setViewPoints(survey);
+    setSheet(null);
   };
+
+  const pointDetails = viewPoints ? details.get(viewPoints.id) : undefined;
+  const pointRows = useMemo<PointRow[]>(() => {
+    if (!pointDetails) return [];
+    const { history, heat } = pointDetails;
+    const best = new Map<string, number>();
+    for (const row of heat) {
+      const prev = best.get(row.scan_point_id);
+      if (prev === undefined || row.rssi > prev) best.set(row.scan_point_id, row.rssi);
+    }
+    return history.map((h) => {
+      const last = h.scans[h.scans.length - 1];
+      return {
+        id: h.id,
+        x: h.x,
+        y: h.y,
+        surveyId: h.survey_id,
+        note: h.note,
+        isEnabled: h.is_enabled,
+        planId: h.plan_id,
+        createdAt: h.created_at,
+        rssi: best.get(h.id) ?? null,
+        scans: h.scans,
+        networks: last?.network_count ?? 0,
+        scannedAt: last?.scanned_at ?? null,
+        ping: last?.gateway_rtt_ms ?? null,
+        down: last?.tcp_down_bps ?? null,
+        up: last?.tcp_up_bps ?? null,
+      };
+    });
+  }, [pointDetails]);
 
   if (viewPoints) {
     return (
       <PointsTable
-        surveyName={viewPoints.survey.name}
-        rows={viewPoints.rows}
+        surveyName={surveys.find(survey => survey.id === viewPoints.id)?.name ?? viewPoints.name}
+        rows={pointRows}
         onBack={() => setViewPoints(null)}
       />
     );

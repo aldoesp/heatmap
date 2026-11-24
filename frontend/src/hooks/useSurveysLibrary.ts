@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   deletePlan,
   exportCsvUrl,
@@ -12,16 +12,11 @@ import {
 } from '../lib/api';
 import { average } from '../lib/signal';
 import { getActivePlanId, setActivePlanId, clearActivePlan } from '../lib/storage';
-import { ApiError, type PlanResponse } from '../types/api';
+import type { ApiRead } from '../lib/apiRead';
+import { useApiQuery } from './useApiQuery';
+import { ApiError, type HeatmapRow, type PlanResponse, type ScanHistoryEntry } from '../types/api';
 
-/* ==========================================================================
-   Option B : un « survey » = un plan backend existant.
-   Aucune route backend créée : on ne consomme que listPlans, getHistory,
-   getHeatmap, listApMappings, renamePlan, deletePlan, uploadPlanImage et
-   l'export CSV (exportCsvUrl). L'import JSON Android n'existe pas côté
-   backend : « Importer » téléverse une image de plan (JPG/PNG/WebP).
-   ========================================================================== */
-
+// La bibliothèque représente chaque plan backend comme un survey.
 export type SurveyDot = { x: number; y: number; rssi: number | null };
 
 export type SurveySummary = {
@@ -35,17 +30,19 @@ export type SurveySummary = {
   dots: SurveyDot[];
 };
 
-async function summarize(plan: PlanResponse): Promise<SurveySummary> {
+type SurveyDetails = { history: ScanHistoryEntry[]; heat: HeatmapRow[] };
+
+async function summarize(plan: PlanResponse, read: ApiRead) {
   const [history, heat, mappings] = await Promise.all([
-    getHistory(plan.id).catch(() => []),
-    getHeatmap(plan.id).catch(() => []),
-    listApMappings(plan.id).catch(() => []),
+    getHistory(plan.id, read).catch(() => null),
+    getHeatmap(plan.id, undefined, read).catch(() => null),
+    listApMappings(plan.id, read).catch(() => []),
   ]);
 
   const best = new Map<string, number>();
   const xs = new Map<string, number>();
   const ys = new Map<string, number>();
-  for (const row of heat) {
+  for (const row of heat ?? []) {
     const prev = best.get(row.scan_point_id);
     if (prev === undefined || row.rssi > prev) {
       best.set(row.scan_point_id, row.rssi);
@@ -53,19 +50,19 @@ async function summarize(plan: PlanResponse): Promise<SurveySummary> {
       ys.set(row.scan_point_id, row.y);
     }
   }
-  for (const h of history) {
+  for (const h of history ?? []) {
     if (!xs.has(h.id)) {
       xs.set(h.id, h.x);
       ys.set(h.id, h.y);
     }
   }
 
-  return {
+  const summary: SurveySummary = {
     id: plan.id,
     name: plan.name,
     createdAt: plan.createdAt,
     imageUrl: plan.imageUrl,
-    pointCount: history.length,
+    pointCount: history?.length ?? 0,
     avgRssi: average([...best.values()]),
     apCount: mappings.length,
     dots: [...xs.keys()].map((id) => ({
@@ -74,10 +71,26 @@ async function summarize(plan: PlanResponse): Promise<SurveySummary> {
       rssi: best.get(id) ?? null,
     })),
   };
+  return { summary, details: history && heat ? { history, heat } : null };
+}
+
+async function loadSurveys(read: ApiRead) {
+  const plans = await listPlans(read);
+  const surveys: SurveySummary[] = [];
+  const details = new Map<string, SurveyDetails>();
+  for (let i = 0; i < plans.length && read.isCurrent(); i += 10) {
+    const batch = await Promise.all(plans.slice(i, i + 10).map(plan => summarize(plan, read)));
+    for (const result of batch) {
+      surveys.push(result.summary);
+      if (result.details) details.set(result.summary.id, result.details);
+    }
+  }
+  return { surveys, details };
 }
 
 type State = {
   surveys: SurveySummary[];
+  details: Map<string, SurveyDetails>;
   loading: boolean;
   error: string | null;
   importing: boolean;
@@ -89,49 +102,38 @@ const ERR_LOAD = 'Impossible de charger vos surveys. Réessayez.';
 export function useSurveysLibrary() {
   const [state, setState] = useState<State>({
     surveys: [],
+    details: new Map(),
     loading: true,
     error: null,
     importing: false,
     busyId: null,
   });
 
-  const load = useCallback(async () => {
-    setState((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const plans = await listPlans();
-      const surveys = await Promise.all(plans.map(summarize));
-      setState((s) => ({ ...s, surveys, loading: false }));
-    } catch (err) {
+  const load = useApiQuery(loadSurveys, {
+    start: () => setState(s => ({ ...s, loading: true, error: null })),
+    success: data => setState(s => ({ ...s, ...data, loading: false })),
+    error: err => {
       const msg = err instanceof ApiError ? err.message : ERR_LOAD;
-      setState((s) => ({ ...s, loading: false, error: msg || ERR_LOAD }));
-    }
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      await load();
-    })();
-  }, [load]);
+      setState(s => ({ ...s, loading: false, error: msg || ERR_LOAD }));
+    },
+  });
 
   /** Téléverse une image de plan (JPG/PNG/WebP) et ajoute la carte. */
   const importImage = useCallback(async (file: File) => {
     setState((s) => ({ ...s, importing: true }));
     try {
       const created = await uploadPlanImage(file);
-      const summary = await summarize({
+      setState(s => ({ ...s, importing: false }));
+      return {
         id: created.id,
         name: created.name,
         imageUrl: created.imageUrl,
-        fileName: created.fileName,
-        width: created.width,
-        height: created.height,
-        sizeBytes: created.sizeBytes,
-        metersPerPixel: null,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      setState((s) => ({ ...s, surveys: [summary, ...s.surveys], importing: false }));
-      return summary;
+        pointCount: 0,
+        avgRssi: null,
+        apCount: 0,
+        dots: [],
+      } satisfies SurveySummary;
     } catch (err) {
       setState((s) => ({ ...s, importing: false }));
       throw err instanceof Error ? err : new Error('Import impossible.');
@@ -142,24 +144,19 @@ export function useSurveysLibrary() {
     setState((s) => ({ ...s, importing: true }));
     try {
       const result = await importCsvSurvey(file, { name });
-      await load();
       setState((s) => ({ ...s, importing: false }));
       return result;
     } catch (err) {
       setState((s) => ({ ...s, importing: false }));
       throw err instanceof Error ? err : new Error('Import CSV impossible.');
     }
-  }, [load]);
+  }, []);
 
   const rename = useCallback(async (id: string, name: string) => {
     setState((s) => ({ ...s, busyId: id }));
     try {
-      const updated = await renamePlan(id, name);
-      setState((s) => ({
-        ...s,
-        busyId: null,
-        surveys: s.surveys.map((x) => (x.id === id ? { ...x, name: updated.name } : x)),
-      }));
+      await renamePlan(id, name);
+      setState(s => ({ ...s, busyId: null }));
     } catch (err) {
       setState((s) => ({ ...s, busyId: null }));
       throw err instanceof Error ? err : new Error('Renommage impossible.');
@@ -171,11 +168,7 @@ export function useSurveysLibrary() {
     try {
       await deletePlan(id);
       if (getActivePlanId() === id) clearActivePlan();
-      setState((s) => ({
-        ...s,
-        busyId: null,
-        surveys: s.surveys.filter((x) => x.id !== id),
-      }));
+      setState(s => ({ ...s, busyId: null }));
     } catch (err) {
       setState((s) => ({ ...s, busyId: null }));
       throw err instanceof Error ? err : new Error('Suppression impossible.');

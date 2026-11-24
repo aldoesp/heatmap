@@ -16,8 +16,9 @@ import {
   updateAccessPoint,
   deleteAccessPoint,
 } from '../lib/api';
+import type { ApiRead } from '../lib/apiRead';
+import { useApiQuery } from './useApiQuery';
 import { ApiError } from '../types/api';
-import { stripExtension } from '../lib/format';
 import { fetchDemoFile, type DemoPlan } from '../lib/demoPlans';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -65,11 +66,13 @@ function toErrorInfo(err: unknown, fallback: string): LoadErrorInfo {
 }
 
 export function usePlanStore() {
+  const [targetPlanId, setTargetPlanId] = useState(() => getActivePlanId() ?? readLegacyPlanId());
   const [plan, setPlan] = useState<PlanData | null>(null);
   const [accessPoints, setAccessPoints] = useState<AccessPoint[]>([]);
   const [selectedApId, setSelectedApId] = useState<string | null>(null);
   const [placing, setPlacing] = useState(false);
   /** Chargement initial (plan + APs depuis le backend) */
+  const [planCleared, setPlanCleared] = useState(false);
   const [loading, setLoading] = useState(true);
   /** Import d'image en cours */
   const [uploading, setUploading] = useState(false);
@@ -89,39 +92,25 @@ export function usePlanStore() {
   /* ==========================================================================
      Chargement initial : le backend est la source de vérité.
      ========================================================================== */
-  const refresh = useCallback(async (planId?: string) => {
-    const id = planId ?? getActivePlanId() ?? readLegacyPlanId();
-    if (!id) {
-      // Aucun plan actif : prendre le plus récent s'il existe
-      try {
-        const plans = await listPlans();
-        if (!aliveRef.current) return;
-        if (plans.length === 0) {
-          setPlan(null);
-          setAccessPoints([]);
-          return;
-        }
-        setActivePlanId(plans[0].id);
-        setPlan(toPlanData(plans[0]));
-        setAccessPoints(await listAccessPoints(plans[0].id));
-      } catch (err) {
-        if (!aliveRef.current) return;
-        setError(toErrorInfo(err, 'Impossible de charger les plans.'));
-      }
-      return;
-    }
+  const load = useCallback(async (read: ApiRead) => {
+    const p = targetPlanId ? await getPlan(targetPlanId, read) : (await listPlans(read))[0];
+    if (!p || !read.isCurrent()) return { p: null, aps: [], apError: null };
     try {
-      const p = await getPlan(id);
-      if (!aliveRef.current) return;
-      setActivePlanId(p.id);
-      setPlan(toPlanData(p));
-      setAccessPoints(await listAccessPoints(p.id));
-      setError(null);
-    } catch (err) {
-      if (!aliveRef.current) return;
-      const apiErr = err instanceof ApiError ? err : null;
-      if (apiErr?.status === 404) {
-        // Plan local orphelin (supprimé côté serveur) : on l'oublie sans effacer la DB
+      return { p, aps: await listAccessPoints(p.id, read), apError: null };
+    } catch (error) {
+      return { p, aps: [], apError: toErrorInfo(error, 'Impossible de charger les points d’accès.') };
+    }
+  }, [targetPlanId]);
+
+  const reload = useApiQuery(planCleared ? null : load, {
+    success: ({ p, aps, apError }) => {
+      if (p) setActivePlanId(p.id);
+      setPlan(p ? toPlanData(p) : null);
+      setAccessPoints(aps);
+      setError(apError);
+    },
+    error: err => {
+      if (err instanceof ApiError && err.status === 404) {
         setActivePlanId(null);
         setPlan(null);
         setAccessPoints([]);
@@ -132,15 +121,16 @@ export function usePlanStore() {
       } else {
         setError(toErrorInfo(err, 'Impossible de charger le plan.'));
       }
+    },
+    settled: () => setLoading(false),
+  });
+  const refresh = useCallback((planId?: string) => {
+    if (planCleared || (planId && planId !== targetPlanId)) {
+      setPlanCleared(false);
+      if (planId) setTargetPlanId(planId);
     }
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      await refresh();
-      if (aliveRef.current) setLoading(false);
-    })();
-  }, [refresh]);
+    else reload();
+  }, [planCleared, reload, targetPlanId]);
 
   /* ==========================================================================
      Import : validation locale puis envoi au backend
@@ -150,17 +140,9 @@ export function usePlanStore() {
     try {
       const res = await uploadPlanImage(file);
       if (!aliveRef.current) return;
+      setTargetPlanId(res.id);
+      setPlanCleared(false);
       setActivePlanId(res.id);
-      setPlan({
-        id: res.id,
-        name: res.name || stripExtension(res.fileName),
-        fileName: res.fileName,
-        width: res.width,
-        height: res.height,
-        sizeBytes: res.sizeBytes,
-        imageUrl: res.imageUrl,
-      });
-      setAccessPoints([]);
       setSelectedApId(null);
       setPlacing(false);
       setInfo('Plan importé.');
@@ -238,12 +220,15 @@ export function usePlanStore() {
     try {
       await deletePlanApi(plan.id);
       if (!aliveRef.current) return true;
+      setPlanCleared(true);
+      setTargetPlanId(null);
       setActivePlanId(null);
       setPlan(null);
       setAccessPoints([]);
       setSelectedApId(null);
       setPlacing(false);
       setInfo(null);
+      setError(null);
       return true;
     } catch (err) {
       if (!aliveRef.current) return false;
@@ -260,9 +245,7 @@ export function usePlanStore() {
     if (!trimmed || trimmed === plan.name) return true;
     setBusy(true);
     try {
-      const updated = await renamePlanApi(plan.id, trimmed);
-      if (!aliveRef.current) return true;
-      setPlan((p) => (p ? { ...p, name: updated.name } : p));
+      await renamePlanApi(plan.id, trimmed);
       return true;
     } catch (err) {
       if (!aliveRef.current) return false;
@@ -293,7 +276,6 @@ export function usePlanStore() {
         y: Math.max(0, Math.min(1, y)),
       });
       if (!aliveRef.current) return ap;
-      setAccessPoints((prev) => [...prev, ap]);
       setSelectedApId(ap.id);
       return ap;
     } catch (err) {
@@ -323,9 +305,7 @@ export function usePlanStore() {
     if (patch.bssids !== undefined) clean.bssids = patch.bssids;
     setBusy(true);
     try {
-      const updated = await updateAccessPoint(id, clean);
-      if (!aliveRef.current) return true;
-      setAccessPoints((prev) => prev.map((a) => (a.id === id ? updated : a)));
+      await updateAccessPoint(id, clean, plan?.id);
       return true;
     } catch (err) {
       if (!aliveRef.current) return false;
@@ -334,14 +314,13 @@ export function usePlanStore() {
     } finally {
       if (aliveRef.current) setBusy(false);
     }
-  }, []);
+  }, [plan]);
 
   const removeAp = useCallback(async (id: string): Promise<boolean> => {
     setBusy(true);
     try {
-      await deleteAccessPoint(id);
+      await deleteAccessPoint(id, plan?.id);
       if (!aliveRef.current) return true;
-      setAccessPoints((prev) => prev.filter((a) => a.id !== id));
       setSelectedApId((curr) => (curr === id ? null : curr));
       return true;
     } catch (err) {
@@ -351,7 +330,7 @@ export function usePlanStore() {
     } finally {
       if (aliveRef.current) setBusy(false);
     }
-  }, []);
+  }, [plan]);
 
   const selectAp = useCallback((id: string | null) => setSelectedApId(id), []);
 

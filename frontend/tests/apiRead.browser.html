@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Test React du cache API</title>
+<div id="root"></div>
+<output id="report">En cours</output>
+<script type="module">
+  import { act, createElement, StrictMode, useCallback, useState } from 'react';
+  import { createRoot } from 'react-dom/client';
+  import { useApiQuery } from '../src/hooks/useApiQuery.ts';
+  import { getHeatmap, getHistory, saveScanAtPoint } from '../src/lib/api.ts';
+  import { apiCache } from '../src/lib/apiCache.ts';
+
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const node = document.querySelector('#root');
+  const report = document.querySelector('#report');
+  const root = createRoot(node);
+  const originalFetch = globalThis.fetch;
+  const pending = [];
+  let writeCount = 0;
+
+  function check(condition, message) {
+    if (!condition) throw new Error(message);
+  }
+
+  globalThis.fetch = (url, init) => {
+    if (init.method === 'POST') {
+      writeCount++;
+      return Promise.resolve(Response.json({ scan_id: 'new' }, { status: 201 }));
+    }
+    return new Promise((resolve, reject) => {
+      pending.push({ url, cache: init.cache, resolve: data => resolve(Response.json(data)), reject });
+    });
+  };
+
+  function View({ plan, bssid }) {
+    const [value, setValue] = useState('');
+    const load = useCallback(read => Promise.all([
+      getHistory(plan, read),
+      getHeatmap(plan, { bssid }, read),
+    ]), [plan, bssid]);
+    const reload = useApiQuery(load, {
+      success: ([history, heat]) => setValue(history[0].id + '/' + heat[0].rssi),
+      error: cause => setValue(cause.message),
+    });
+    return createElement('button', { onClick: reload }, value);
+  }
+  const render = (plan, bssid) => act(async () => {
+    root.render(createElement(StrictMode, null, createElement(View, { plan, bssid })));
+  });
+  const history = id => [{ id, scans: [] }];
+  const heat = rssi => [{ rssi }];
+
+  try {
+    await render('a', 'a');
+    check(pending.length === 2, 'La double exécution React ne doit lancer que deux GET.');
+    await render('b', 'a');
+    await render('b', 'b');
+    check(pending.length === 5, 'Les deux variantes de B doivent partager l’historique.');
+    await act(async () => {
+      await saveScanAtPoint('point', 'b');
+    });
+    check(pending.length === 7 && writeCount === 1, 'La mutation doit relancer la lecture composée une fois.');
+    await act(async () => {
+      pending[5].resolve(history('new'));
+      pending[6].resolve(heat(-45));
+    });
+    check(node.textContent === 'new/-45', 'La vue doit publier les données récentes.');
+    await act(async () => {
+      pending[0].reject(new Error('ancienne erreur'));
+      pending[1].resolve(heat(-90));
+      pending[2].resolve(history('old'));
+      pending[3].reject(new Error('erreur BSSID'));
+      pending[4].resolve(heat(-80));
+    });
+    check(node.textContent === 'new/-45', 'Les réponses et erreurs anciennes doivent être ignorées.');
+    await act(async () => node.querySelector('button').click());
+    check(pending.length === 9 && pending.slice(7).every(call => call.cache === 'reload'),
+      'Le bouton doit forcer les deux GET.');
+    await act(async () => root.unmount());
+    await act(async () => {
+      pending[7].resolve(history('ignored'));
+      pending[8].reject(new Error('erreur après démontage'));
+    });
+    check(node.textContent === '' && apiCache.stats().inFlightRequests === 0, 'Les loaders doivent finir après le démontage.');
+    report.textContent = 'PASS · 9 GET · 1 POST';
+  } catch (error) {
+    report.textContent = 'FAIL · ' + error.message;
+    throw error;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+</script>
+</html>

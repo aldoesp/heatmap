@@ -11,13 +11,19 @@ import {
   type SimulationScenario,
   type SpeedHeatmapRow,
   type UploadPlanResponse,
-} from '../types/api';
-import type { RadioParams } from '../types/wifi';
-import type { AccessPoint } from '../types/plan';
-import type { PlanPolygon } from '../types/polygon';
-import type { NormalizedCoord } from './coords';
+} from '../types/api.js';
+import type { RadioParams } from '../types/wifi.js';
+import type { AccessPoint } from '../types/plan.js';
+import type { PlanPolygon } from '../types/polygon.js';
+import type { NormalizedCoord } from './coords.js';
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? '';
+import { API_BASE, ApiRead, READ_TIMEOUT_MS, invalidateApiReads } from './apiRead.js';
+import { apiInvalidation, apiKeys, planReadGroup, planReadKey, type ScanScope } from './apiKeys.js';
+
+type MutationInvalidation = Parameters<typeof invalidateApiReads>[0];
+const DEFAULT_TTL_MS = 15_000;
+const PLAN_TTL_MS = 30_000;
+const SCAN_TTL_MS = 30_000;
 
 /**
  * Résout une URL relative renvoyée par le backend en URL absolue
@@ -46,29 +52,83 @@ async function parseError(res: Response): Promise<never> {
   throw new ApiError(message, res.status, code);
 }
 
-async function apiRequest(path: string, init?: RequestInit): Promise<Response> {
+async function apiRequest(
+  path: string,
+  init?: RequestInit,
+  invalidation?: MutationInvalidation,
+): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, init);
   } catch {
+    if (invalidation) invalidateApiReads(invalidation);
     throw new ApiError(
       'Impossible de contacter le serveur. Vérifie ta connexion.',
       0,
       'network'
     );
   }
+  // Un import peut être partiellement appliqué même en cas de réponse d'erreur.
+  if (invalidation && (res.ok || res.status >= 500 || res.status === 408 || invalidation === 'all')) {
+    invalidateApiReads(invalidation);
+  }
   if (!res.ok) await parseError(res);
   return res;
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await apiRequest(path, init);
+async function apiFetch<T>(path: string, init?: RequestInit, invalidation?: MutationInvalidation): Promise<T> {
+  const res = await apiRequest(path, init, invalidation);
   if (res.status === 204) return undefined as T;
   try {
     return (await res.json()) as T;
   } catch {
     throw new ApiError('Réponse serveur illisible.', res.status, 'invalid-json');
   }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readJson<T>(
+  key: string,
+  path: string,
+  read: ApiRead = new ApiRead(),
+  valid: (value: unknown) => boolean = isObject,
+  ttlMs = DEFAULT_TTL_MS,
+): Promise<T> {
+  return read.fetch<T>(key, forced => fetchReadJson(path, valid, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+    cache: forced ? 'reload' : 'no-cache',
+  }), ttlMs);
+}
+
+async function fetchReadJson<T>(path: string, valid: (value: unknown) => boolean, init: RequestInit): Promise<T> {
+  const res = await apiRequest(path, init);
+  const mediaType = res.headers.get('Content-Type')?.split(';', 1)[0].trim().toLowerCase();
+  if (!mediaType || !(mediaType === 'application/json' || mediaType.endsWith('+json'))) {
+    throw new ApiError('Réponse serveur illisible.', res.status, 'invalid-json');
+  }
+  let value: unknown;
+  try {
+    value = await res.json();
+  } catch {
+    throw new ApiError('Réponse serveur illisible.', res.status, 'invalid-json');
+  }
+  if (!valid(value)) throw new ApiError('Réponse serveur incomplète.', res.status, 'invalid-shape');
+  return value as T;
+}
+
+function rowsOf(valid: (row: unknown) => boolean) {
+  return (value: unknown) => Array.isArray(value) && value.every(valid);
+}
+
+const objectRows = rowsOf(isObject);
+const planObject = (value: unknown) => isObject(value) && typeof value.imageUrl === 'string';
+const planRows = rowsOf(planObject);
+
+function readRows<T>(key: string, path: string, read?: ApiRead): Promise<T[]> {
+  return readJson<T[]>(key, path, read, objectRows);
 }
 
 function withResolvedImage<T extends { imageUrl: string }>(plan: T): T {
@@ -91,7 +151,7 @@ export async function uploadPlanImage(file: File): Promise<UploadPlanResponse> {
   const data = await apiFetch<UploadPlanResponse>('/api/v1/plans', {
     method: 'POST',
     body: form,
-  });
+  }, [apiKeys.plans]);
 
   if (
     typeof data?.id !== 'string' ||
@@ -121,15 +181,14 @@ export async function uploadPlanImage(file: File): Promise<UploadPlanResponse> {
   };
 }
 
-export async function listPlans(): Promise<PlanResponse[]> {
-  const plans = await apiFetch<PlanResponse[]>('/api/v1/plans');
+export async function listPlans(read?: ApiRead): Promise<PlanResponse[]> {
+  const plans = await readJson<PlanResponse[]>(apiKeys.plans, '/api/v1/plans', read, planRows, PLAN_TTL_MS);
   return plans.map(withResolvedImage);
 }
 
-export async function getPlan(id: string): Promise<PlanResponse> {
-  return withResolvedImage(
-    await apiFetch<PlanResponse>(`/api/v1/plans/${encodeURIComponent(id)}`)
-  );
+export async function getPlan(id: string, read?: ApiRead): Promise<PlanResponse> {
+  const path = `/api/v1/plans/${encodeURIComponent(id)}`;
+  return withResolvedImage(await readJson<PlanResponse>(apiKeys.plan(id), path, read, planObject, PLAN_TTL_MS));
 }
 
 export async function renamePlan(id: string, name: string): Promise<PlanResponse> {
@@ -138,14 +197,14 @@ export async function renamePlan(id: string, name: string): Promise<PlanResponse
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
-    })
+    }, apiInvalidation.plan(id))
   );
 }
 
 export async function deletePlan(id: string): Promise<void> {
   await apiFetch<void>(`/api/v1/plans/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-  });
+  }, apiInvalidation.deletePlan(id));
 }
 
 /** Enregistre (ou remplace) l'échelle du plan, en mètres par pixel. */
@@ -160,6 +219,7 @@ export async function calibratePlan(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ metersPerPixel }),
     },
+    apiInvalidation.plan(id),
   );
 }
 
@@ -167,9 +227,11 @@ export async function calibratePlan(
    Points d'accès
    ========================================================================== */
 
-export async function listAccessPoints(planId: string): Promise<AccessPoint[]> {
-  return apiFetch<AccessPoint[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/access-points`
+export async function listAccessPoints(planId: string, read?: ApiRead): Promise<AccessPoint[]> {
+  return readRows<AccessPoint>(
+    planReadKey('access-points', planId),
+    `/api/v1/plans/${encodeURIComponent(planId)}/access-points`,
+    read,
   );
 }
 
@@ -183,13 +245,15 @@ export async function createAccessPoint(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
-    }
+    },
+    [planReadGroup('access-points', planId)],
   );
 }
 
 export async function updateAccessPoint(
   apId: string,
-  patch: Partial<Pick<AccessPoint, 'name' | 'x' | 'y' | 'bssids'>>
+  patch: Partial<Pick<AccessPoint, 'name' | 'x' | 'y' | 'bssids'>>,
+  planId?: string,
 ): Promise<AccessPoint> {
   return apiFetch<AccessPoint>(
     `/api/v1/plans/access-points/${encodeURIComponent(apId)}`,
@@ -197,14 +261,16 @@ export async function updateAccessPoint(
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
-    }
+    },
+    [planReadGroup('access-points', planId)],
   );
 }
 
-export async function deleteAccessPoint(apId: string): Promise<void> {
+export async function deleteAccessPoint(apId: string, planId?: string): Promise<void> {
   await apiFetch<void>(
     `/api/v1/plans/access-points/${encodeURIComponent(apId)}`,
-    { method: 'DELETE' }
+    { method: 'DELETE' },
+    [planReadGroup('access-points', planId), planReadGroup('simulation', planId)],
   );
 }
 
@@ -230,9 +296,11 @@ function toPlanPolygon(row: PlanPolygonRow): PlanPolygon {
   };
 }
 
-export async function listPolygons(planId: string): Promise<PlanPolygon[]> {
-  const rows = await apiFetch<PlanPolygonRow[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/polygons`
+export async function listPolygons(planId: string, read?: ApiRead): Promise<PlanPolygon[]> {
+  const rows = await readRows<PlanPolygonRow>(
+    planReadKey('polygons', planId),
+    `/api/v1/plans/${encodeURIComponent(planId)}/polygons`,
+    read,
   );
   return rows.map(toPlanPolygon);
 }
@@ -247,14 +315,16 @@ export async function createPolygon(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ vertices }),
-    }
+    },
+    [planReadGroup('polygons', planId)],
   );
   return toPlanPolygon(row);
 }
 
 export async function updatePolygon(
   polygonId: string,
-  vertices: NormalizedCoord[]
+  vertices: NormalizedCoord[],
+  planId?: string,
 ): Promise<PlanPolygon> {
   const row = await apiFetch<PlanPolygonRow>(
     `/api/v1/plans/polygons/${encodeURIComponent(polygonId)}`,
@@ -262,15 +332,17 @@ export async function updatePolygon(
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ vertices }),
-    }
+    },
+    [planReadGroup('polygons', planId)],
   );
   return toPlanPolygon(row);
 }
 
-export async function deletePolygon(polygonId: string): Promise<void> {
+export async function deletePolygon(polygonId: string, planId?: string): Promise<void> {
   await apiFetch<void>(
     `/api/v1/plans/polygons/${encodeURIComponent(polygonId)}`,
-    { method: 'DELETE' }
+    { method: 'DELETE' },
+    [planReadGroup('polygons', planId)],
   );
 }
 
@@ -278,11 +350,11 @@ export async function deletePolygon(polygonId: string): Promise<void> {
    Scénarios de simulation (copie indépendante d'un AP réel)
    ========================================================================== */
 
-export async function listSimulationScenarios(
-  planId: string,
-): Promise<SimulationScenario[]> {
-  return apiFetch<SimulationScenario[]>(
+export async function listSimulationScenarios(planId: string, read?: ApiRead): Promise<SimulationScenario[]> {
+  return readRows<SimulationScenario>(
+    planReadKey('simulation', planId),
     `/api/v1/simulation-scenarios?plan_id=${encodeURIComponent(planId)}`,
+    read,
   );
 }
 
@@ -296,7 +368,7 @@ export async function createSimulationScenario(input: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
-  });
+  }, [planReadGroup('simulation', input.plan_id)]);
 }
 
 export async function updateSimulationScenario(
@@ -307,6 +379,7 @@ export async function updateSimulationScenario(
     currentY?: number;
     radio?: RadioParams;
   },
+  planId?: string,
 ): Promise<SimulationScenario> {
   return apiFetch<SimulationScenario>(
     `/api/v1/simulation-scenarios/${encodeURIComponent(id)}`,
@@ -315,23 +388,27 @@ export async function updateSimulationScenario(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
     },
+    [planReadGroup('simulation', planId)],
   );
 }
 
 /** Restaure la position et la radio initiales du scénario (jamais l'AP réel). */
 export async function resetSimulationScenario(
   id: string,
+  planId?: string,
 ): Promise<SimulationScenario> {
   return apiFetch<SimulationScenario>(
     `/api/v1/simulation-scenarios/${encodeURIComponent(id)}/reset`,
     { method: 'POST' },
+    [planReadGroup('simulation', planId)],
   );
 }
 
-export async function deleteSimulationScenario(id: string): Promise<void> {
+export async function deleteSimulationScenario(id: string, planId?: string): Promise<void> {
   await apiFetch<void>(
     `/api/v1/simulation-scenarios/${encodeURIComponent(id)}`,
     { method: 'DELETE' },
+    [planReadGroup('simulation', planId)],
   );
 }
 
@@ -339,9 +416,11 @@ export async function deleteSimulationScenario(id: string): Promise<void> {
    Relevés Wi-Fi
    ========================================================================== */
 
-export async function listScanPoints(planId: string): Promise<ScanPointResponse[]> {
-  return apiFetch<ScanPointResponse[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/scan-points`
+export async function listScanPoints(planId: string, read?: ApiRead): Promise<ScanPointResponse[]> {
+  return readRows<ScanPointResponse>(
+    planReadKey('points', planId),
+    `/api/v1/plans/${encodeURIComponent(planId)}/scan-points`,
+    read,
   );
 }
 
@@ -356,7 +435,8 @@ export async function createScanPoint(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ x, y }),
-    }
+    },
+    apiInvalidation.point(planId),
   );
 }
 
@@ -366,7 +446,8 @@ export async function deleteScanPoint(
 ): Promise<void> {
   await apiFetch<void>(
     `/api/v1/plans/${encodeURIComponent(planId)}/scan-points/${encodeURIComponent(pointId)}`,
-    { method: 'DELETE' }
+    { method: 'DELETE' },
+    apiInvalidation.deletePoint(planId, pointId),
   );
 }
 
@@ -382,15 +463,17 @@ export async function updateScanPoint(
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
-    }
+    },
+    apiInvalidation.point(planId, patch.is_enabled !== undefined),
   );
 }
 
 /** Lance un scan à un point et l'enregistre (observations incluses). */
-export async function saveScanAtPoint(pointId: string): Promise<SaveScanResponse> {
+export async function saveScanAtPoint(pointId: string, planId?: string): Promise<SaveScanResponse> {
   return apiFetch<SaveScanResponse>(
     `/api/v1/scan/scan-points/${encodeURIComponent(pointId)}/scans`,
-    { method: 'POST' }
+    { method: 'POST' },
+    apiInvalidation.measurements(planId),
   );
 }
 
@@ -398,44 +481,68 @@ export async function saveScanAtPoint(pointId: string): Promise<SaveScanResponse
    Historique & heatmap
    ========================================================================== */
 
-export async function getHistory(planId: string): Promise<ScanHistoryEntry[]> {
-  return apiFetch<ScanHistoryEntry[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/history`
+export async function getHistory(planId: string, read?: ApiRead): Promise<ScanHistoryEntry[]> {
+  return readRows<ScanHistoryEntry>(
+    planReadKey('history', planId),
+    `/api/v1/plans/${encodeURIComponent(planId)}/history`,
+    read,
   );
 }
 
-export async function getScanDetail(scanId: string): Promise<ScanDetailResponse> {
-  return apiFetch<ScanDetailResponse>(
-    `/api/v1/scan/scans/${encodeURIComponent(scanId)}`
+export async function getScanDetail(scanId: string, read?: ApiRead, scope?: ScanScope): Promise<ScanDetailResponse> {
+  return readJson<ScanDetailResponse>(
+    apiKeys.scan(scanId, scope),
+    `/api/v1/scan/scans/${encodeURIComponent(scanId)}`,
+    read,
+    value => isObject(value) && objectRows(value.observations),
+    SCAN_TTL_MS,
   );
 }
 
-export async function getHeatmap(
-  planId: string,
-  filter?: { ssid?: string; bssid?: string; connected?: boolean; band?: '2.4' | '5' | '6' }
-): Promise<HeatmapRow[]> {
+type HeatmapFilter = { ssid?: string; bssid?: string; connected?: boolean; band?: '2.4' | '5' | '6' };
+
+function heatmapQuery(filter?: HeatmapFilter): string {
   const params = new URLSearchParams();
   if (filter?.ssid) params.set('ssid', filter.ssid);
-  if (filter?.bssid) params.set('bssid', filter.bssid);
-  if (filter?.connected !== undefined) {
-    params.set('connected', filter.connected ? '1' : '0');
-  }
+  if (filter?.bssid) params.set('bssid', filter.bssid.toLowerCase());
+  if (filter?.connected) params.set('connected', '1');
   if (filter?.band) params.set('band', filter.band);
-  const qs = params.toString();
-  return apiFetch<HeatmapRow[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/heatmap${qs ? `?${qs}` : ''}`
+  return params.toString();
+}
+
+function heatmapPath(planId: string, query: string): string {
+  return `/api/v1/plans/${encodeURIComponent(planId)}/heatmap${query ? `?${query}` : ''}`;
+}
+
+export async function getHeatmap(planId: string, filter?: HeatmapFilter, read?: ApiRead): Promise<HeatmapRow[]> {
+  const query = heatmapQuery(filter);
+  return readRows<HeatmapRow>(
+    planReadKey('heatmap', planId, query || 'all'),
+    heatmapPath(planId, query),
+    read,
   );
 }
 
-export async function getHeatmapSpeed(planId: string): Promise<SpeedHeatmapRow[]> {
-  return apiFetch<SpeedHeatmapRow[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/heatmap-speed`
+export async function getHeatmapForExport(planId: string, filter: HeatmapFilter, signal: AbortSignal): Promise<HeatmapRow[]> {
+  return fetchReadJson(heatmapPath(planId, heatmapQuery(filter)), objectRows, {
+    cache: 'no-store',
+    signal: AbortSignal.any([signal, AbortSignal.timeout(READ_TIMEOUT_MS)]),
+  });
+}
+
+export async function getHeatmapSpeed(planId: string, read?: ApiRead): Promise<SpeedHeatmapRow[]> {
+  return readRows<SpeedHeatmapRow>(
+    planReadKey('speed', planId),
+    `/api/v1/plans/${encodeURIComponent(planId)}/heatmap-speed`,
+    read,
   );
 }
 
-export async function getHeatmapGateway(planId: string): Promise<GatewayHeatmapRow[]> {
-  return apiFetch<GatewayHeatmapRow[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/heatmap-gateway`
+export async function getHeatmapGateway(planId: string, read?: ApiRead): Promise<GatewayHeatmapRow[]> {
+  return readRows<GatewayHeatmapRow>(
+    planReadKey('gateway', planId),
+    `/api/v1/plans/${encodeURIComponent(planId)}/heatmap-gateway`,
+    read,
   );
 }
 
@@ -445,9 +552,11 @@ export async function getIperfStatus(): Promise<{ available: boolean; version: s
   );
 }
 
-export async function getNetworks(planId: string): Promise<NetworkInfo[]> {
-  return apiFetch<NetworkInfo[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/networks`
+export async function getNetworks(planId: string, read?: ApiRead): Promise<NetworkInfo[]> {
+  return readRows<NetworkInfo>(
+    planReadKey('networks', planId),
+    `/api/v1/plans/${encodeURIComponent(planId)}/networks`,
+    read,
   );
 }
 
@@ -488,12 +597,12 @@ export interface BssidSeen {
   blacklisted: boolean;
 }
 
-export async function listBssidRules(): Promise<BssidRule[]> {
-  return apiFetch<BssidRule[]>('/api/v1/bssid-rules');
+export async function listBssidRules(read?: ApiRead): Promise<BssidRule[]> {
+  return readRows<BssidRule>(apiKeys.bssidRules, '/api/v1/bssid-rules', read);
 }
 
-export async function listSeenBssids(): Promise<BssidSeen[]> {
-  return apiFetch<BssidSeen[]>('/api/v1/bssid-rules/seen');
+export async function listSeenBssids(read?: ApiRead): Promise<BssidSeen[]> {
+  return readRows<BssidSeen>(apiKeys.bssidSeen, '/api/v1/bssid-rules/seen', read);
 }
 
 export async function createBssidRule(input: {
@@ -505,7 +614,7 @@ export async function createBssidRule(input: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
-  });
+  }, apiInvalidation.bssidRules);
 }
 
 export async function updateBssidRule(
@@ -516,17 +625,17 @@ export async function updateBssidRule(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
-  });
+  }, apiInvalidation.bssidRules);
 }
 
 export async function deleteBssidRule(id: string): Promise<void> {
   await apiFetch<void>(`/api/v1/bssid-rules/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-  });
+  }, apiInvalidation.bssidRules);
 }
 
-export async function getSettings(): Promise<AppSettings> {
-  return apiFetch<AppSettings>('/api/v1/settings');
+export async function getSettings(read?: ApiRead): Promise<AppSettings> {
+  return readJson<AppSettings>(apiKeys.settings, '/api/v1/settings', read);
 }
 
 export async function patchSetting(
@@ -537,7 +646,7 @@ export async function patchSetting(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, value }),
-  });
+  }, [apiKeys.settings]);
 }
 
 export interface ApMapping {
@@ -548,9 +657,11 @@ export interface ApMapping {
   created_at: string;
 }
 
-export async function listApMappings(planId: string): Promise<ApMapping[]> {
-  return apiFetch<ApMapping[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/ap-mappings`
+export async function listApMappings(planId: string, read?: ApiRead): Promise<ApMapping[]> {
+  return readRows<ApMapping>(
+    planReadKey('ap-mappings', planId),
+    `/api/v1/plans/${encodeURIComponent(planId)}/ap-mappings`,
+    read,
   );
 }
 
@@ -564,14 +675,16 @@ export async function createApMapping(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
-    }
+    },
+    [planReadGroup('ap-mappings', planId)],
   );
 }
 
-export async function deleteApMapping(mappingId: string): Promise<void> {
+export async function deleteApMapping(mappingId: string, planId?: string): Promise<void> {
   await apiFetch<void>(
     `/api/v1/plans/ap-mappings/${encodeURIComponent(mappingId)}`,
-    { method: 'DELETE' }
+    { method: 'DELETE' },
+    [planReadGroup('ap-mappings', planId)],
   );
 }
 
@@ -662,18 +775,18 @@ export async function importSurveys(
   return apiFetch<SurveyImportResult>('/api/v1/surveys/import', {
     method: 'POST',
     body: form,
-  });
+  }, 'all');
 }
 
 /** URL de téléchargement CSV des relevés (ancre <a href>, pas de fetch). */
 export function exportCsvUrl(planId: string): string {
-  const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
+  const base = API_BASE;
   return `${base}/api/v1/plans/${encodeURIComponent(planId)}/export.csv`;
 }
 
 /** URL de téléchargement de l'export complet des données (base + plans). */
 export function exportAllUrl(): string {
-  const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
+  const base = API_BASE;
   return `${base}/api/v1/export`;
 }
 
@@ -684,7 +797,7 @@ export async function importCsvSurvey(file: File, options: { name?: string } = {
   return apiFetch<{ planId: string; surveyId: string }>('/api/v1/import/csv', {
     method: 'POST',
     body: form,
-  });
+  }, 'all');
 }
 
 
@@ -706,9 +819,11 @@ function toApPosition(row: ApPositionRow): ApPositionDto {
   return { bssid: row.bssid, x: row.x, y: row.y };
 }
 
-export async function fetchApPositions(planId: string): Promise<ApPositionDto[]> {
-  const rows = await apiFetch<ApPositionRow[]>(
-    `/api/v1/plans/${encodeURIComponent(planId)}/aps`
+export async function fetchApPositions(planId: string, read?: ApiRead): Promise<ApPositionDto[]> {
+  const rows = await readRows<ApPositionRow>(
+    planReadKey('ap-positions', planId),
+    `/api/v1/plans/${encodeURIComponent(planId)}/aps`,
+    read,
   );
   return rows.map(toApPosition);
 }
@@ -725,7 +840,8 @@ export async function saveApPosition(
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ x, y }),
-    }
+    },
+    [planReadGroup('ap-positions', planId)],
   );
   return toApPosition(row);
 }
@@ -733,6 +849,7 @@ export async function saveApPosition(
 export async function removeApPosition(planId: string, bssid: string): Promise<void> {
   await apiFetch<void>(
     `/api/v1/plans/${encodeURIComponent(planId)}/aps/${encodeURIComponent(bssid)}`,
-    { method: 'DELETE' }
+    { method: 'DELETE' },
+    [planReadGroup('ap-positions', planId)],
   );
 }
