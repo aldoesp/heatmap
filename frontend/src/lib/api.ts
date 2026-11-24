@@ -19,6 +19,7 @@ import type { NormalizedCoord } from './coords.js';
 
 import { API_BASE, ApiRead, READ_TIMEOUT_MS, invalidateApiReads } from './apiRead.js';
 import { apiInvalidation, apiKeys, planReadGroup, planReadKey, type ScanScope } from './apiKeys.js';
+import { recordLocalApiMutation } from './apiSync.js';
 
 type MutationInvalidation = Parameters<typeof invalidateApiReads>[0];
 const DEFAULT_TTL_MS = 15_000;
@@ -71,6 +72,10 @@ async function apiRequest(
   // Un import peut être partiellement appliqué même en cas de réponse d'erreur.
   if (invalidation && (res.ok || res.status >= 500 || res.status === 408 || invalidation === 'all')) {
     invalidateApiReads(invalidation);
+    // Les anciennes données peuvent contenir des dépendances croisées entre plans
+    // lors d'une suppression en cascade. Le prochain poll les vérifie globalement.
+    const crossPlanCascade = init?.method === 'DELETE' && /^\/api\/v1\/plans\/[^/]+(?:\/scan-points\/[^/]+)?$/.test(path);
+    if (res.ok && !crossPlanCascade) recordLocalApiMutation(res);
   }
   if (!res.ok) await parseError(res);
   return res;

@@ -135,3 +135,32 @@ Le scénario React de [apiRead.browser.html](frontend/tests/apiRead.browser.html
 Le stockage est désactivé par défaut. Pour un test, démarrer Vite ou reconstruire le frontend avec `VITE_API_CACHE_ENABLED=true`. La déduplication, l’invalidation et les contrôles de publication restent actifs lorsque le stockage est désactivé. Le cache et ses notifications restent dans le même contexte JavaScript.
 
 En phase 5C, mesurer le coût et les gains sur les parcours complets, vérifier la cohérence des données visibles entre PC et smartphone, et valider le comportement du HTTPS, du cache HTTP, des délais et des TTL sur les appareils cibles avant de décider de l’activation du stockage par défaut.
+
+## Phase 5C · Synchronisation des lectures API
+
+`GET /api/v1/revision` renvoie en mémoire `{ instanceId, revision }` avec `Cache-Control: no-store`. Chaque processus crée son identifiant au démarrage. La révision augmente après un commit SQLite ou un changement en autocommit. Le proxy Vite transmet cette route et la limite API habituelle s’applique.
+
+`runDataWrite` couvre l’autocommit pour les plans, surveys, points de mesure, tests de débit, AP, polygones, mappings et positions d’AP, règles BSSID, paramètres et scénarios de simulation. `commitDataTransaction` notifie au retour des transactions de scan et d’import ZIP. Les savepoints attendent le commit de la transaction extérieure. Le CSV conserve son comportement partiel et notifie chaque écriture validée, y compris si la suite échoue. Une future transaction d’écriture doit utiliser ce helper à sa frontière de commit. La route et la table de simulation sont absentes du montage et du schéma de cette branche. Les quatre méthodes d’écriture du dépôt ont été testées avec une table temporaire.
+
+`apiSync.ts` effectue une vérification initiale avant les lectures suivies, puis interroge la révision toutes les 5 s tant que le document est visible et en ligne. Une seule requête est active. Le retour au premier plan et la reconnexion déclenchent une vérification, sous réserve de `Retry-After`. Le délai de la requête et de la lecture de son corps est de 3 s. Après un échec, le backoff progresse de 5 à 60 s. Les listeners et les timers sont libérés à l’arrêt.
+
+Une nouvelle instance ou une variation de révision invalide les lectures via `invalidateApiReads('all')`. Les consommateurs actifs relisent leurs données et `ApiRead.isCurrent()` empêche la publication des anciens résultats. Le reçu CORS `X-Heatmap-Revision` identifie seulement une plage contiguë appartenant à la requête d’écriture. Le frontend évite une relecture globale si ses invalidations locales réussies couvrent intégralement cette plage depuis la dernière révision observée. Les suppressions de plans et de points gardent la vérification globale pour les cascades croisées des anciennes données. Une erreur de vérification purge le stockage et la déduplication reste disponible. La récupération valide de nouveau les lectures avant la reprise du stockage.
+
+La cohérence est éventuelle. Le délai dépend du prochain poll, du réseau, des lectures et du rendu. Le mécanisme suppose un backend mono-processus et couvre les écritures effectuées par ses chemins applicatifs. Les modifications externes du fichier SQLite et les écritures d’autres processus n’augmentent pas sa révision. Le cache raster de la phase 3 reste indexé sur les entrées de calcul et peut servir après une invalidation API.
+
+Le stockage API reste désactivé par défaut, avec activation explicite via `VITE_API_CACHE_ENABLED=true` et désactivation via `VITE_API_CACHE_ENABLED=false`. Le polling reste actif dans les deux cas. `VITE_API_SYNC_INTERVAL_MS` accepte un intervalle d’au moins 1 000 ms et utilise 5 000 ms par défaut. Les plafonds restent à 100 entrées, 16 Mio estimés et 2 Mio par entrée. Les TTL restent à 15 et 30 s.
+
+Les 105 tests backend passent avec le cache activé puis désactivé. Les 230 tests frontend, le build et le lint ciblé passent. Le lint global signale uniquement l’erreur préexistante `react-hooks/set-state-in-effect` dans `SimulatorControls.tsx:42`. Le test navigateur de la phase 5B passe, ainsi que les vérifications sur deux contextes Chromium indépendants.
+
+Le stockage avec synchronisation fait passer les requêtes HTTP de 555 à 230 (−58,6 %), dont 20 polls, et les réponses de 1 011,3 Kio à 684,9 Kio (−32,3 %). Le délai distant après réponse d’écriture est de 3 781,0 ms p50 et 8 916,5 ms p95. Le stockage reste désactivé par défaut en attendant l’intégration Git du cache raster des phases 2 et 3 et la validation sur les appareils cibles. [Rapport et reproduction](benchmarks/phase5c-report.md)
+
+### Essai manuel sur PC et smartphone
+
+1. Utiliser un backend de test et un plan de test accessibles aux deux appareils via le proxy ou l’URL HTTPS habituelle. Pour tester le stockage, construire le frontend avec `VITE_API_CACHE_ENABLED=true`.
+2. Ouvrir Couverture sur le PC et sélectionner le même plan dans Relevé Wi-Fi sur le smartphone. Garder la page du PC visible. Enregistrer puis conserver un relevé à un nouveau point sur le smartphone. Relever le délai jusqu’à l’ajout du point et à l’actualisation de la couverture sur le PC.
+3. Renommer une règle BSSID, supprimer un point puis modifier une zone depuis le second appareil. Vérifier le libellé, le retrait du point et la nouvelle couverture sur le premier appareil. Dans l’onglet Réseau, contrôler le `200` et `Cache-Control: no-store` de la révision.
+4. Masquer la page du PC pendant une modification, revenir au premier plan, puis répéter après une coupure réseau. Vérifier la reprise automatique. Redémarrer le backend temporaire et vérifier que le nouvel `instanceId` provoque une relecture.
+
+### Restant pour la phase 6
+
+Intégrer les changements raster des phases 2 et 3 dans l’historique de la branche. Valider sur PC et smartphone avec le proxy HTTPS de déploiement, des plans plus volumineux et plusieurs onglets visibles. Mesurer les budgets cumulés API et raster et le trafic en veille prolongée. Réévaluer ensuite l’activation du stockage et l’intérêt d’une révision par domaine.

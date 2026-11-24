@@ -17,7 +17,23 @@ export function apiGroup(...segments: string[]): { prefix: string } {
 }
 
 let storeResponses = import.meta.env?.VITE_API_CACHE_ENABLED === 'true';
+export type ApiReadSyncState = 'checking' | 'trusted' | 'unavailable';
+let syncState: ApiReadSyncState = 'unavailable';
+let initialSync: Promise<void> | undefined;
+let releaseInitialSync: (() => void) | undefined;
 const invalidationListeners = new Set<(selectors: Invalidation) => void>();
+
+export function setApiReadSyncState(state: ApiReadSyncState) {
+  if (syncState === state) return;
+  syncState = state;
+  if (state === 'checking') {
+    initialSync = new Promise(resolve => { releaseInitialSync = resolve; });
+  } else {
+    releaseInitialSync?.();
+    releaseInitialSync = undefined;
+    initialSync = undefined;
+  }
+}
 
 /** Permet d'activer le stockage explicitement, par exemple dans les tests. */
 export function setApiCacheStorage(enabled: boolean) {
@@ -59,13 +75,14 @@ export class ApiRead {
   }
 
   async fetch<T>(key: string, loader: (forced: boolean) => Promise<T>, ttlMs: number): Promise<T> {
+    while (initialSync) await initialSync;
     this.signal?.throwIfAborted();
     const forceRefresh = this.forceRefresh && !this.keys.has(key);
     this.keys.add(key);
     const pending = apiCache.getOrFetch(key, () => loader(forceRefresh), {
       forceRefresh,
       signal: this.signal,
-      ttlMs: storeResponses ? ttlMs : 0,
+      ttlMs: storeResponses && syncState === 'trusted' ? ttlMs : 0,
     });
     // getOrFetch a déjà remplacé une éventuelle requête ordinaire lors d'un forceRefresh.
     const errorIsCurrent = apiCache.captureCurrent(key);

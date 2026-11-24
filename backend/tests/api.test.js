@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { deflateSync, crc32 } from 'node:zlib';
 import { unzipSync } from 'fflate';
+import { trackMutation, getDataRevision, REVISION_HEADER } from '../src/cache/dataRevision.js';
 
 const TMP = mkdtempSync(path.join(tmpdir(), 'heatmap-test-'));
 process.env.DB_PATH = path.join(TMP, 'test.db');
@@ -65,10 +66,83 @@ legacyDb.close();
 
 const { default: app } = await import('../src/app.js');
 const { PLANS_DIRECTORY } = await import('../src/services/plans.service.js');
+const { getDb } = await import('../src/database/db.js');
+const { renamePlan } = await import('../src/repositories/plans.repository.js');
+const { insertScenario, updateScenario, resetScenario, deleteScenario } = await import('../src/repositories/simulationScenarios.repository.js');
 
 let server;
 let base;
 const createdPlans = [];
+
+it('expose une révision non cachable, soumise au limiteur, sans ouvrir SQLite', async (t) => {
+  // Le fixture legacy existe déjà, mais la connection de l’application est encore fermée.
+  const { default: Database } = await import('better-sqlite3');
+  const prepare = t.mock.method(Database.prototype, 'prepare', () => { throw new Error('lecture SQLite inattendue'); });
+  const read = () => fetch(`${base}/api/v1/revision`, { headers: { 'If-None-Match': '*' } });
+  const first = await read();
+  assert.equal(first.status, 200);
+  assert.equal(first.headers.get('cache-control'), 'no-store');
+  assert.ok(first.headers.has('ratelimit'));
+  const snapshot = await first.json();
+  assert.match(snapshot.instanceId, /^[\da-f-]{36}$/);
+  assert.equal(snapshot.revision, 0);
+  assert.deepEqual(await (await read()).json(), snapshot);
+  assert.equal(prepare.mock.callCount(), 0);
+});
+
+it('émet le reçu des écritures validées et laisse les échecs sans révision', async () => {
+  const url = `${base}/api/v1`;
+  const snapshot = () => fetch(`${url}/revision`).then(response => response.json());
+  const before = await snapshot();
+  const rename = await fetch(`${url}/plans/legacy-plan`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://heatmap.example' },
+    body: JSON.stringify({ name: 'Ancien plan' }),
+  });
+  assert.equal(rename.status, 200);
+  assert.match(rename.headers.get('access-control-expose-headers'), /X-Heatmap-Revision/i);
+  const next = before.revision + 1;
+  assert.equal(rename.headers.get('x-heatmap-revision'), `${before.instanceId}:${next}:${next}`);
+  await rename.json();
+  const rejected = await api('PATCH', '/api/v1/plans/legacy-plan', { name: '' });
+  assert.equal(rejected.status, 400);
+  assert.deepEqual(await snapshot(), { ...before, revision: next });
+});
+
+it('couvre les quatre écritures du dépôt de simulation', async () => {
+  const db = getDb();
+  // Les anciennes bases peuvent précéder la table de simulation utilisée par le dépôt.
+  db.exec(`CREATE TABLE IF NOT EXISTS simulation_scenarios (
+    id TEXT PRIMARY KEY, plan_id TEXT, source_access_point_id TEXT, name TEXT,
+    initial_x REAL, initial_y REAL, initial_radio TEXT, current_x REAL, current_y REAL, radio TEXT,
+    created_at TEXT, updated_at TEXT
+  )`);
+  const read = () => fetch(`${base}/api/v1/revision`).then(response => response.json());
+  const { revision } = await read();
+  const scenario = insertScenario({ plan_id: 'legacy-plan', name: 'A', initial_x: 0, initial_y: 0, initial_radio: {} });
+  updateScenario(scenario.id, { name: 'B' });
+  resetScenario(scenario.id);
+  deleteScenario(scenario.id);
+  assert.equal((await read()).revision, revision + 4);
+});
+
+it('omet le reçu d’une écriture locale entrecoupée par une autre requête', async () => {
+  const headers = new Map();
+  const response = { setHeader: (key, value) => headers.set(key, value), removeHeader: key => headers.delete(key) };
+  const first = Promise.withResolvers();
+  const { revision } = getDataRevision();
+  const finished = trackMutation({ method: 'PATCH' }, response, async () => {
+    renamePlan('legacy-plan', 'Ancien plan');
+    await first.promise;
+    renamePlan('legacy-plan', 'Ancien plan');
+  });
+  assert.ok(headers.has(REVISION_HEADER));
+  renamePlan('legacy-plan', 'Ancien plan');
+  first.resolve();
+  await finished;
+  assert.equal(getDataRevision().revision, revision + 3);
+  assert.equal(headers.has(REVISION_HEADER), false);
+});
 
 // Petit PNG 8x8 valide généré en mémoire
 function makePng(target) {

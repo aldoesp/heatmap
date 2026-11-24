@@ -1,4 +1,5 @@
 import { getDb } from '../database/db.js';
+import { runDataWrite } from '../cache/dataRevision.js';
 
 export const SETTING_KEYS = ['iperf_server', 'iperf_duration_s', 'scan_mode', 'heatmap_colours'];
 
@@ -17,11 +18,10 @@ export function getAllSettings() {
 }
 
 export function setSetting(key, value) {
-  getDb()
-    .prepare(
-      `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
-    )
-    .run(key, value);
+  runDataWrite(getDb(),
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    key, value
+  );
   return { key, value };
 }

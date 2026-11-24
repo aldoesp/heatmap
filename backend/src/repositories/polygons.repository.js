@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { runDataWrite } from '../cache/dataRevision.js';
 
 /**
  * Zones de délimitation : les sommets sont stockés en JSON dans le repère
@@ -25,9 +26,7 @@ function toPolygon(row) {
 
 export function insertPolygon({ plan_id, vertices }) {
   const id = randomUUID();
-  getDb()
-    .prepare('INSERT INTO polygons (id, plan_id, vertices) VALUES (?, ?, ?)')
-    .run(id, plan_id, JSON.stringify(vertices));
+  runDataWrite(getDb(), 'INSERT INTO polygons (id, plan_id, vertices) VALUES (?, ?, ?)', id, plan_id, JSON.stringify(vertices));
   return findPolygonById(id);
 }
 
@@ -46,14 +45,12 @@ export function listPolygonsByPlan(plan_id) {
 }
 
 export function updatePolygon(id, vertices) {
-  const result = getDb()
-    .prepare(
-      `UPDATE polygons SET vertices = ?, updated_at = datetime('now') WHERE id = ?`
-    )
-    .run(JSON.stringify(vertices), id);
+  const result = runDataWrite(getDb(),
+    `UPDATE polygons SET vertices = ?, updated_at = datetime('now') WHERE id = ?`, JSON.stringify(vertices), id,
+  );
   return result.changes > 0 ? findPolygonById(id) : null;
 }
 
 export function deletePolygon(id) {
-  return getDb().prepare('DELETE FROM polygons WHERE id = ?').run(id).changes > 0;
+  return runDataWrite(getDb(), 'DELETE FROM polygons WHERE id = ?', id).changes > 0;
 }

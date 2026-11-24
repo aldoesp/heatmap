@@ -9,7 +9,7 @@ import {
   saveScanAtPoint, updateBssidRule, updateScanPoint,
 } from '../src/lib/api.js';
 import { apiCache } from '../src/lib/apiCache.js';
-import { ApiRead, READ_TIMEOUT_MS, setApiCacheStorage, watchApiRead } from '../src/lib/apiRead.js';
+import { ApiRead, READ_TIMEOUT_MS, setApiCacheStorage, setApiReadSyncState, watchApiRead } from '../src/lib/apiRead.js';
 import { ApiError } from '../src/types/api.js';
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
@@ -39,6 +39,7 @@ async function until(condition: () => boolean) {
 }
 
 beforeEach(() => {
+  setApiReadSyncState('trusted');
   setApiCacheStorage(false);
   apiCache.clear();
 });

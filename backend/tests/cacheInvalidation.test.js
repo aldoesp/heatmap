@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { commitDataTransaction, getDataRevision } from '../src/cache/dataRevision.js';
 import { after, beforeEach, test } from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -259,6 +260,7 @@ test('import CSV met à jour les résultats et les BSSID vus', () => {
 
 test('un CSV interrompu conserve les écritures validées et invalide les lectures concernées', () => {
   const seen = warm(listAllSeenBssids);
+  const { revision } = getDataRevision();
   assert.throws(
     () => importCsvSurvey([header, csvRow('success'), csvRow('failure', 'invalid', newRadio)].join('\n'),
       { planName: 'Partiel' }),
@@ -266,6 +268,7 @@ test('un CSV interrompu conserve les écritures validées et invalide les lectur
   );
   const { id } = getDb().prepare("SELECT id FROM plans WHERE name = 'Partiel'").get();
   assert.equal(warm(() => getHistoryByPlan(id)).length, 2);
+  assert.equal(getDataRevision().revision, revision + 6);
   assert.deepEqual(warm(() => heatmapByPlan(id)).map(row => row.bssid), [csvRadio]);
   const current = refreshed(listAllSeenBssids, seen);
   assert.ok(current.some(row => row.bssid === csvRadio));
@@ -273,9 +276,11 @@ test('un CSV interrompu conserve les écritures validées et invalide les lectur
 });
 
 test('échec SQL et rollback du scan ne modifient ni les données ni les entrées cachées', () => {
+  const revision = getDataRevision();
   const before = warm(heatmap);
   const historyBefore = warm(history);
   assert.throws(() => recordScan(point.id, { rssi: 1 }), { code: 'SQLITE_CONSTRAINT_CHECK' });
+  assert.deepEqual(getDataRevision(), revision);
   unchanged(heatmap, before);
   unchanged(history, historyBefore);
 });
@@ -284,7 +289,8 @@ test('savepoints validés sous transaction externe et rollback interne ou extern
   const db = getDb();
   const abort = new Error('rollback');
   const before = warm(heatmap);
-  db.transaction(() => {
+  const initialRevision = getDataRevision().revision;
+  commitDataTransaction(db, () => {
     recordScan(point.id, { rssi: -60 });
     assert.equal(heatmap()[0].rssi, -60);
     assert.throws(db.transaction(() => {
@@ -294,15 +300,18 @@ test('savepoints validés sous transaction externe et rollback interne ou extern
     }), error => error === abort);
     assert.equal(heatmap()[0].rssi, -60);
     assert.equal(memoryCache.stats().entries, 0);
-  })();
+    assert.equal(getDataRevision().revision, initialRevision);
+  });
+  assert.equal(getDataRevision().revision, initialRevision + 1);
   const committed = refreshed(heatmap, before);
   assert.equal(committed[0].rssi, -60);
-  assert.throws(db.transaction(() => {
+  assert.throws(() => commitDataTransaction(db, () => {
     recordScan(point.id, { rssi: -30 });
     assert.equal(heatmap()[0].rssi, -30);
     assert.equal(memoryCache.stats().entries, 0);
     throw abort;
   }), error => error === abort);
+  assert.equal(getDataRevision().revision, initialRevision + 1);
   assert.equal(refreshed(heatmap, committed)[0].rssi, -60);
 });
 

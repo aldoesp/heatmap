@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { runDataWrite } from '../cache/dataRevision.js';
 
 /**
  * Scénarios de simulation : une copie indépendante d'un AP réel.
@@ -55,25 +56,22 @@ export function insertScenario({
   radio = initial_radio,
 }) {
   const id = randomUUID();
-  getDb()
-    .prepare(
-      `INSERT INTO simulation_scenarios
-        (id, plan_id, source_access_point_id, name,
-         initial_x, initial_y, initial_radio, current_x, current_y, radio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      id,
-      plan_id,
-      source_access_point_id,
-      name,
-      initial_x,
-      initial_y,
-      JSON.stringify(initial_radio),
-      current_x,
-      current_y,
-      JSON.stringify(radio)
-    );
+  runDataWrite(getDb(),
+    `INSERT INTO simulation_scenarios
+       (id, plan_id, source_access_point_id, name,
+        initial_x, initial_y, initial_radio, current_x, current_y, radio)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    plan_id,
+    source_access_point_id,
+    name,
+    initial_x,
+    initial_y,
+    JSON.stringify(initial_radio),
+    current_x,
+    current_y,
+    JSON.stringify(radio),
+  );
   return findScenarioById(id);
 }
 
@@ -117,29 +115,22 @@ export function updateScenario(id, { name, current_x, current_y, radio }) {
   if (fields.length === 0) return findScenarioById(id);
   fields.push(`updated_at = datetime('now')`);
   params.push(id);
-  getDb()
-    .prepare(
-      `UPDATE simulation_scenarios SET ${fields.join(', ')} WHERE id = ?`
-    )
-    .run(...params);
+  runDataWrite(getDb(), `UPDATE simulation_scenarios SET ${fields.join(', ')} WHERE id = ?`, ...params);
   return findScenarioById(id);
 }
 
 /** Réinitialisation : la copie revient à sa configuration initiale. */
 export function resetScenario(id) {
-  getDb()
-    .prepare(
-      `UPDATE simulation_scenarios
+  runDataWrite(getDb(),
+    `UPDATE simulation_scenarios
        SET current_x = initial_x, current_y = initial_y,
            radio = initial_radio, updated_at = datetime('now')
-       WHERE id = ?`
-    )
-    .run(id);
+       WHERE id = ?`,
+    id
+  );
   return findScenarioById(id);
 }
 
 export function deleteScenario(id) {
-  return getDb()
-    .prepare('DELETE FROM simulation_scenarios WHERE id = ?')
-    .run(id).changes > 0;
+  return runDataWrite(getDb(), 'DELETE FROM simulation_scenarios WHERE id = ?', id).changes > 0;
 }

@@ -16,6 +16,7 @@ import path from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
 import { zipSync } from 'fflate';
 import { memoryCache } from '../src/cache/memoryCache.js';
+import { getDataRevision } from '../src/cache/dataRevision.js';
 
 const TMP = mkdtempSync(path.join(tmpdir(), 'heatmap-survey-export-test-'));
 process.env.DB_PATH = path.join(TMP, 'test.db');
@@ -615,10 +616,12 @@ describe('survey export/import', () => {
     const before = warmRead(read);
     assert.ok(before.length > 0);
     assert.deepEqual(warmRead(imported), []);
+    const { revision } = getDataRevision();
     const result = executeSurveyImport(parseSurveyExportZip(zipWithManifest(manifest, images)), {
       [fixture.planId]: 'merge',
     });
     assert.equal(result.plansMerged, 1);
+    assert.equal(getDataRevision().revision, revision + 1);
     assert.equal(warmRead(read).length, before.length * 2);
     const newRows = warmRead(imported);
     assert.equal(newRows.length, before.length);
@@ -635,12 +638,14 @@ describe('survey export/import', () => {
     const db = getDb();
     db.exec(`CREATE TEMP TRIGGER reject_zip_observation BEFORE INSERT ON observations
              BEGIN SELECT RAISE(ABORT, 'échec ZIP simulé'); END`);
+    const revision = getDataRevision();
     try {
       expectAppError(() => executeSurveyImport(parsed, {}), 422);
     } finally {
       db.exec('DROP TRIGGER reject_zip_observation');
     }
     assert.deepEqual(listPlanFiles(), files);
+    assert.deepEqual(getDataRevision(), revision);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM plans').get().count, 0);
     const after = warmRead(read);
     assert.deepEqual(after, []);

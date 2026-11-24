@@ -1,4 +1,5 @@
 import { getDb } from '../database/db.js';
+import { runDataWrite } from '../cache/dataRevision.js';
 
 function toApPosition(row) {
   if (!row) return null;
@@ -19,13 +20,12 @@ export function listApPositionsByPlan(plan_id) {
 }
 
 export function upsertApPosition({ plan_id, bssid, x, y }) {
-  getDb()
-    .prepare(
-      `INSERT INTO ap_positions (plan_id, bssid, x, y, updated_at)
+  runDataWrite(getDb(),
+    `INSERT INTO ap_positions (plan_id, bssid, x, y, updated_at)
        VALUES (?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(plan_id, bssid) DO UPDATE SET x=excluded.x, y=excluded.y, updated_at=datetime('now')`
-    )
-    .run(plan_id, bssid, x, y);
+       ON CONFLICT(plan_id, bssid) DO UPDATE SET x=excluded.x, y=excluded.y, updated_at=datetime('now')`,
+    plan_id, bssid, x, y
+  );
   const row = getDb()
     .prepare('SELECT * FROM ap_positions WHERE plan_id = ? AND bssid = ?')
     .get(plan_id, bssid);
@@ -33,5 +33,5 @@ export function upsertApPosition({ plan_id, bssid, x, y }) {
 }
 
 export function deleteApPosition(plan_id, bssid) {
-  return getDb().prepare('DELETE FROM ap_positions WHERE plan_id = ? AND bssid = ?').run(plan_id, bssid).changes > 0;
+  return runDataWrite(getDb(), 'DELETE FROM ap_positions WHERE plan_id = ? AND bssid = ?', plan_id, bssid).changes > 0;
 }

@@ -1,12 +1,14 @@
 import { getDb } from '../database/db.js';
+import { runDataWrite } from '../cache/dataRevision.js';
 import { invalidateObservationData, listAffectedPointScopes, resolveInvalidationScope } from '../cache/invalidation.js';
 
 export function insertPlan(row) {
   const db = getDb();
-  db.prepare(
+  runDataWrite(db,
     `INSERT INTO plans (id, name, file_name, stored_file, image_url, mime, width, height, size_bytes)
-     VALUES (@id, @name, @file_name, @stored_file, @image_url, @mime, @width, @height, @size_bytes)`
-  ).run(row);
+     VALUES (@id, @name, @file_name, @stored_file, @image_url, @mime, @width, @height, @size_bytes)`,
+    row
+  );
   return findPlanById(row.id);
 }
 
@@ -22,9 +24,7 @@ export function listPlans() {
 
 export function renamePlan(id, name) {
   const db = getDb();
-  const r = db
-    .prepare(`UPDATE plans SET name = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(name, id);
+  const r = runDataWrite(db, `UPDATE plans SET name = ?, updated_at = datetime('now') WHERE id = ?`, name, id);
   return r.changes > 0 ? findPlanById(id) : null;
 }
 
@@ -38,7 +38,7 @@ export function deletePlan(id) {
       id, id, id,
     ),
   ]);
-  const deleted = db.prepare('DELETE FROM plans WHERE id = ?').run(id).changes > 0;
+  const deleted = runDataWrite(db, 'DELETE FROM plans WHERE id = ?', id).changes > 0;
   if (deleted) invalidateObservationData(scopes);
   return deleted;
 }

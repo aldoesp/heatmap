@@ -6,11 +6,12 @@ import api from './api/index.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { apiLimiter } from './middleware/rateLimit.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
+import { REVISION_HEADER } from './cache/dataRevision.js';
 
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*', exposedHeaders: ['Content-Disposition'] }));
+app.use(cors({ origin: process.env.CORS_ORIGIN || '*', exposedHeaders: ['Content-Disposition', REVISION_HEADER, 'Retry-After'] }));
 app.use(express.json());
 app.use('/uploads', express.static(UPLOADS_DIRECTORY, { fallthrough: false }));
 app.use(requestLogger);

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { commitDataTransaction, runDataWrite } from '../cache/dataRevision.js';
 import { heatmapFilterSegment, readCached } from '../cache/readCache.js';
 import { invalidateObservationData, invalidateScopes, resolveInvalidationScope } from '../cache/invalidation.js';
 import { rssiToQuality } from '../utils/wifi.utils.js';
@@ -9,7 +10,7 @@ import { withBssidNames } from './bssidRules.repository.js';
 export function insertScanWithObservations({ scan_point_id, plan_id, mode, scanned_at, rejected_count, gateway, entries }) {
   const db = getDb();
   const scan_id = randomUUID();
-  const insert = db.transaction(() => {
+  commitDataTransaction(db, () => {
     db.prepare(
       `INSERT INTO scans (id, scan_point_id, plan_id, mode, scanned_at, rejected_count,
                           gateway_ip, gateway_rtt_ms, gateway_loss_percent)
@@ -56,7 +57,6 @@ export function insertScanWithObservations({ scan_point_id, plan_id, mode, scann
       });
     }
   });
-  insert();
   const scope = resolveInvalidationScope(() => db.prepare(
     'SELECT plan_id, survey_id FROM scan_points WHERE id = ?'
   ).get(scan_point_id));
@@ -73,12 +73,11 @@ export function findScanById(id) {
 
 export function insertSpeedTest({ scan_id, tcp_down_bps, tcp_up_bps, duration_s, error }) {
   const db = getDb();
-  db
-    .prepare(
-      `INSERT INTO speed_tests (scan_id, tcp_down_bps, tcp_up_bps, duration_s, error)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-    .run(scan_id, tcp_down_bps, tcp_up_bps, duration_s, error ?? null);
+  runDataWrite(db,
+    `INSERT INTO speed_tests (scan_id, tcp_down_bps, tcp_up_bps, duration_s, error)
+     VALUES (?, ?, ?, ?, ?)`,
+    scan_id, tcp_down_bps, tcp_up_bps, duration_s, error ?? null,
+  );
   const scope = resolveInvalidationScope(() => db.prepare(
     `SELECT sp.plan_id, sp.survey_id FROM scans s
      JOIN scan_points sp ON sp.id = s.scan_point_id WHERE s.id = ?`

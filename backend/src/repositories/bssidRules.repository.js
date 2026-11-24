@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { runDataWrite } from '../cache/dataRevision.js';
 import { readCached } from '../cache/readCache.js';
 import { invalidateBssidRules } from '../cache/invalidation.js';
 
@@ -34,25 +35,22 @@ export function findBssidRuleById(id) {
 
 export function insertBssidRule({ bssid, name, blacklisted }) {
   const id = randomUUID();
-  getDb()
-    .prepare(
-      'INSERT INTO bssid_rules (id, bssid, name, blacklisted) VALUES (?, ?, ?, ?)'
-    )
-    .run(id, bssid.toLowerCase(), name, blacklisted ? 1 : 0);
+  runDataWrite(getDb(),
+    'INSERT INTO bssid_rules (id, bssid, name, blacklisted) VALUES (?, ?, ?, ?)',
+    id, bssid.toLowerCase(), name, blacklisted ? 1 : 0,
+  );
   invalidateBssidRules();
   return findBssidRuleById(id);
 }
 
 export function updateBssidRule(id, { name, blacklisted }) {
-  const result = getDb()
-    .prepare('UPDATE bssid_rules SET name = ?, blacklisted = ? WHERE id = ?')
-    .run(name, blacklisted ? 1 : 0, id);
+  const result = runDataWrite(getDb(), 'UPDATE bssid_rules SET name = ?, blacklisted = ? WHERE id = ?', name, blacklisted ? 1 : 0, id);
   if (result.changes) invalidateBssidRules();
   return findBssidRuleById(id);
 }
 
 export function deleteBssidRule(id) {
-  const deleted = getDb().prepare('DELETE FROM bssid_rules WHERE id = ?').run(id).changes > 0;
+  const deleted = runDataWrite(getDb(), 'DELETE FROM bssid_rules WHERE id = ?', id).changes > 0;
   if (deleted) invalidateBssidRules();
   return deleted;
 }

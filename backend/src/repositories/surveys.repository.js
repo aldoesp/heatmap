@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { runDataWrite } from '../cache/dataRevision.js';
 import { invalidateObservationData, listAffectedPointScopes, resolveInvalidationScope } from '../cache/invalidation.js';
 
 const SURVEY_SELECT = `
@@ -10,9 +11,7 @@ const SURVEY_SELECT = `
 
 export function insertSurvey({ plan_id, name }) {
   const id = randomUUID();
-  getDb()
-    .prepare('INSERT INTO surveys (id, plan_id, name) VALUES (?, ?, ?)')
-    .run(id, plan_id, name);
+  runDataWrite(getDb(), 'INSERT INTO surveys (id, plan_id, name) VALUES (?, ?, ?)', id, plan_id, name);
   return findSurveyById(id);
 }
 
@@ -27,9 +26,7 @@ export function findSurveyById(id) {
 }
 
 export function renameSurvey(id, name) {
-  const result = getDb()
-    .prepare(`UPDATE surveys SET name = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(name, id);
+  const result = runDataWrite(getDb(), `UPDATE surveys SET name = ?, updated_at = datetime('now') WHERE id = ?`, name, id);
   return result.changes ? findSurveyById(id) : null;
 }
 
@@ -39,7 +36,7 @@ export function deleteSurvey(id) {
     db.prepare('SELECT plan_id, id AS survey_id FROM surveys WHERE id = ?').get(id),
     ...listAffectedPointScopes(db, 'sp.survey_id = ?', id),
   ]);
-  const deleted = db.prepare('DELETE FROM surveys WHERE id = ?').run(id).changes > 0;
+  const deleted = runDataWrite(db, 'DELETE FROM surveys WHERE id = ?', id).changes > 0;
   if (deleted) invalidateObservationData(scopes);
   return deleted;
 }
