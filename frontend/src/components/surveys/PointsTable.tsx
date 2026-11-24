@@ -236,13 +236,13 @@ export function PointsTable({ surveyName, rows, onBack }: Props) {
       : '—';
 
   return (
-    <div className="max-w-300 mx-auto px-4 pt-6 pb-28">
-      <div className="flex items-center gap-3 mb-4">
+    <div className="page-shell">
+      <div className="flex flex-wrap items-center gap-3 mb-6">
         <button
           type="button"
           onClick={onBack}
-          aria-label="Retour aux surveys"
-          className="w-10 h-10 rounded-[10px] border border-glass-border-soft text-text-dim flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          aria-label="Retour aux relevés"
+          className="w-10 h-10 rounded-[10px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui text-text-dim flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <ArrowLeft className="w-5 h-5" strokeWidth={1.75} aria-hidden />
         </button>
@@ -254,7 +254,7 @@ export function PointsTable({ surveyName, rows, onBack }: Props) {
             {loadedCount < rows.length && ` · chargement ${loadedCount}/${rows.length}`}
           </p>
         </div>
-        <label className="ml-auto flex items-center gap-2 text-[13px] text-text-dim shrink-0">
+        <label className="ml-auto flex items-center gap-2 text-[13px] text-text-dim">
           <input
             type="checkbox"
             checked={weakOnly}
@@ -265,11 +265,11 @@ export function PointsTable({ surveyName, rows, onBack }: Props) {
         </label>
       </div>
 
-      <div className="overflow-x-auto rounded-[14px] border-[0.5px] border-[rgba(255,255,255,0.08)]">
+      <div className="overflow-x-auto rounded-[14px] border border-glass-border-soft bg-glass-bg backdrop-blur-ui">
         <table className="min-w-full text-[13px]">
-          <thead className="bg-[rgba(255,255,255,0.03)]">
+          <thead className="bg-glass-bg">
             <tr>
-              <th className="px-3 py-2 text-left text-[12px] text-text-dim font-medium sticky left-0 bg-bg whitespace-nowrap">
+              <th className="px-3 py-2 text-left text-[12px] text-text-dim font-medium sticky left-0 bg-glass-bg whitespace-nowrap">
                 Point
               </th>
               {th('(index)')}
@@ -297,8 +297,8 @@ export function PointsTable({ surveyName, rows, onBack }: Props) {
               </tr>
             )}
             {flat.map((f) => (
-              <tr key={f.key} className="border-t border-glass-border-soft">
-                <td className="px-3 py-2 font-mono text-text sticky left-0 bg-bg whitespace-nowrap">
+              <tr key={f.key} className="group border-t border-glass-border-soft hover:bg-glass-bg transition-colors duration-ui">
+                <td className="px-3 py-2 font-mono text-text sticky left-0 bg-glass-bg group-hover:bg-glass-bg whitespace-nowrap">
                   {f.pointN} · {(f.x * 100).toFixed(0)}% / {(f.y * 100).toFixed(0)}%
                 </td>
                 {f.noScan ? (

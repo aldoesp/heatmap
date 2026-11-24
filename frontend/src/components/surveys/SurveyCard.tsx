@@ -8,7 +8,6 @@ type Props = {
   survey: SurveySummary;
   busy: boolean;
   onOpenMenu: (survey: SurveySummary) => void;
-  onAnalyse: (survey: SurveySummary) => void;
   onHeatmap: (survey: SurveySummary) => void;
   selectable?: boolean;
   selected?: boolean;
@@ -19,7 +18,6 @@ export function SurveyCard({
   survey,
   busy,
   onOpenMenu,
-  onAnalyse,
   onHeatmap,
   selectable = false,
   selected = false,
@@ -34,21 +32,21 @@ export function SurveyCard({
   return (
     <article
       className={[
-        'relative rounded-[14px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] overflow-hidden',
-        selected && 'ring-1 ring-accent-border',
-        busy && 'opacity-55 pointer-events-none',
+        'glass-fallback relative overflow-hidden rounded-card border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 shadow-glass-light transition-colors duration-ui ease-ui hover:border-glass-border',
+        selected && 'border-accent-border ring-1 ring-accent-border bg-accent-soft',
+        busy && 'pointer-events-none opacity-55',
       ]
         .filter(Boolean)
         .join(' ')}
     >
       {selectable && (
-        <label className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#0b1017]/85">
+        <label className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-glass-border-soft bg-glass-bg backdrop-blur-ui">
           <input
             type="checkbox"
             checked={selected}
             onChange={() => onSelect?.(survey)}
             aria-label={`Sélectionner ${survey.name}`}
-            className="h-5 w-5 accent-[#34d399]"
+            className="h-4 w-4 accent-accent"
           />
         </label>
       )}
@@ -60,46 +58,37 @@ export function SurveyCard({
             ? `${selected ? 'Désélectionner' : 'Sélectionner'} ${survey.name}`
             : `Plus d'actions pour ${survey.name}`
         }
-        className="w-full text-left p-3 flex gap-3 items-start min-h-[88px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+        className="flex min-h-[88px] w-full items-start gap-3 p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       >
-        <SurveyThumbnail survey={survey} />
+        <SurveyThumbnail survey={survey} size={56} />
         <div className="min-w-0 flex-1">
-          <div className="text-[15px] font-medium text-text truncate">{survey.name}</div>
-          <div className="text-[12px] text-text-dim mt-0.5">
+          <div className="truncate text-sm font-medium text-text">{survey.name}</div>
+          <div className="mt-0.5 text-[11px] text-muted">
             {formatDateShort(survey.createdAt)} · {survey.pointCount} point
             {survey.pointCount > 1 ? 's' : ''} · {survey.apCount} AP
           </div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span className="text-[13px] text-text">
+          <div className="mt-2 flex items-center gap-2">
+            <span className="font-mono text-[12px] text-text">
               {survey.avgRssi === null ? '—' : `${Math.round(survey.avgRssi)} dBm`}
             </span>
             <QualityBadge quality={quality} />
           </div>
         </div>
         <span
-          className={['text-text-dim pt-1', selectable && 'invisible'].filter(Boolean).join(' ')}
+          className={['pt-0.5 text-muted', selectable && 'invisible'].filter(Boolean).join(' ')}
           aria-hidden="true"
         >
-          <EllipsisVertical className="w-[18px] h-[18px]" strokeWidth={1.75} />
+          <EllipsisVertical className="h-4 w-4" strokeWidth={1.75} />
         </span>
       </button>
 
-      <div className="h-px bg-[rgba(255,255,255,0.08)]" aria-hidden="true" />
-
-      <div className="p-2 flex gap-2">
-        <button
-          type="button"
-          onClick={() => onAnalyse(survey)}
-          className="flex-1 inline-flex items-center justify-center min-h-[34px] rounded-[10px] border border-accent-border text-[#34d399] text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          Analyser
-        </button>
+      <div className="border-t border-glass-border-soft p-2">
         <button
           type="button"
           onClick={() => onHeatmap(survey)}
-          className="flex-1 inline-flex items-center justify-center min-h-[34px] rounded-[10px] border border-glass-border-soft text-text-dim text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="btn-ghost h-8 w-full text-[12px]"
         >
-          Heatmap
+          Ouvrir la heatmap
         </button>
       </div>
     </article>

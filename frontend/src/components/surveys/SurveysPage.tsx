@@ -115,10 +115,10 @@ export function SurveysPage() {
   const totalScans = history.reduce((n, p) => n + p.scans.length, 0);
 
   return (
-    <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-8 lg:px-6 lg:py-8">
-      <div className="mb-6 flex items-end justify-between gap-3">
+    <div className="page-shell">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-[22px] font-medium tracking-tight mb-1">Relevés</h1>
+          <h1 className="page-title mb-2">Relevés</h1>
           <p className="text-text-dim text-sm">
             {plan.name} · {history.length} emplacement{history.length > 1 ? 's' : ''} ·{' '}
             {totalScans} scan{totalScans > 1 ? 's' : ''}
@@ -130,7 +130,7 @@ export function SurveysPage() {
             <a
               href={plan ? exportCsvUrl(plan.id) : '#'}
               download
-              className="inline-flex items-center h-11 px-4 rounded-[14px] border border-glass-border-soft text-text-dim font-medium text-sm hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="inline-flex items-center h-11 px-4 rounded-item border border-glass-border-soft bg-glass-bg-soft text-text-dim font-medium text-sm backdrop-blur-ui hover:text-text hover:border-glass-border hover:bg-glass-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
               Export CSV
             </a>
@@ -139,7 +139,7 @@ export function SurveysPage() {
               onClick={() => {
                 location.hash = '#/heatmap';
               }}
-              className="inline-flex items-center h-11 px-4 rounded-[14px] bg-accent text-bg font-medium text-sm hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="inline-flex items-center h-11 px-4 rounded-item border border-accent bg-accent text-bg font-medium text-sm hover:border-[#0ea472] hover:bg-[#0ea472] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
               Voir la heatmap
             </button>
@@ -165,7 +165,7 @@ export function SurveysPage() {
           <button
             type="button"
             onClick={handleSurveys}
-            className="inline-flex items-center h-12 px-5 rounded-[14px] bg-accent text-bg font-medium text-[15px]"
+className="inline-flex items-center h-12 px-5 rounded-[14px] border border-accent bg-accent text-bg font-medium text-[15px]"
           >
             Aller au scan
           </button>
@@ -179,7 +179,7 @@ export function SurveysPage() {
               <div
                 key={point.id}
                 className={[
-                  'glass-fallback bg-glass-bg-soft border border-glass-border-soft rounded-card p-4',
+                  'glass-fallback bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 border border-glass-border-soft rounded-card p-4',
                   !point.is_enabled && 'opacity-55',
                 ]
                   .filter(Boolean)
@@ -192,7 +192,7 @@ export function SurveysPage() {
                   className="w-full flex items-center justify-between gap-3 text-left"
                 >
                   <span className="flex items-center gap-3">
-                    <span className="shrink-0 w-7 h-7 rounded-full bg-accent text-[#0b0f14] font-mono text-[12px] font-semibold flex items-center justify-center">
+                    <span className="shrink-0 w-7 h-7 rounded-full bg-accent text-bg font-mono text-[12px] font-semibold flex items-center justify-center">
                       {String(i + 1).padStart(2, '0')}
                     </span>
                       <span>
@@ -218,7 +218,7 @@ export function SurveysPage() {
                       type="button"
                       disabled={togglingId === point.id}
                       onClick={() => handleToggle(point)}
-                      className="self-start inline-flex items-center h-9 px-3 rounded-[10px] text-[13px] font-medium text-text-dim border border-glass-border bg-transparent hover:text-text disabled:opacity-40 disabled:cursor-wait focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                      className="self-start inline-flex items-center h-9 px-3 rounded-[10px] text-[13px] font-medium text-text-dim border border-glass-border bg-glass-bg-soft backdrop-blur-ui hover:text-text hover:border-glass-border hover:bg-glass-bg disabled:opacity-40 disabled:cursor-wait focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                     >
                       {togglingId === point.id
                         ? '…'
@@ -234,7 +234,7 @@ export function SurveysPage() {
                     {point.scans.map((s) => (
                       <div
                         key={s.id}
-                        className="px-3 py-2 rounded-xl bg-[rgba(255,255,255,0.03)] border border-glass-border-soft text-[13px] font-mono text-text-dim"
+                        className="px-3 py-2 rounded-xl bg-glass-bg-soft border border-glass-border backdrop-blur-ui text-[13px] font-mono text-text-dim"
                       >
                         {formatDate(s.scanned_at)} · {s.network_count} réseau
                         {s.network_count > 1 ? 'x' : ''} ·{' '}

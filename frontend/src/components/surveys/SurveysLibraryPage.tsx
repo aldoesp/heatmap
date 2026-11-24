@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileUp, Search, Upload } from 'lucide-react';
+import { Check, ChevronDown, Download, FileUp, Search, Upload } from 'lucide-react';
 import { useSurveysLibrary, type SurveySummary } from '../../hooks/useSurveysLibrary';
 import {
   exportPlansZip,
@@ -21,7 +21,7 @@ type SortMode = 'recent' | 'name' | 'rssi';
 
 const ERR_IMPORT_CSV = 'Impossible d’importer ce fichier CSV. Vérifie le format.';
 const ERR_IMPORT_ZIP = 'Impossible d’importer ce fichier ZIP.';
-const ERR_EXPORT = 'Impossible d’exporter les surveys sélectionnés.';
+const ERR_EXPORT = 'Impossible d’exporter les relevés sélectionnés.';
 
 type PendingImport = {
   file: File;
@@ -60,6 +60,8 @@ export function SurveysLibraryPage() {
 
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortMode>('recent');
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
   const [sheet, setSheet] = useState<SurveySummary | null>(null);
   const [renaming, setRenaming] = useState<SurveySummary | null>(null);
   const [confirming, setConfirming] = useState<SurveySummary | null>(null);
@@ -96,6 +98,22 @@ export function SurveysLibraryPage() {
     else copy.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     return copy;
   }, [surveys, query, sort]);
+
+  useEffect(() => {
+    if (!sortOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!sortRef.current?.contains(event.target as Node)) setSortOpen(false);
+    };
+    const closeEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSortOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeEscape);
+    };
+  }, [sortOpen]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -252,19 +270,20 @@ export function SurveysLibraryPage() {
   }
 
   return (
-    <div className="max-w-300 mx-auto px-4 pt-6 pb-28 md:pb-10">
+    <div className="mx-auto max-w-[1320px] px-4 pb-28 pt-8 md:px-6 md:pb-12">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div>
-          <h1 className="text-[20px] font-medium text-text">Surveys</h1>
-          <p className="text-[12px] text-text-dim mt-0.5">
-            {surveys.length} survey{surveys.length > 1 ? 's' : ''}
+          <p className="label mb-2">Bibliothèque</p>
+          <h1 className="text-[28px] font-medium leading-tight tracking-[-0.02em]">Relevés</h1>
+          <p className="mt-1.5 text-sm text-text-dim">
+            {surveys.length} relevé{surveys.length > 1 ? 's' : ''} importé{surveys.length > 1 ? 's' : ''}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <button
             type="button"
             onClick={toggleSelectionMode}
-            className="inline-flex items-center h-11 px-4 rounded-[14px] border border-glass-border-soft text-text text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="btn-secondary h-10"
           >
             {selecting ? 'Annuler' : 'Sélectionner'}
           </button>
@@ -272,20 +291,20 @@ export function SurveysLibraryPage() {
             type="button"
             onClick={() => zipRef.current?.click()}
             disabled={importing || zipImporting}
-            aria-label="Importer un export ZIP de surveys"
-            className="inline-flex items-center gap-2 h-11 px-4 rounded-[14px] border border-accent-border text-[#34d399] text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            aria-label="Importer un export ZIP de relevés"
+            className="btn-primary h-10"
           >
-            <Upload className="w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
-            {zipImporting ? 'Import…' : 'Importer'}
+            <Upload className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+            {zipImporting ? 'Import…' : 'Importer ZIP'}
           </button>
           <button
             type="button"
             onClick={() => csvRef.current?.click()}
             disabled={importing || zipImporting}
             aria-label="Importer un CSV"
-            className="inline-flex items-center gap-2 h-11 px-4 rounded-[14px] border border-glass-border-soft text-text-dim text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            className="btn-secondary h-10"
           >
-            <FileUp className="w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
+            <FileUp className="h-4 w-4" strokeWidth={1.75} aria-hidden />
             Importer CSV
           </button>
         </div>
@@ -310,16 +329,16 @@ export function SurveysLibraryPage() {
       </div>
 
       {selecting && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[14px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] px-3 py-2">
-          <span className="flex-1 min-w-40 text-[13px] text-text-dim">
-            {selectedIds.size} survey{selectedIds.size > 1 ? 's' : ''} sélectionné
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-item border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui px-3 py-2">
+          <span className="min-w-40 flex-1 font-mono text-[11px] text-text-dim">
+            {selectedIds.size} relevé{selectedIds.size > 1 ? 's' : ''} sélectionné
             {selectedIds.size > 1 ? 's' : ''}
           </span>
           <button
             type="button"
             onClick={toggleAllVisible}
             disabled={filtered.length === 0}
-            className="h-9 px-3 rounded-[10px] border border-glass-border-soft text-text-dim text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            className="btn-ghost h-9 px-3 text-[13px]"
           >
             {filtered.length > 0 && filtered.every((survey) => selectedIds.has(survey.id))
               ? 'Tout désélectionner'
@@ -329,10 +348,10 @@ export function SurveysLibraryPage() {
             type="button"
             onClick={() => void onExportSelected()}
             disabled={selectedIds.size === 0 || exporting}
-            title="Exporte tous les surveys de ces plans"
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-[10px] border border-accent-border text-[#34d399] text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            title="Exporte tous les relevés de ces plans"
+            className="btn-secondary h-9 px-3 text-[13px]"
           >
-            <Download className="w-[16px] h-[16px]" strokeWidth={1.75} aria-hidden />
+            <Download className="h-4 w-4" strokeWidth={1.75} aria-hidden />
             {exporting ? 'Export…' : `Exporter (${selectedIds.size})`}
           </button>
         </div>
@@ -347,7 +366,7 @@ export function SurveysLibraryPage() {
       <div className="flex flex-col md:flex-row gap-2 mb-4">
         <div className="relative flex-1">
           <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-text-dim pointer-events-none"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
             strokeWidth={1.75}
             aria-hidden
           />
@@ -355,21 +374,31 @@ export function SurveysLibraryPage() {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher un survey"
-            aria-label="Rechercher un survey"
-            className="w-full h-11 pl-10 pr-3 rounded-[12px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] text-text text-[14px] placeholder:text-text-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            placeholder="Rechercher un relevé"
+            aria-label="Rechercher un relevé"
+            className="field pl-10"
           />
         </div>
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortMode)}
-          aria-label="Trier les surveys"
-          className="h-11 px-3 rounded-[12px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] text-text text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <option value="recent">Récents</option>
-          <option value="name">Nom</option>
-          <option value="rssi">RSSI moyen</option>
-        </select>
+        <div ref={sortRef} className="relative md:w-44">
+          <button type="button" aria-label="Trier les relevés" aria-haspopup="listbox" aria-expanded={sortOpen}
+            onClick={() => setSortOpen((open) => !open)}
+            className="field flex w-full items-center justify-between gap-3 text-left">
+            <span className="truncate">{sort === 'recent' ? 'Récents' : sort === 'name' ? 'Nom' : 'RSSI moyen'}</span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-text-dim transition-transform ${sortOpen ? 'rotate-180' : ''}`} aria-hidden />
+          </button>
+          {sortOpen && <div role="listbox" aria-label="Trier les relevés" className="absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-glass-border bg-[#111923] p-1 shadow-glass">
+            {([
+              { value: 'recent', label: 'Récents', description: 'Les derniers relevés en premier' },
+              { value: 'name', label: 'Nom', description: 'Ordre alphabétique' },
+              { value: 'rssi', label: 'RSSI moyen', description: 'Signal moyen le plus fort en premier' },
+            ] as const).map((option) => <button key={option.value} type="button" role="option" aria-selected={sort === option.value}
+              onClick={() => { setSort(option.value); setSortOpen(false); }}
+              className={`flex min-h-12 w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left ${sort === option.value ? 'bg-accent-soft text-accent' : 'text-text hover:bg-white/5'}`}>
+              <span><span className="block text-sm font-medium">{option.label}</span><span className="block text-[11px] text-text-dim">{option.description}</span></span>
+              {sort === option.value && <Check className="h-4 w-4 shrink-0" aria-hidden />}
+            </button>)}
+          </div>}
+        </div>
       </div>
 
       {error && (
@@ -387,7 +416,7 @@ export function SurveysLibraryPage() {
             <div
               key={i}
               aria-hidden={i > 0}
-              className="min-h-[128px] rounded-[14px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] animate-pulse flex items-center justify-center"
+              className="flex min-h-[120px] items-center justify-center rounded-card border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui"
             >
               {(importing || zipImporting) && i === 0 && (
                 <span className="text-[13px] text-text-dim">Import en cours…</span>
@@ -397,21 +426,21 @@ export function SurveysLibraryPage() {
         </div>
       ) : surveys.length === 0 && !error ? (
         <div className="text-center py-16">
-          <p className="text-[15px] text-text mb-1">Importez votre premier survey</p>
-          <p className="text-[13px] text-text-dim mb-4">
-            Ajoutez un export ZIP de surveys pour commencer.
+          <p className="mb-1 text-sm font-medium text-text">Aucun relevé importé</p>
+          <p className="mb-4 text-[13px] text-text-dim">
+            Ajoute un export ZIP de relevés pour commencer.
           </p>
           <button
             type="button"
             onClick={() => zipRef.current?.click()}
-            className="inline-flex items-center h-11 px-5 rounded-[14px] border border-accent-border text-[#34d399] text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="btn-primary h-10 px-5"
           >
-            Importer
+            Importer un ZIP
           </button>
         </div>
       ) : filtered.length === 0 ? (
-        <p className="text-center text-text-dim text-[13px] py-12">
-          Aucun survey ne correspond à votre recherche.
+        <p className="py-12 text-center text-[13px] text-text-dim">
+          Aucun relevé ne correspond à cette recherche.
         </p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -424,7 +453,6 @@ export function SurveysLibraryPage() {
               selected={selectedIds.has(s.id)}
               onSelect={(survey) => toggleSelected(survey.id)}
               onOpenMenu={setSheet}
-              onAnalyse={(x) => openSection(x, 'analyse')}
               onHeatmap={(x) => openSection(x, 'heatmap')}
             />
           ))}
@@ -435,10 +463,6 @@ export function SurveysLibraryPage() {
         <SurveySheet
           survey={sheet}
           onClose={() => setSheet(null)}
-          onAnalyse={(s) => {
-            setSheet(null);
-            openSection(s, 'analyse');
-          }}
           onHeatmap={(s) => {
             setSheet(null);
             openSection(s, 'heatmap');
@@ -468,7 +492,7 @@ export function SurveysLibraryPage() {
             void rename(renaming.id, name)
               .then(() => {
                 setRenaming(null);
-                showToast('Survey renommé.');
+                showToast('Relevé renommé.');
               })
               .catch(() => showToast('Renommage impossible.'));
           }}
@@ -485,7 +509,7 @@ export function SurveysLibraryPage() {
             void remove(confirming.id)
               .then(() => {
                 setConfirming(null);
-                showToast('Survey supprimé.');
+                showToast('Relevé supprimé.');
               })
               .catch(() => showToast('Suppression impossible.'));
           }}
@@ -526,7 +550,7 @@ export function SurveysLibraryPage() {
       {toast && (
         <div
           role="status"
-          className="fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-6 z-50 px-4 py-2 rounded-xl bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] text-[13px] text-text"
+          className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-item border border-glass-border-soft bg-glass-bg backdrop-blur-ui px-4 py-2 text-[13px] text-text md:bottom-6"
         >
           {toast}
         </div>
@@ -569,7 +593,7 @@ function ResolveImportDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Plans déjà présents"
-        className="w-full max-w-md rounded-[16px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] p-4"
+        className="w-full max-w-md rounded-[16px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 shadow-glass-light p-4"
       >
         <h2 className="text-[15px] font-medium text-text mb-1">Plans déjà présents</h2>
         <p className="text-[13px] text-text-dim mb-3">
@@ -580,13 +604,13 @@ function ResolveImportDialog({
           {conflicts.map((plan) => (
             <li
               key={plan.id}
-              className="rounded-[12px] border border-glass-border-soft p-3"
+              className="rounded-[12px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui p-3"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-[14px] text-text truncate">{plan.name}</div>
                   <div className="text-[12px] text-text-dim">
-                    {plan.surveyCount} survey{plan.surveyCount > 1 ? 's' : ''}
+                    {plan.surveyCount} relevé{plan.surveyCount > 1 ? 's' : ''}
                   </div>
                 </div>
               </div>
@@ -599,8 +623,8 @@ function ResolveImportDialog({
                       className={[
                         'inline-flex items-center justify-center min-h-9 px-3 rounded-[10px] border text-[13px] font-medium cursor-pointer focus-within:ring-2 focus-within:ring-accent',
                         active
-                          ? 'border-accent-border text-[#34d399]'
-                          : 'border-glass-border-soft text-text-dim',
+                          ? 'border-accent-border bg-accent-soft text-accent'
+                          : 'border-glass-border-soft bg-glass-bg-soft text-text-dim',
                       ].join(' ')}
                     >
                       <input
@@ -631,7 +655,7 @@ function ResolveImportDialog({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="flex-1 h-11 rounded-[12px] border border-glass-border-soft text-text text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            className="flex-1 h-11 rounded-[12px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui text-text text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
           >
             Annuler
           </button>
@@ -665,8 +689,8 @@ function ImportSummaryDialog({
   }, [onClose]);
 
   const rows = [
-    ['Surveys importés', result.importedSurveys.length],
-    ['Surveys ignorés', result.skippedSurveys.length],
+    ['Relevés importés', result.importedSurveys.length],
+    ['Relevés ignorés', result.skippedSurveys.length],
     ['Points de scan', result.scanPoints],
     ['Scans', result.scans],
     ['Observations', result.observations],
@@ -681,14 +705,14 @@ function ImportSummaryDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Résumé de l’import"
-        className="w-full max-w-sm rounded-[16px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] p-4"
+        className="w-full max-w-sm rounded-[16px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 shadow-glass-light p-4"
       >
         <h2 className="text-[15px] font-medium text-text mb-3">Import terminé</h2>
         <dl className="grid grid-cols-2 gap-2">
           {rows.map(([label, value]) => (
             <div
               key={label}
-              className="rounded-[10px] border border-glass-border-soft px-3 py-2"
+              className="rounded-[10px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui px-3 py-2"
             >
               <dt className="text-[12px] text-text-dim">{label}</dt>
               <dd className="text-[16px] text-text">{value}</dd>
@@ -736,22 +760,22 @@ function RenameDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Renommer le survey"
-        className="w-full max-w-sm rounded-[16px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] p-4"
+        aria-label="Renommer le relevé"
+        className="w-full max-w-sm rounded-[16px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 shadow-glass-light p-4"
       >
         <h2 className="text-[15px] font-medium text-text mb-3">Renommer</h2>
         <input
           autoFocus
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          aria-label="Nom du survey"
-          className="w-full h-11 px-3 rounded-[10px] bg-bg border border-glass-border-soft text-text text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          aria-label="Nom du relevé"
+          className="w-full h-11 px-3 rounded-[10px] bg-glass-bg-soft border border-glass-border backdrop-blur-ui text-text text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         />
         <div className="flex gap-2 mt-4">
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 h-11 rounded-[12px] border border-glass-border-soft text-text text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex-1 h-11 rounded-[12px] border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui text-text text-[14px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
           >
             Annuler
           </button>

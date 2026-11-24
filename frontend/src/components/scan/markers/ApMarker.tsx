@@ -7,7 +7,7 @@ import type { AccessPoint } from '../../../types/project';
 function apIcon(ap: AccessPoint) {
   const html = renderToString(
     <div className="marker-ap">
-      <Wifi size={12} strokeWidth={2.2} />
+      <Wifi size={12} strokeWidth={1.75} />
       <span className="marker-ap__label">{ap.name}</span>
     </div>
   );

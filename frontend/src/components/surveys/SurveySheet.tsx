@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import {
-  Activity,
   Download,
   Map,
   Pencil,
@@ -13,7 +12,6 @@ import type { SurveySummary } from '../../hooks/useSurveysLibrary';
 type Props = {
   survey: SurveySummary;
   onClose: () => void;
-  onAnalyse: (s: SurveySummary) => void;
   onHeatmap: (s: SurveySummary) => void;
   onViewPoints: (s: SurveySummary) => void;
   onRename: (s: SurveySummary) => void;
@@ -24,7 +22,6 @@ type Props = {
 export function SurveySheet({
   survey,
   onClose,
-  onAnalyse,
   onHeatmap,
   onViewPoints,
   onRename,
@@ -68,8 +65,7 @@ export function SurveySheet({
   }, []);
 
   const actions: Array<{ Icon: LucideIcon; label: string; danger?: boolean; run: () => void }> = [
-    { Icon: Activity, label: 'Ouvrir dans Analyse', run: () => onAnalyse(survey) },
-    { Icon: Map, label: 'Ouvrir dans Heatmap', run: () => onHeatmap(survey) },
+    { Icon: Map, label: 'Ouvrir la heatmap', run: () => onHeatmap(survey) },
     { Icon: Table, label: 'Voir les points', run: () => onViewPoints(survey) },
     { Icon: Pencil, label: 'Renommer', run: () => onRename(survey) },
     { Icon: Download, label: 'Exporter en CSV', run: () => onExport(survey) },
@@ -78,7 +74,7 @@ export function SurveySheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/50 flex items-end md:items-center md:justify-center"
+      className="fixed inset-0 z-50 flex items-end bg-black/60 md:items-center md:justify-center"
       onClick={onClose}
       role="presentation"
     >
@@ -88,15 +84,15 @@ export function SurveySheet({
         aria-modal="true"
         aria-label={`Actions pour ${survey.name}`}
         onClick={(e) => e.stopPropagation()}
-        className="w-full md:max-w-md rounded-t-[18px] md:rounded-[18px] bg-[#121821] border-[0.5px] border-[rgba(255,255,255,0.08)] p-3 pb-5"
+        className="w-full rounded-t-panel border border-glass-border-soft bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 shadow-glass p-3 pb-5 md:max-w-md md:rounded-panel"
       >
         <div
-          className="w-9 h-1 rounded-full bg-[rgba(255,255,255,0.15)] mx-auto mb-3 md:hidden"
+          className="mx-auto mb-3 h-1 w-9 rounded-full bg-glass-border md:hidden"
           aria-hidden="true"
         />
         <div className="px-2 pb-2">
-          <div className="text-[15px] font-medium text-text truncate">{survey.name}</div>
-          <div className="text-[12px] text-text-dim">
+          <div className="truncate text-sm font-medium text-text">{survey.name}</div>
+          <div className="mt-0.5 font-mono text-[11px] text-muted">
             {survey.pointCount} point{survey.pointCount > 1 ? 's' : ''} · importé le{' '}
             {new Date(survey.createdAt).toLocaleDateString('fr-FR')}
           </div>
@@ -108,12 +104,12 @@ export function SurveySheet({
               <button
                 type="button"
                 onClick={run}
-                className={[
-                  'w-full min-h-11 px-2 flex items-center gap-3 text-[14px] rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-                  danger ? 'text-danger' : 'text-text',
-                ].join(' ')}
+className={[
+                   'flex min-h-11 w-full items-center gap-3 rounded-item px-2 text-sm transition-colors duration-ui ease-ui hover:bg-glass-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                   danger ? 'text-danger' : 'text-text',
+                 ].join(' ')}
               >
-                <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.75} aria-hidden />
+                <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
                 <span>{label}</span>
               </button>
             </li>

@@ -26,10 +26,12 @@ export function AccessPointsCard({
   onRemove,
 }: AccessPointsCardProps) {
   return (
-    <div className="glass-fallback bg-glass-bg-soft backdrop-blur-ui backdrop-saturate-150 border border-glass-border-soft shadow-glass-light rounded-card p-4 lg:p-5">
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <span className="text-sm font-medium">Points d'accès</span>
-        <span className="text-[11px] text-text-dim">Optionnel</span>
+    <div className="surface p-4 lg:p-5">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">Points d’accès</span>
+        <span className="font-mono text-xs text-text-dim">
+          Optionnel
+        </span>
       </div>
 
       <button
@@ -37,19 +39,18 @@ export function AccessPointsCard({
         onClick={onTogglePlacing}
         aria-pressed={placing}
         className={[
-          'w-full h-11 inline-flex items-center justify-center gap-1.5 rounded-xl text-sm font-medium border transition-colors duration-ui ease-ui',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
+          'inline-flex h-11 w-full items-center justify-center gap-2 rounded-item border text-sm font-medium transition-colors duration-ui ease-ui',
           placing
-            ? 'bg-accent-soft border-accent-border text-accent'
-            : 'bg-glass-bg border-glass-border text-text hover:bg-[rgba(255,255,255,0.08)]',
+            ? 'border-accent-border bg-accent-soft text-accent'
+            : 'border-glass-border-soft bg-glass-bg-soft text-text backdrop-blur-ui backdrop-saturate-150 hover:border-glass-border hover:bg-glass-bg',
         ].join(' ')}
       >
-        <Plus className="w-4 h-4" strokeWidth={2} aria-hidden />
+        <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden />
         <span>{placing ? "Touche le plan pour placer l'AP" : 'Ajouter un AP'}</span>
       </button>
 
       {accessPoints.length === 0 ? (
-        <div className="mt-2 text-[13px] text-text-dim">
+        <div className="mt-3 text-[13px] leading-relaxed text-text-dim">
           Aucun AP placé. Tu peux continuer sans.
         </div>
       ) : (

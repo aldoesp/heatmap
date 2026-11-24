@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MapContainer, ImageOverlay, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import type { AccessPoint, ScanPoint } from '../../types/project';
@@ -8,7 +8,6 @@ import { ScanMarker } from './markers/ScanMarker';
 import { ApMarker } from './markers/ApMarker';
 
 const NAVBAR_H = 80;
-const BOTTOM_H = 176;
 
 interface ScanMapProps {
   imageUrl: string;
@@ -34,9 +33,11 @@ function MapController({
   useEffect(() => {
     const fit = () => {
       map.invalidateSize();
+      const panelTop = document.querySelector('[data-desktop-panel]')?.getBoundingClientRect().top;
+      const bottomPadding = panelTop === undefined ? 160 : Math.max(24, window.innerHeight - panelTop + 12);
       map.fitBounds(bounds, {
         paddingTopLeft: [16, NAVBAR_H],
-        paddingBottomRight: [16, BOTTOM_H],
+        paddingBottomRight: [16, bottomPadding],
       });
       map.setMaxBounds(bounds);
       map.setMinZoom(map.getBoundsZoom(bounds) - 1);
@@ -80,6 +81,8 @@ export function ScanMap({
   onPinDragEnd,
   registerFit,
 }: ScanMapProps) {
+  const [showMeasurements, setShowMeasurements] = useState(true);
+
   const bounds = useMemo<L.LatLngBoundsExpression>(
     () => [
       [0, 0],
@@ -94,6 +97,7 @@ export function ScanMap({
   }, [pendingLatLng]);
 
   return (
+    <>
     <MapContainer
       center={[height / 2, width / 2]}
       zoom={0}
@@ -115,7 +119,7 @@ export function ScanMap({
         return <ApMarker key={ap.id} ap={ap} position={pos} />;
       })}
 
-      {scanPoints.map((p, i) => {
+      {showMeasurements && scanPoints.map((p, i) => {
         const pos = dataToLatLng(p.x, p.y, width, height);
         return <ScanMarker key={p.id} position={pos} index={i + 1} />;
       })}
@@ -124,5 +128,16 @@ export function ScanMap({
         <PendingPin position={pendingPosition} onDragEnd={onPinDragEnd} />
       )}
     </MapContainer>
+    <button
+      type="button"
+      aria-pressed={showMeasurements}
+      onClick={() => setShowMeasurements((visible) => !visible)}
+      className="glass-fallback fixed right-3 z-[450] min-h-11 rounded-xl border border-glass-border-soft bg-[#111923]/95 px-3 text-xs font-medium text-text shadow-glass transition-colors hover:border-accent-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      style={{ top: 'calc(var(--nav-top-offset) + 105px)' }}
+      title={showMeasurements ? 'Masquer les points déjà mesurés' : 'Afficher les points déjà mesurés'}
+    >
+      {showMeasurements ? 'Masquer points' : 'Afficher points'} · {scanPoints.length}
+    </button>
+    </>
   );
 }

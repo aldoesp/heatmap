@@ -59,33 +59,33 @@ export function DoneDialog({
       onClick={(e) => {
         if (e.target === e.currentTarget) onContinue();
       }}
-      className="fixed inset-0 z-[600] flex items-center justify-center p-5 bg-black/50"
+      className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 p-5"
     >
-      <div className="glass-fallback max-w-[380px] w-full p-6 rounded-card bg-glass-bg-soft border border-glass-border-soft backdrop-blur-ui backdrop-saturate-150 flex flex-col gap-3">
-        <div id="doneTitle" className="text-lg font-medium">
-          Scan terminé
+      <div className="glass-fallback flex w-full max-w-[400px] flex-col gap-3 rounded-panel border border-glass-border-soft bg-glass-bg-soft p-6 backdrop-blur-ui backdrop-saturate-150 shadow-glass">
+        <div id="doneTitle" className="text-base font-medium">
+          Mesures enregistrées
         </div>
-        <div className="text-sm text-text-dim">
+        <div className="text-sm leading-relaxed text-text-dim">
           {pointCount} point{pointCount > 1 ? 's' : ''} enregistré
           {pointCount > 1 ? 's' : ''} sur le plan{' '}
-          <em className="not-italic text-text font-medium">{planName}</em>.
+          <em className="font-medium not-italic text-text">{planName}</em>.
         </div>
-        <div className="flex gap-2 mt-2">
+        <div className="mt-2 flex gap-2">
           <button
             ref={firstRef}
             type="button"
             onClick={onContinue}
-            className="flex-1 inline-flex items-center justify-center h-12 rounded-item text-sm font-medium border border-glass-border-soft text-text bg-transparent hover:bg-glass-bg transition-colors duration-ui ease-ui focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            className="btn-secondary h-11 flex-1"
           >
-            Continuer le scan
+            Continuer
           </button>
           <button
             ref={lastRef}
             type="button"
             onClick={onSurveys}
-            className="flex-1 inline-flex items-center justify-center h-12 rounded-item text-sm font-semibold bg-accent text-[#0b0f14] hover:bg-[#0ea472] transition-colors duration-ui ease-ui focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            className="btn-primary h-11 flex-1"
           >
-            Voir les surveys
+            Voir la couverture
           </button>
         </div>
       </div>

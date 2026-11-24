@@ -10,30 +10,31 @@ export function InfoChip({ planName, pointCount, mode }: InfoChipProps) {
   return (
     <div
       aria-live="polite"
-      className="glass-fallback fixed z-[500] pointer-events-none select-none flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-[14px] bg-glass-bg-soft border border-glass-border-soft backdrop-blur-ui backdrop-saturate-150"
+      className="glass-fallback fixed left-3 z-[500] flex select-none flex-wrap items-center gap-x-2 gap-y-1 rounded-item border border-glass-border-soft bg-glass-bg-soft px-3 py-2 text-[12px] backdrop-blur-ui backdrop-saturate-150 shadow-glass-light"
       style={{
         top: 'var(--nav-top-offset)',
-        left: 12,
         maxWidth: 'calc(100% - 72px)',
       }}
     >
-      <span className="font-medium text-text truncate max-w-[160px]">
+      <span className="max-w-[180px] truncate font-medium text-text">
         {planName ?? '—'}
       </span>
-      <span className="text-text-dim">·</span>
-      <span className="text-text-dim">{pluralPoints(pointCount)}</span>
+      <span className="text-muted">·</span>
+      <span className="whitespace-nowrap font-mono text-[11px] text-text-dim">
+        {pluralPoints(pointCount)}
+      </span>
       {mode && (
         <>
-          <span className="text-text-dim">·</span>
-          <span
-            className={[
-              'px-1.5 py-0.5 rounded-md text-[10px] font-semibold border',
-              mode === 'live'
-                ? 'bg-accent-soft border-accent-border text-accent'
-                : 'bg-white/[0.04] border-white/10 text-text-dim',
-            ].join(' ')}
-          >
-            {mode === 'live' ? 'Réel' : 'Test'}
+          <span className="text-muted">·</span>
+          <span className="inline-flex items-center gap-1.5 font-mono text-xs text-text-dim">
+            <span
+              className={[
+                'h-1.5 w-1.5 rounded-full',
+                mode === 'live' ? 'bg-live' : 'bg-warn',
+              ].join(' ')}
+              aria-hidden
+            />
+            {mode === 'live' ? 'Mesures réelles' : 'Données simulées'}
           </span>
         </>
       )}

@@ -64,7 +64,7 @@ export function ApRow({
           : 'border-transparent hover:bg-glass-bg',
       ].join(' ')}
     >
-      <span className="shrink-0 w-7 h-7 rounded-full bg-accent text-[#0b0f14] font-mono text-[12px] font-semibold flex items-center justify-center">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent font-mono text-[11px] font-semibold text-bg">
         {String(index).padStart(2, '0')}
       </span>
 
@@ -82,13 +82,11 @@ export function ApRow({
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           }}
           className={[
-            'h-8 w-full px-2 rounded-lg text-[13px] text-text outline-none bg-[rgba(255,255,255,0.03)] border transition-colors duration-ui ease-ui',
-            hasDuplicateName
-              ? 'border-danger focus:shadow-[0_0_0_2px_var(--danger-soft)]'
-              : 'border-transparent focus:border-accent focus:bg-[rgba(255,255,255,0.05)]',
+            'h-8 w-full rounded-md border bg-glass-bg-soft px-2 text-[13px] text-text outline-none transition-colors duration-ui ease-ui focus:border-accent',
+            hasDuplicateName ? 'border-danger' : 'border-glass-border',
           ].join(' ')}
         />
-        <div className="pl-2 font-mono text-[12px] text-text-dim">
+        <div className="pl-2 font-mono text-[11px] text-text-dim">
           {formatApCoords(ap.x, ap.y)}
         </div>
         <input
@@ -102,7 +100,7 @@ export function ApRow({
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           }}
-          className="h-8 w-full px-2 rounded-lg text-[12px] font-mono text-text outline-none bg-[rgba(255,255,255,0.03)] border border-transparent focus:border-accent focus:bg-[rgba(255,255,255,0.05)] transition-colors duration-ui ease-ui"
+          className="h-8 w-full rounded-md border border-glass-border bg-glass-bg-soft px-2 font-mono text-[11px] text-text outline-none transition-colors duration-ui ease-ui focus:border-accent"
         />
       </div>
 
@@ -113,9 +111,9 @@ export function ApRow({
           e.stopPropagation();
           onRemove(ap.id);
         }}
-        className="shrink-0 w-11 h-11 inline-flex items-center justify-center rounded-[10px] text-text-dim hover:text-danger hover:bg-danger-soft transition-colors duration-ui ease-ui focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-item text-text-dim transition-colors duration-ui ease-ui hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
-        <Trash2 className="w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
+        <Trash2 className="h-4 w-4" strokeWidth={1.75} aria-hidden />
       </button>
     </div>
   );

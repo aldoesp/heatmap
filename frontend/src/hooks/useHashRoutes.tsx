@@ -5,9 +5,10 @@ export type Route =
   | 'upload'
   | 'surveys'
   | 'releves'
-  | 'analyse'
   | 'heatmap'
-  | 'settings';
+  | 'channels'
+  | 'settings'
+  | 'account';
 
 const DEFAULT_ROUTE: Route = 'scan';
 const VALID_ROUTES: Route[] = [
@@ -15,9 +16,10 @@ const VALID_ROUTES: Route[] = [
   'upload',
   'surveys',
   'releves',
-  'analyse',
   'heatmap',
+  'channels',
   'settings',
+  'account',
 ];
 
 function parseHash(hash: string): Route {

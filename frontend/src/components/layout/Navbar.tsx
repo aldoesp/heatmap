@@ -2,10 +2,11 @@ import {
   Radar,
   Upload,
   ClipboardList,
-  ChartNoAxesCombined,
   Flame,
+  Radio,
   Settings,
   Wifi,
+  UserRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useHashRoute, type Route } from '../../hooks/useHashRoutes';
@@ -17,12 +18,13 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { route: 'scan', label: 'Scan', Icon: Radar },
-  { route: 'upload', label: 'Upload', Icon: Upload },
-  { route: 'surveys', label: 'Surveys', Icon: ClipboardList },
-  { route: 'analyse', label: 'Analyse', Icon: ChartNoAxesCombined },
-  { route: 'heatmap', label: 'Heatmap', Icon: Flame },
-  { route: 'settings', label: 'Settings', Icon: Settings },
+  { route: 'upload', label: 'Plan', Icon: Upload },
+  { route: 'scan', label: 'Mesures', Icon: Radar },
+  { route: 'channels', label: 'Canaux', Icon: Radio },
+  { route: 'surveys', label: 'Relevés', Icon: ClipboardList },
+  { route: 'heatmap', label: 'Couverture', Icon: Flame },
+  { route: 'settings', label: 'Paramètres', Icon: Settings },
+  { route: 'account', label: 'Compte', Icon: UserRound },
 ];
 
 export function Navbar() {
@@ -32,79 +34,58 @@ export function Navbar() {
     <nav
       aria-label="Navigation principale"
       className={[
-        // Base commune
-        'glass-fallback fixed z-50 flex items-center',
-        'bg-glass-bg backdrop-blur-ui backdrop-saturate-150',
-        'border border-glass-border shadow-glass',
-        // Mobile : bas, pleine largeur
-        'left-3 right-3 bottom-[calc(12px+env(safe-area-inset-bottom))] h-16 px-2 rounded-bar',
-        // Desktop : haut, centré
-        'md:sticky md:top-3 md:left-auto md:right-auto md:bottom-auto',
-        'md:mx-auto md:max-w-[1200px] md:h-14 md:px-3 md:rounded-[20px]',
+        'glass-fallback fixed inset-x-0 bottom-0 z-50 border-t border-glass-border bg-glass-bg pb-[env(safe-area-inset-bottom)] backdrop-blur-ui backdrop-saturate-150 shadow-glass',
+        'md:sticky md:top-0 md:bottom-auto md:border-b md:border-t-0',
       ].join(' ')}
     >
-      {/* Brand (visible desktop seulement) */}
-      <a
-        href="#/scan"
-        className="hidden md:inline-flex items-center gap-2 text-text text-[15px] font-medium no-underline px-3 py-1 mr-2 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded-lg"
-      >
-        <Wifi className="w-5 h-5 text-accent" strokeWidth={1.75} aria-hidden />
-        <span>WiFi Diagnostic</span>
-      </a>
+      <div className="mx-auto flex h-16 max-w-[1320px] items-center gap-6 px-3 md:h-14 md:px-6">
+        <a
+          href="#/scan"
+          className="hidden shrink-0 items-center gap-2.5 rounded-item px-1 py-1 text-sm font-medium text-text no-underline md:inline-flex"
+        >
+          <Wifi className="h-5 w-5 text-accent" strokeWidth={1.75} aria-hidden />
+          <span className="">WiFi Heatmapper</span>
+        </a>
 
-      {/* Items */}
-      <ul className="flex flex-1 items-center justify-around md:justify-end md:gap-1 list-none m-0 p-0">
-        {NAV_ITEMS.map(({ route, label, Icon }) => {
-          const active = current === route;
-          return (
-            <li key={route}>
-              <a
-                href={`#/${route}`}
-                aria-current={active ? 'page' : undefined}
-                aria-label={label}
-                title={label}
-                className={[
-                  'relative inline-flex items-center justify-center',
-                  'min-w-[44px] min-h-[44px] px-3 rounded-item',
-                  'border border-transparent no-underline',
-                  'transition-all duration-ui ease-ui',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-                  // État inactif
-                  'text-text-dim',
-                  // Hover desktop
-                  'md:hover:bg-glass-bg md:hover:text-text',
-                  // État actif — Variante 3 : pas de pilule sur mobile
-                  active && 'text-accent',
-                  // Sur desktop, on remet la pilule
-                  active &&
-                    'md:bg-accent-soft md:border-accent-border md:hover:bg-accent-soft md:hover:text-accent',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                <Icon
+        <ul className="flex min-w-0 flex-1 list-none items-center justify-around gap-1 p-0 md:justify-start">
+          {NAV_ITEMS.map(({ route, label, Icon }) => {
+            const active = current === route || (route === 'surveys' && current === 'releves');
+            return (
+              <li key={route} className="min-w-0 md:flex-none">
+                <a
+                  href={`#/${route}`}
+                  aria-current={active ? 'page' : undefined}
                   className={[
-                    'w-[22px] h-[22px] md:w-[18px] md:h-[18px] shrink-0',
-                    active && 'md:drop-shadow-[0_0_6px_rgba(16,185,129,0.55)]',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  strokeWidth={1.75}
-                  aria-hidden
-                />
-
-                {/* Barre indicatrice — uniquement sur mobile quand actif */}
-                {active && (
-                  <span
+                    'relative flex min-h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-item border border-transparent px-2 no-underline',
+                    'transition-colors duration-ui ease-ui md:min-h-0 md:min-w-0 md:flex-row md:gap-2 md:px-3 md:py-2',
+                    active
+                      ? 'text-accent md:border md:border-accent-border md:bg-accent-soft'
+                      : 'text-muted hover:text-text md:hover:bg-glass-bg',
+                  ].join(' ')}
+                >
+                  {active && (
+                    <span
+                      aria-hidden
+                      className="absolute -top-px h-0.5 w-5 rounded-full bg-accent shadow-accent-soft md:hidden"
+                    />
+                  )}
+                  <Icon
+                    className={[
+                      'h-5 w-5 shrink-0 md:h-4 md:w-4',
+                      active ? 'text-accent' : 'text-current',
+                    ].join(' ')}
+                    strokeWidth={1.75}
                     aria-hidden
-                    className="md:hidden absolute left-1/2 bottom-1 -translate-x-1/2 w-5 h-0.5 rounded-full bg-accent shadow-accent-soft"
                   />
-                )}
-              </a>
-            </li>
-          );
-        })}
-      </ul>
+                  <span className="max-w-full truncate text-[11px] font-medium leading-none md:text-[13px]">
+                    {label}
+                  </span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     </nav>
   );
 }

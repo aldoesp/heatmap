@@ -78,7 +78,7 @@ export function ApMarker({
         className={[
           'pointer-events-none w-7 h-7 rounded-full',
           'flex items-center justify-center',
-          'bg-accent border-2 border-bg text-[#0b0f14]',
+          'bg-accent border-2 border-bg text-bg',
           'font-mono text-[12px] font-semibold',
           'transition-shadow duration-ui ease-ui',
           selected && 'shadow-[0_0_0_6px_var(--color-accent-soft)]',

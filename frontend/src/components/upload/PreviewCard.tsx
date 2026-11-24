@@ -53,8 +53,7 @@ export function PreviewCard({
         ref={frameRef}
         onClick={handleClick}
         className={[
-          'relative bg-bg rounded-2xl overflow-hidden',
-          'flex items-center justify-center',
+          'relative flex items-center justify-center overflow-hidden surface p-2',
           placing && 'cursor-crosshair',
         ]
           .filter(Boolean)
@@ -81,22 +80,22 @@ export function PreviewCard({
         ))}
       </div>
 
-      <div className="glass-fallback flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 bg-glass-bg-soft border border-glass-border-soft rounded-xl shadow-glass-light">
-        <div className="font-mono text-[12px] text-text-dim truncate">
+      <div className="surface flex flex-wrap items-center justify-between gap-3 px-3 py-2">
+        <div className="min-w-0 truncate font-mono text-[11px] text-text-dim">
           {fileName} · {width}×{height} · {formatBytes(sizeBytes)}
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1">
           <button
             type="button"
             onClick={onReplace}
-            className="inline-flex items-center h-9 px-3 rounded-[10px] text-[13px] font-medium text-text-dim border border-glass-border bg-transparent hover:text-text hover:bg-glass-bg transition-colors duration-ui ease-ui focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            className="btn-ghost h-9 px-3 text-[13px]"
           >
             Remplacer
           </button>
           <button
             type="button"
             onClick={onRemove}
-            className="inline-flex items-center h-9 px-3 rounded-[10px] text-[13px] font-medium text-text-dim border border-glass-border bg-transparent hover:text-text hover:bg-glass-bg transition-colors duration-ui ease-ui focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            className="btn-ghost h-9 px-3 text-[13px] hover:text-danger"
           >
             Supprimer
           </button>

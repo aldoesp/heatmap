@@ -2,7 +2,6 @@ import { lazy, Suspense } from "react"
 import Particles from "./components/ui/Particles"
 import { Navbar } from "./components/layout/Navbar"
 import { UploadPage } from "./components/upload/UploadPage"
-import { AnalysePage } from "./components/analyse/AnalysePage"
 import { useHashRoute } from "./hooks/useHashRoutes"
 
 const ScanPage = lazy(() =>
@@ -20,7 +19,12 @@ const HeatmapPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("./components/settings/SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage }))
 )
- 
+const ChannelAnalyzerPage = lazy(() =>
+  import("./components/channels/ChannelAnalyzerPage").then(({ ChannelAnalyzerPage }) => ({ default: ChannelAnalyzerPage }))
+)
+const AccountPage = lazy(() =>
+  import("./components/account/AccountPage").then(({ AccountPage }) => ({ default: AccountPage }))
+)
 function App() {
   const route = useHashRoute()
 
@@ -39,17 +43,18 @@ function App() {
           pixelRatio={1}
         />
       </div>
-      <Navbar />
       <div className="relative z-10">
-        <Suspense fallback={<div className="fixed inset-0 bg-bg" />}>
-          {route === 'scan' && <ScanPage />}
-          {route === 'surveys' && <SurveysLibraryPage />}
-          {route === 'releves' && <SurveysPage />}
-          {route === 'heatmap' && <HeatmapPage />}
-          {route === 'settings' && <SettingsPage />}
-        </Suspense>
-        {route === 'upload' && <UploadPage />}
-        {route === 'analyse' && <AnalysePage />}
+      <Navbar />
+      <Suspense fallback={<div role="status" className="mx-auto max-w-[1320px] px-4 py-12 text-sm text-text-dim">Chargement de l’écran…</div>}>
+        {route === 'scan' && <ScanPage />}
+        {route === 'surveys' && <SurveysLibraryPage />}
+        {route === 'releves' && <SurveysPage />}
+        {route === 'heatmap' && <HeatmapPage />}
+        {route === 'channels' && <ChannelAnalyzerPage />}
+        {route === 'settings' && <SettingsPage />}
+        {route === 'account' && <AccountPage />}
+      </Suspense>
+      {route === 'upload' && <UploadPage />}
       </div>
     </main>
   )
