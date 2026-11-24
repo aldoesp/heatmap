@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { heatmapFilterSegment, readCached } from '../cache/readCache.js';
 import { rssiToQuality } from '../utils/wifi.utils.js';
 import { withBssidNames } from './bssidRules.repository.js';
 
@@ -78,7 +79,8 @@ export function findSpeedByScan(scan_id) {
 
 // Débit descendant max par point (points activés, pour la heatmap).
 export function speedByPlan(plan_id) {
-  return getDb()
+  const db = getDb();
+  return readCached(db, () => ['speed', 'plan', plan_id, 'all'], () => db
     .prepare(
       `SELECT sp.id AS scan_point_id, sp.x, sp.y, MAX(st.tcp_down_bps) AS speed_bps
        FROM scan_points sp
@@ -88,11 +90,12 @@ export function speedByPlan(plan_id) {
        GROUP BY sp.id
        ORDER BY sp.created_at ASC`
     )
-    .all(plan_id);
+    .all(plan_id));
 }
 
 export function speedBySurvey(survey_id) {
-  return getDb()
+  const db = getDb();
+  return readCached(db, () => ['speed', 'survey', survey_id, 'all'], () => db
     .prepare(
       `SELECT sp.id AS scan_point_id, sp.x, sp.y, MAX(st.tcp_down_bps) AS speed_bps
        FROM scan_points sp
@@ -102,7 +105,7 @@ export function speedBySurvey(survey_id) {
        GROUP BY sp.id
        ORDER BY sp.created_at ASC`
     )
-    .all(survey_id);
+    .all(survey_id));
 }
 
 export function listScansByPoint(scan_point_id) {
@@ -130,17 +133,22 @@ export function countObservationsByScan(scan_id) {
 // Historique d'un plan : points + leurs scans + nombre de réseaux par scan
 export function getHistoryByPlan(plan_id) {
   const db = getDb();
-  const points = db
-    .prepare('SELECT * FROM scan_points WHERE plan_id = ? ORDER BY created_at ASC')
-    .all(plan_id);
-  return historyForPoints(points, 'sp.plan_id = ?', plan_id);
+  return readCached(db, () => ['history', 'plan', plan_id, 'all'], () => {
+    const points = db
+      .prepare('SELECT * FROM scan_points WHERE plan_id = ? ORDER BY created_at ASC')
+      .all(plan_id);
+    return historyForPoints(points, 'sp.plan_id = ?', plan_id);
+  });
 }
 
 export function getHistoryBySurvey(survey_id) {
-  const points = getDb()
-    .prepare('SELECT * FROM scan_points WHERE survey_id = ? ORDER BY created_at ASC')
-    .all(survey_id);
-  return historyForPoints(points, 'sp.survey_id = ?', survey_id);
+  const db = getDb();
+  return readCached(db, () => ['history', 'survey', survey_id, 'all'], () => {
+    const points = db
+      .prepare('SELECT * FROM scan_points WHERE survey_id = ? ORDER BY created_at ASC')
+      .all(survey_id);
+    return historyForPoints(points, 'sp.survey_id = ?', survey_id);
+  });
 }
 
 function historyForPoints(points, scope, scopeId) {
@@ -176,7 +184,8 @@ function historyForPoints(points, scope, scopeId) {
 
 // Réseaux distincts vus sur un plan (pour les filtres SSID/BSSID)
 export function listNetworksByPlan(plan_id) {
-  return withBssidNames(getDb()
+  const db = getDb();
+  return readCached(db, () => ['networks', 'plan', plan_id, 'all'], () => withBssidNames(db
     .prepare(
       `SELECT o.ssid, o.bssid, COUNT(DISTINCT s.id) AS scan_count,
               MAX(o.rssi) AS best_rssi
@@ -188,11 +197,12 @@ export function listNetworksByPlan(plan_id) {
        GROUP BY o.ssid, o.bssid
        ORDER BY best_rssi DESC`
     )
-    .all(plan_id));
+    .all(plan_id)));
 }
 
 export function listNetworksBySurvey(survey_id) {
-  return withBssidNames(getDb()
+  const db = getDb();
+  return readCached(db, () => ['networks', 'survey', survey_id, 'all'], () => withBssidNames(db
     .prepare(
       `SELECT o.ssid, o.bssid, COUNT(DISTINCT s.id) AS scan_count,
               MAX(o.rssi) AS best_rssi
@@ -205,7 +215,7 @@ export function listNetworksBySurvey(survey_id) {
        GROUP BY o.ssid, o.bssid
        ORDER BY best_rssi DESC`
     )
-    .all(survey_id));
+    .all(survey_id)));
 }
 
 export function listObservationsByScan(scan_id, { ssid, band, minRssi } = {}) {
@@ -290,11 +300,21 @@ function exportCsvFor(scope, scope_id) {
 // quality est recalculée depuis ce rssi (même formule que normalizeEntry),
 // car MAX(rssi) et MAX(quality) pourraient venir de lignes différentes.
 export function heatmapByPlan(plan_id, { ssid, bssid, band, connected } = {}) {
-  return heatmapByScope('sp.plan_id = ?', plan_id, { ssid, bssid, band, connected });
+  const filters = { ssid, bssid, band, connected };
+  return readCached(
+    getDb(),
+    () => ['heatmap', 'plan', plan_id, heatmapFilterSegment(filters)],
+    () => heatmapByScope('sp.plan_id = ?', plan_id, filters),
+  );
 }
 
 export function heatmapBySurvey(survey_id, { ssid, bssid, band, connected } = {}) {
-  return heatmapByScope('sp.survey_id = ?', survey_id, { ssid, bssid, band, connected });
+  const filters = { ssid, bssid, band, connected };
+  return readCached(
+    getDb(),
+    () => ['heatmap', 'survey', survey_id, heatmapFilterSegment(filters)],
+    () => heatmapByScope('sp.survey_id = ?', survey_id, filters),
+  );
 }
 
 function heatmapByScope(scope, scope_id, { ssid, bssid, band, connected } = {}) {

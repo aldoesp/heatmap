@@ -1,9 +1,10 @@
 import { getDb } from '../database/db.js';
+import { readCached } from '../cache/readCache.js';
 import { withBssidNames } from './bssidRules.repository.js';
 
 export function listStrongestObservationsBySurvey(survey_id) {
   const db = getDb();
-  return withBssidNames(db
+  return readCached(db, () => ['analysis', 'survey', survey_id, 'strongest'], () => withBssidNames(db
     .prepare(
       `WITH ranked_observations AS (
          SELECT sp.id AS scan_point_id, sp.x, sp.y, sp.note,
@@ -27,5 +28,5 @@ export function listStrongestObservationsBySurvey(survey_id) {
        WHERE observation_rank = 1
        ORDER BY scan_point_id, rssi DESC, bssid`
     )
-    .all(survey_id));
+    .all(survey_id)));
 }

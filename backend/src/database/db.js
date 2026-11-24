@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
+import { memoryCache } from '../cache/memoryCache.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // backend/data/heatmap.db par défaut, surchargeable via DB_PATH
@@ -126,8 +127,12 @@ function migrate(db) {
 }
 
 export function closeDb() {
-  if (db) {
-    db.close();
-    db = null;
+  try {
+    if (db) {
+      db.close();
+      db = null;
+    }
+  } finally {
+    memoryCache.clear();
   }
 }

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { readCached } from '../cache/readCache.js';
 
 const namedRulesStatements = new WeakMap();
 
@@ -75,6 +76,10 @@ export function withBssidNames(rows) {
 
 export function listAllSeenBssids() {
   const db = getDb();
+  return readCached(db, () => ['bssid', 'seen', 'all'], () => loadAllSeenBssids(db));
+}
+
+function loadAllSeenBssids(db) {
   const rows = db
     .prepare(
       `WITH latest_ssid AS (
