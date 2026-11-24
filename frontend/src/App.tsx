@@ -22,7 +22,9 @@ const SettingsPage = lazy(() =>
 const ChannelAnalyzerPage = lazy(() =>
   import("./components/channels/ChannelAnalyzerPage").then(({ ChannelAnalyzerPage }) => ({ default: ChannelAnalyzerPage }))
 )
-
+const AccountPage = lazy(() =>
+  import("./components/account/AccountPage").then(({ AccountPage }) => ({ default: AccountPage }))
+)
 function App() {
   const route = useHashRoute()
 
@@ -50,6 +52,7 @@ function App() {
         {route === 'heatmap' && <HeatmapPage />}
         {route === 'channels' && <ChannelAnalyzerPage />}
         {route === 'settings' && <SettingsPage />}
+        {route === 'account' && <AccountPage />}
       </Suspense>
       {route === 'upload' && <UploadPage />}
       </div>

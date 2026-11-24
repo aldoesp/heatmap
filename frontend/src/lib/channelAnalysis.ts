@@ -323,6 +323,100 @@ function fiveGhzTicks(min: number, max: number): number[] {
   return visible.filter((_, index) => index % stride === 0 || index === visible.length - 1);
 }
 
+/** Fréquence centrale (MHz) d'un canal primaire. */
+export function channelFrequencyMhz(channel: number, band: ChannelBand): number {
+  if (band === '2.4') {
+    return channel === 14 ? 2484 : 2407 + channel * CHANNEL_STEP_MHZ;
+  }
+  return 5000 + channel * CHANNEL_STEP_MHZ;
+}
+
+export type ChannelLoadLabel = 'Libre' | 'Chargé' | 'Saturé';
+
+export interface ChannelLoad {
+  channel: number;
+  /** Interférence relative 0..1, pondérée par le RSSI des réseaux qui recouvrent le canal. */
+  load: number;
+  label: ChannelLoadLabel;
+  /** Nombre de réseaux dont le spectre recouvre ce canal. */
+  networks: number;
+}
+
+export interface ChannelAdvice {
+  channel: number;
+  rows: ChannelLoad[];
+}
+
+/** Canaux étudiés pour la recommandation (sans recouvrement entre eux). */
+const ADVICE_CHANNELS: Record<ChannelBand, readonly number[]> = {
+  '2.4': [1, 6, 11],
+  '5': FIVE_GHZ_CHANNELS,
+};
+
+/** Poids d'interférence d'un réseau : −95 dBm ≈ 0, −55 dBm et mieux ≈ 1. */
+function interferenceWeight(rssi: number): number {
+  return Math.max(0, Math.min(1, (rssi + 95) / 40));
+}
+
+function loadLabel(load: number): ChannelLoadLabel {
+  if (load < 0.25) return 'Libre';
+  if (load < 0.6) return 'Chargé';
+  return 'Saturé';
+}
+
+/**
+ * Canal le moins chargé de la bande, d'après les observations existantes.
+ * L'interférence est estimée par recouvrement spectral (±10 MHz autour du
+ * canal) pondéré par le RSSI : aucune donnée n'est inventée, et un plan sans
+ * observation sur la bande ne produit aucune recommandation.
+ */
+export function recommendChannel(
+  networks: readonly ChannelNetwork[],
+  band: ChannelBand,
+): ChannelAdvice | null {
+  const visible = networks.filter((network) => network.band === band);
+  if (visible.length === 0) return null;
+
+  const raw = ADVICE_CHANNELS[band].map((channel) => {
+    const frequency = channelFrequencyMhz(channel, band);
+    let weight = 0;
+    let count = 0;
+    for (const network of visible) {
+      const span = channelSpan(network);
+      if (span.startMhz < frequency + 10 && span.endMhz > frequency - 10) {
+        weight += interferenceWeight(network.rssi);
+        count += 1;
+      }
+    }
+    return { channel, weight, networks: count };
+  });
+
+  const maxWeight = Math.max(...raw.map((row) => row.weight), 0);
+  const rows = raw.map((row) => {
+    const load = maxWeight > 0 ? row.weight / maxWeight : 0;
+    return {
+      channel: row.channel,
+      load,
+      label: loadLabel(load),
+      networks: row.networks,
+    };
+  });
+
+  const best = rows.reduce((winner, row) =>
+    row.load < winner.load || (row.load === winner.load && row.channel < winner.channel)
+      ? row
+      : winner,
+  );
+
+  // Les trois canaux les moins chargés, présentés par ordre de canal.
+  const shortlist = [...rows]
+    .sort((a, b) => a.load - b.load || a.channel - b.channel)
+    .slice(0, 3)
+    .sort((a, b) => a.channel - b.channel);
+
+  return { channel: best.channel, rows: shortlist };
+}
+
 /** Domaine X du graphique : canaux standard, élargis aux largeurs observées. */
 export function channelDomain(
   band: ChannelBand,

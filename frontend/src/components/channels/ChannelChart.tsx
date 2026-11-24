@@ -77,6 +77,9 @@ export function ChannelChart({
   const hovered = hoveredBssid
     ? networks.find((network) => network.bssid === hoveredBssid) ?? null
     : null;
+  const selected = selectedBssid
+    ? networks.find((network) => network.bssid === selectedBssid) ?? null
+    : null;
 
   const sorted = useMemo(
     () =>
@@ -247,6 +250,15 @@ export function ChannelChart({
         })}
       </g>
 
+      {selected && !hovered && (
+        <SelectedTag
+          network={selected}
+          colour={colours.get(selected.bssid) ?? '#10b981'}
+          x={x(selected.centerChannel)}
+          y={y(clamp(selected.rssi, RSSI_MIN, RSSI_MAX))}
+        />
+      )}
+
       {hovered && tooltip && (
         <g pointerEvents="none">
           <rect
@@ -289,5 +301,48 @@ export function ChannelChart({
         </g>
       )}
     </svg>
+  );
+}
+
+/** Étiquette persistante du réseau sélectionné, au-dessus de son pic. */
+function SelectedTag({
+  network,
+  colour,
+  x,
+  y,
+}: {
+  network: ChannelNetwork;
+  colour: string;
+  x: number;
+  y: number;
+}) {
+  const label = truncate(`${networkLabel(network)} ${network.rssi} dBm`, 26);
+  const width = Math.round(label.length * 6.6 + 20);
+  const height = 26;
+  const left = clamp(x - width / 2, MARGIN.left + 4, WIDTH - MARGIN.right - width - 4);
+  const top = clamp(y - height - 12, MARGIN.top + 4, HEIGHT - MARGIN.bottom - height);
+
+  return (
+    <g pointerEvents="none">
+      <rect
+        x={left}
+        y={top}
+        width={width}
+        height={height}
+        rx={8}
+        fill="#0b1119"
+        stroke={colour}
+        strokeOpacity={0.5}
+      />
+      <text
+        x={left + 10}
+        y={top + 17}
+        fontSize={12}
+        fill={colour}
+        fontFamily="var(--font-mono)"
+      >
+        {label}
+      </text>
+    </g>
   );
 }

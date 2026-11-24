@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {
   aggregateChannelNetworks,
   channelDomain,
+  channelFrequencyMhz,
   channelFromFrequency,
   channelSpan,
   filterBestNetworks,
   findChannelOverlaps,
+  recommendChannel,
   type ChannelSample,
 } from '../src/lib/channelAnalysis.js';
 
@@ -256,5 +258,88 @@ describe('analyse des canaux Wi-Fi', () => {
     assert.ok(domain.min <= 34);
     assert.ok(domain.max >= 42);
     assert.ok(domain.ticks.length > 0);
+  });
+
+  it('calcule la fréquence centrale d’un canal', () => {
+    assert.equal(channelFrequencyMhz(1, '2.4'), 2412);
+    assert.equal(channelFrequencyMhz(6, '2.4'), 2437);
+    assert.equal(channelFrequencyMhz(14, '2.4'), 2484);
+    assert.equal(channelFrequencyMhz(36, '5'), 5180);
+  });
+
+  it('conseille le canal 2,4 GHz le moins chargé', () => {
+    const networks = aggregateChannelNetworks(
+      [
+        sample({
+          bssid: 'aa:bb:cc:dd:ee:01',
+          channel: 6,
+          frequency_mhz: 2437,
+          center_frequency_mhz: 2437,
+          center_channel: 6,
+          rssi: -45,
+        }),
+        sample({
+          bssid: 'aa:bb:cc:dd:ee:02',
+          ssid: 'Voisin',
+          channel: 6,
+          frequency_mhz: 2437,
+          center_frequency_mhz: 2437,
+          center_channel: 6,
+          rssi: -50,
+        }),
+        sample({
+          bssid: 'aa:bb:cc:dd:ee:03',
+          ssid: 'Autre',
+          channel: 11,
+          frequency_mhz: 2462,
+          center_frequency_mhz: 2462,
+          center_channel: 11,
+          rssi: -75,
+        }),
+      ],
+      '2.4',
+    );
+
+    const advice = recommendChannel(networks, '2.4');
+    assert.ok(advice);
+    assert.equal(advice.channel, 1);
+    assert.deepEqual(
+      advice.rows.map((row) => row.channel),
+      [1, 6, 11],
+    );
+    assert.equal(advice.rows[0].label, 'Libre');
+    assert.equal(advice.rows.find((row) => row.channel === 6)?.label, 'Saturé');
+    assert.equal(advice.rows.find((row) => row.channel === 11)?.label, 'Chargé');
+  });
+
+  it('ne conseille aucun canal sans observation sur la bande', () => {
+    assert.equal(recommendChannel([], '2.4'), null);
+
+    const networks = aggregateChannelNetworks([sample()], '2.4');
+    assert.equal(recommendChannel(networks, '5'), null);
+  });
+
+  it('conseille un canal 5 GHz hors de celui déjà occupé', () => {
+    const networks = aggregateChannelNetworks(
+      [
+        sample({
+          bssid: 'aa:bb:cc:dd:ee:10',
+          band: '5GHz',
+          channel: 36,
+          frequency_mhz: 5180,
+          center_frequency_mhz: 5180,
+          center_channel: 36,
+          rssi: -40,
+        }),
+      ],
+      '5',
+    );
+
+    const advice = recommendChannel(networks, '5');
+    assert.ok(advice);
+    assert.notEqual(advice.channel, 36);
+    assert.equal(advice.rows.length, 3);
+    assert.ok(advice.rows.every((row) => row.load === 0));
+    assert.equal(advice.rows[0].label, 'Libre');
   });
 });
