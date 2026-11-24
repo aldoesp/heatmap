@@ -10,7 +10,8 @@
     "test": "node --test --test-concurrency=1 tests/api.test.js tests/ping.test.js tests/surveyExport.test.js tests/memoryCache.test.js tests/readCache.test.js tests/cacheInvalidation.test.js",
     "test:scan": "SCAN_MODE=test nodemon --watch src src/server.js",
     "print": "node tests/print-normalized.js",
-    "bench:phase0": "node benchmarks/phase0-backend.js"
+    "bench:phase0": "node benchmarks/phase0-backend.js",
+    "bench:phase4d": "node benchmarks/phase4d-backend.js"
   },
   "keywords": [],
   "dependencies": {

@@ -68,3 +68,15 @@ Les trois exécutions de `npm test` passent avec 101 tests chacune, avec `BACKEN
 Rejouer la mesure depuis `backend` avec `BENCH_PHASE4C=1 BACKEND_CACHE_ENABLED=true node --test --test-isolation=none --test-name-pattern='mesure ciblée' tests/cacheInvalidation.test.js`.
 
 La phase 4D devra mesurer les lectures et écritures sur des volumes représentatifs, notamment le coût des misses, la résolution des périmètres de cascade, la mémoire et le taux de hits sur des parcours mixtes.
+
+## Phase 4D · Validation et benchmarks du cache backend
+
+Exécuter `npm --prefix backend run bench:phase4d` pour les volumes petit, référence et charge élevée. Les options `--volume=reference --iterations=30 --warmup=5` peuvent être passées après `--`. Le script partage le générateur et les agrégats du benchmark historique. Chaque volume exécute la même version backend et les mêmes données dans un processus avec SQLite et images temporaires. [Rapport](benchmarks/phase4d-report.md) · [Mesures et compteurs](benchmarks/phase4d-backend.json)
+
+Sur 9 000 observations, la heatmap plan est passée en HTTP de 4,746 à 1,808 ms au p50 sur un hit, et de 3,999 à 0,022 ms au repository. Sur 90 000 observations, le miss repository de cette lecture a coûté 20,149 ms contre 14,920 ms cache désactivé. Les écarts négatifs de certaines médianes miss–désactivé restent sensibles au bruit de mesure.
+
+En charge élevée, le parcours 90/10 a gagné 46,8 % avec 54,9 % de hits. Les parcours 70/30 et 50/50 ont ralenti de 26,8 % et 29,8 % avec 4 % et 0 % de hits. Ces scénarios synthétiques illustrent l’effet de la réutilisation entre invalidations. Ils ne décrivent pas la répartition réelle du trafic. Les hooks et leurs résolutions SQL continuent de fonctionner cache désactivé. Sur ce volume, le scan mesuré passe de 0,910 à 0,983 ms et la suppression d’un plan de 26,394 à 27,966 ms au p50, en incluant SQL et invalidations.
+
+La charge élevée atteint 62,81 Mio estimés après la chauffe non filtrée, puis 4,46 à 5,01 Mio et 300 entrées en fin de tour filtre. Les relevés RSS, heap, external et arrayBuffers sont conservés séparément. L’essai contrôlé confirme l’éviction au budget total, le refus au budget unitaire et l’expiration à 60 s. Conserver les limites et le TTL actuels. Les gains les plus fiables concernent des lectures répétées, notamment l’analyse et les BSSID vus. Une réévaluation des familles peu réutilisées nécessiterait des mesures de trafic représentatives et une comparaison contrôlée.
+
+Les 101 tests backend passent avec le cache activé puis désactivé, dans une copie temporaire du backend. Les réponses des modes désactivé, miss et hit ont des JSON identiques dans les trois volumes. Les lectures de contrôle après mutation et les tests 4C confirment les invalidations, les cascades, les imports et les rollbacks. Le cache reste actif par défaut et local au processus. Les durées historiques 0 et 1 sont des repères. Les gains rapportés proviennent des comparaisons 4D à conditions communes.
