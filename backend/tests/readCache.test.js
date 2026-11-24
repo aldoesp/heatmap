@@ -9,7 +9,8 @@ import { buildCacheKey, heatmapFilterSegment, readCached } from '../src/cache/re
 
 const directory = mkdtempSync(join(tmpdir(), 'heatmap-cache-'));
 process.env.DB_PATH = join(directory, 'test.db');
-delete process.env.BACKEND_CACHE_ENABLED;
+const configuredMode = process.env.BACKEND_CACHE_ENABLED;
+const cacheEnabled = configuredMode === undefined || configuredMode === 'true';
 
 const { getDb, closeDb } = await import('../src/database/db.js');
 const { listAllSeenBssids } = await import('../src/repositories/bssidRules.repository.js');
@@ -58,7 +59,8 @@ before(() => {
 });
 
 beforeEach(() => {
-  delete process.env.BACKEND_CACHE_ENABLED;
+  if (configuredMode === undefined) delete process.env.BACKEND_CACHE_ENABLED;
+  else process.env.BACKEND_CACHE_ENABLED = configuredMode;
   memoryCache.clear();
   memoryCache.resetStats();
 });
@@ -81,9 +83,9 @@ const reads = [
   ['analysisSurvey', () => listStrongestObservationsBySurvey(survey)],
 ];
 
-test('cache désactivé par défaut et activation strictement explicite', () => {
-  for (const value of [undefined, 'false', '1']) {
-    if (value !== undefined) process.env.BACKEND_CACHE_ENABLED = value;
+test('cache actif par défaut et désactivable explicitement', () => {
+  for (const value of ['false', '1']) {
+    process.env.BACKEND_CACHE_ENABLED = value;
     for (const [, read] of reads) {
       const rows = read();
       assert.ok(rows.length > 0);
@@ -93,25 +95,28 @@ test('cache désactivé par défaut et activation strictement explicite', () => 
   assert.equal(memoryCache.stats().entries, 0);
   assert.equal(memoryCache.stats().misses, 0);
   assert.equal(memoryCache.stats().estimatedSizeBytes, 0);
+  delete process.env.BACKEND_CACHE_ENABLED;
+  const rows = heatmapByPlan(plan);
+  assert.equal(heatmapByPlan(plan), rows);
+  assert.equal(memoryCache.stats().hits, 1);
 });
 
 test('chaque lecture ciblée conserve son résultat au premier miss puis le réutilise', () => {
-  const expected = reads.map(([, read]) => read());
-  enabled();
+  const expected = getDb().transaction(() => reads.map(([, read]) => read()))();
   reads.forEach(([name, read], index) => {
     const first = read();
     assert.deepEqual(first, expected[index], name);
-    assert.equal(read(), first, name);
+    if (cacheEnabled) assert.equal(read(), first, name);
+    else assert.notEqual(read(), first, name);
   });
-  assert.equal(memoryCache.stats().misses, reads.length);
-  assert.equal(memoryCache.stats().hits, reads.length);
-  assert.equal(memoryCache.stats().entries, reads.length);
+  assert.equal(memoryCache.stats().misses, cacheEnabled ? reads.length : 0);
+  assert.equal(memoryCache.stats().hits, cacheEnabled ? reads.length : 0);
+  assert.equal(memoryCache.stats().entries, cacheEnabled ? reads.length : 0);
   assert.ok(heatmapBySurvey(survey).every(row => row.bssid !== bssid(14)));
   assert.ok(listStrongestObservationsBySurvey(survey).some(row => row.bssid_name === 'Alias'));
 });
 
 test('isole les plans, les surveys et les filtres réellement appliqués', () => {
-  enabled();
   assert.notDeepEqual(heatmapByPlan(plan), heatmapByPlan(otherPlan));
   assert.notDeepEqual(heatmapBySurvey(survey), heatmapBySurvey(otherSurvey));
   assert.notDeepEqual(getHistoryBySurvey(survey), getHistoryBySurvey('s%3A1'));
@@ -121,10 +126,10 @@ test('isole les plans, les surveys et les filtres réellement appliqués', () =>
   const results = variants.map(filters => heatmapBySurvey(survey, filters));
   assert.equal(new Set(results).size, variants.length);
   for (const [index, filters] of variants.entries()) {
-    process.env.BACKEND_CACHE_ENABLED = 'false';
-    assert.deepEqual(results[index], heatmapBySurvey(survey, filters));
-    enabled();
-    assert.equal(results[index], heatmapBySurvey(survey, filters));
+    assert.deepEqual(results[index], getDb().transaction(() => heatmapBySurvey(survey, filters))());
+    const again = heatmapBySurvey(survey, filters);
+    if (cacheEnabled) assert.equal(results[index], again);
+    else assert.deepEqual(results[index], again);
   }
   assert.equal(results.at(-1).length, 0);
 });
@@ -136,15 +141,16 @@ test('clés délimitées et filtres normalisés uniquement selon leur sémantiqu
   assert.equal(heatmapFilterSegment({ ssid: '', connected: false, minRssi: -40 }), 'all');
   assert.notEqual(buildCacheKey('heatmap', 'plan', plan, 'all'), buildCacheKey('heatmap', 'plan', otherPlan, 'all'));
   assert.notEqual(buildCacheKey('a:b', 'c'), buildCacheKey('a', 'b:c'));
-  enabled();
-  assert.equal(heatmapBySurvey(survey, filters), heatmapBySurvey(survey, reordered));
-  assert.equal(memoryCache.stats().hits, 1);
+  const original = heatmapBySurvey(survey, filters);
+  const equivalent = heatmapBySurvey(survey, reordered);
+  assert.deepEqual(original, equivalent);
+  if (cacheEnabled) assert.equal(original, equivalent);
+  assert.equal(memoryCache.stats().hits, cacheEnabled ? 1 : 0);
   assert.throws(() => heatmapBySurvey(survey, { bssid: 42 }), TypeError);
-  assert.equal(memoryCache.stats().entries, 1);
+  assert.equal(memoryCache.stats().entries, cacheEnabled ? 1 : 0);
 });
 
 test('les lectures dans une transaction voient les écritures et ne stockent rien', () => {
-  enabled();
   const before = heatmapBySurvey(survey);
   const stats = memoryCache.stats();
   const db = getDb();
@@ -156,11 +162,12 @@ test('les lectures dans une transaction voient les écritures et ne stockent rie
     assert.deepEqual(memoryCache.stats(), stats);
     throw rollback;
   }), error => error === rollback);
-  assert.equal(heatmapBySurvey(survey), before);
+  const after = heatmapBySurvey(survey);
+  assert.deepEqual(after, before);
+  if (cacheEnabled) assert.equal(after, before);
 });
 
 test('closeDb vide le cache et la lecture après réouverture est un miss', () => {
-  enabled();
   const before = heatmapBySurvey(survey);
   closeDb();
   assert.equal(memoryCache.stats().entries, 0);
@@ -168,22 +175,21 @@ test('closeDb vide le cache et la lecture après réouverture est un miss', () =
   const after = heatmapBySurvey(survey);
   assert.deepEqual(after, before);
   assert.notEqual(after, before);
-  assert.equal(memoryCache.stats().misses, 2);
+  assert.equal(memoryCache.stats().misses, cacheEnabled ? 2 : 0);
 });
 
 test('une lecture du repository sous pression respecte les limites du moteur partagé', () => {
-  enabled();
   const nearLimit = Buffer.alloc(8 * 1024 ** 2 - 1024);
   for (let index = 0; index < 8; index++) assert.equal(memoryCache.set(`pressure:${index}`, nearLimit), true);
   const rows = heatmapByPlan(plan);
   const stats = memoryCache.stats();
-  assert.ok(stats.evictions > 0);
+  assert.equal(stats.evictions > 0, cacheEnabled);
   assert.ok(stats.estimatedSizeBytes <= stats.maxSizeBytes);
-  assert.equal(heatmapByPlan(plan), rows);
+  if (cacheEnabled) assert.equal(heatmapByPlan(plan), rows);
   const oversized = Buffer.alloc(8 * 1024 ** 2);
   assert.equal(readCached(getDb(), () => ['pressure', 'oversized'], () => oversized), oversized);
   assert.equal(memoryCache.has('pressure:oversized'), false);
-  assert.equal(memoryCache.stats().rejectedEntries, 1);
+  assert.equal(memoryCache.stats().rejectedEntries, cacheEnabled ? 1 : 0);
 });
 
 if (process.env.BENCH_PHASE4B === '1') test('mesures ciblées à froid et à chaud', () => {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
 import { heatmapFilterSegment, readCached } from '../cache/readCache.js';
+import { invalidateObservationData, invalidateScopes, resolveInvalidationScope } from '../cache/invalidation.js';
 import { rssiToQuality } from '../utils/wifi.utils.js';
 import { withBssidNames } from './bssidRules.repository.js';
 
@@ -56,6 +57,13 @@ export function insertScanWithObservations({ scan_point_id, plan_id, mode, scann
     }
   });
   insert();
+  const scope = resolveInvalidationScope(() => db.prepare(
+    'SELECT plan_id, survey_id FROM scan_points WHERE id = ?'
+  ).get(scan_point_id));
+  invalidateObservationData(
+    [scope && { ...scope, scan_plan_id: plan_id }],
+    ['history', 'heatmap', 'networks', 'analysis'],
+  );
   return scan_id;
 }
 
@@ -64,12 +72,18 @@ export function findScanById(id) {
 }
 
 export function insertSpeedTest({ scan_id, tcp_down_bps, tcp_up_bps, duration_s, error }) {
-  getDb()
+  const db = getDb();
+  db
     .prepare(
       `INSERT INTO speed_tests (scan_id, tcp_down_bps, tcp_up_bps, duration_s, error)
        VALUES (?, ?, ?, ?, ?)`
     )
     .run(scan_id, tcp_down_bps, tcp_up_bps, duration_s, error ?? null);
+  const scope = resolveInvalidationScope(() => db.prepare(
+    `SELECT sp.plan_id, sp.survey_id FROM scans s
+     JOIN scan_points sp ON sp.id = s.scan_point_id WHERE s.id = ?`
+  ).get(scan_id));
+  invalidateScopes([scope], ['history', 'speed']);
   return findSpeedByScan(scan_id);
 }
 

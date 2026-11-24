@@ -40,3 +40,31 @@ Relancer depuis `backend` avec `BENCH_PHASE4B=1 node --test --test-isolation=non
 ### Suite en phase 4C
 
 Raccorder l’invalidation aux écritures réussies après commit SQLite. Couvrir les deux périmètres, plan et survey, les suppressions en cascade, les règles BSSID globales et les imports. Vérifier les parcours lecture–écriture–lecture et le rollback avant d’activer le cache par défaut.
+
+## Phase 4C · Invalidation métier du cache backend
+
+Le cache est actif par défaut. `BACKEND_CACHE_ENABLED=false` force les lectures directes. `true` l’active explicitement. Les autres valeurs explicites désactivent le cache. Le TTL de 60 secondes reste un filet de sécurité. La mémoire et les invalidations sont propres au processus Node. Les écritures directes dans SQLite depuis un autre processus ne déclenchent aucune invalidation.
+
+### Dépendances et écritures couvertes
+
+`backend/src/cache/invalidation.js` utilise les préfixes encodés et terminés par `:`, y compris pour toutes les variantes de filtres RSSI. Les préfixes sont dédupliqués avant éviction. Une résolution de périmètre manquante ou en échec déclenche un vidage conservateur.
+
+- **Scan RSSI et observations** — historique, heatmap RSSI, réseaux et analyse dans les périmètres concernés, plus BSSID vus. Le plan et le survey du point sont résolus après le scan. Les réseaux plan tiennent aussi compte du plan porté par le scan.
+- **Test de débit** — historique et débit du plan et du survey du point. Les entrées RSSI restent disponibles.
+- **Point créé ou supprimé sans scan** — historique plan et survey. Une note invalide aussi l’analyse survey. Un changement d’activation invalide l’historique, le RSSI, le débit et l’analyse. Une suppression avec scans couvre toutes les familles de ces périmètres et les BSSID vus. L’API de mise à jour existante accepte la note et l’activation. Les coordonnées et le rattachement sont fournis à la création ou par import. Les migrations qui les modifient s’exécutent à l’ouverture, avant les lectures cachées.
+- **Suppression de plan ou survey** — toutes les familles du plan et des surveys supprimés, plus BSSID vus. Les identifiants sont capturés avant la cascade. Les rattachements croisés autorisés par le schéma sont couverts. Les renommages de plans et de surveys conservent les entrées.
+- **Règles BSSID** — BSSID vus, historiques, RSSI, réseaux et analyses sont invalidés globalement après écriture. Le débit ne dépend pas des règles.
+- **Import ZIP** — vidage après la transaction réussie, y compris après fusion. En cas d’échec, SQLite annule les écritures et le nettoyage de fichiers existant s’applique.
+- **Import CSV** — les points écrits directement invalident l’historique dans un bloc `finally`. Les scans et les débits utilisent l’invalidation de leurs repositories. Une interruption conserve les écritures déjà validées et leur invalidation. Le CSV garde son comportement sans transaction globale.
+
+Une écriture réussie peut libérer un savepoint tandis qu’une transaction externe reste ouverte. Dans ce cas, l’éviction est immédiate et conservatrice. Les lectures contournent le cache pendant toute la transaction SQLite, donc un rollback externe peut faire perdre un hit mais ne peut pas publier de donnée non validée. Une écriture SQL échouée avant son invalidation conserve les entrées. `closeDb()` continue de vider le cache.
+
+### Fichiers et validation
+
+Les chemins d’écriture raccordés sont les repositories `scans`, `scanPoints`, `plans`, `surveys`, `bssidRules` et les services `csvImport` et `surveyImport`. La configuration centrale est dans `readCache.js`. Les tests couvrent les nouveaux cas dans `cacheInvalidation.test.js`, les imports ZIP dans `surveyExport.test.js` et les modes dans `readCache.test.js`. `backend/package.json` lance les fichiers de test en série pour éviter que les suites HTTP et ZIP se croisent dans le répertoire d’images partagé. Chaque base de test est temporaire.
+
+Les trois exécutions de `npm test` passent avec 101 tests chacune, avec `BACKEND_CACHE_ENABLED=true`, `false` et sans variable. Les tests de mutation conservent le mode hérité et comparent les résultats aux lectures directes dans une transaction. Le test de configuration vérifie séparément la bascule. Sur 100 itérations avec 300 entrées et 10 variantes évincées, l’invalidation mémoire a pris 0,070 à 0,100 ms en médiane et 0,617 à 0,629 ms au p95 sur deux passages. Ces mesures excluent les requêtes SQL de résolution de périmètre.
+
+Rejouer la mesure depuis `backend` avec `BENCH_PHASE4C=1 BACKEND_CACHE_ENABLED=true node --test --test-isolation=none --test-name-pattern='mesure ciblée' tests/cacheInvalidation.test.js`.
+
+La phase 4D devra mesurer les lectures et écritures sur des volumes représentatifs, notamment le coût des misses, la résolution des périmètres de cascade, la mémoire et le taux de hits sur des parcours mixtes.

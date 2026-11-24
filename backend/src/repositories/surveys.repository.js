@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { invalidateObservationData, listAffectedPointScopes, resolveInvalidationScope } from '../cache/invalidation.js';
 
 const SURVEY_SELECT = `
   SELECT s.*, p.name AS plan_name, p.image_url, p.width AS plan_width,
@@ -33,5 +34,12 @@ export function renameSurvey(id, name) {
 }
 
 export function deleteSurvey(id) {
-  return getDb().prepare('DELETE FROM surveys WHERE id = ?').run(id).changes > 0;
+  const db = getDb();
+  const scopes = resolveInvalidationScope(() => [
+    db.prepare('SELECT plan_id, id AS survey_id FROM surveys WHERE id = ?').get(id),
+    ...listAffectedPointScopes(db, 'sp.survey_id = ?', id),
+  ]);
+  const deleted = db.prepare('DELETE FROM surveys WHERE id = ?').run(id).changes > 0;
+  if (deleted) invalidateObservationData(scopes);
+  return deleted;
 }

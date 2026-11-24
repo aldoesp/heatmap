@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
 import { readCached } from '../cache/readCache.js';
+import { invalidateBssidRules } from '../cache/invalidation.js';
 
 const namedRulesStatements = new WeakMap();
 
@@ -38,18 +39,22 @@ export function insertBssidRule({ bssid, name, blacklisted }) {
       'INSERT INTO bssid_rules (id, bssid, name, blacklisted) VALUES (?, ?, ?, ?)'
     )
     .run(id, bssid.toLowerCase(), name, blacklisted ? 1 : 0);
+  invalidateBssidRules();
   return findBssidRuleById(id);
 }
 
 export function updateBssidRule(id, { name, blacklisted }) {
-  getDb()
+  const result = getDb()
     .prepare('UPDATE bssid_rules SET name = ?, blacklisted = ? WHERE id = ?')
     .run(name, blacklisted ? 1 : 0, id);
+  if (result.changes) invalidateBssidRules();
   return findBssidRuleById(id);
 }
 
 export function deleteBssidRule(id) {
-  return getDb().prepare('DELETE FROM bssid_rules WHERE id = ?').run(id).changes > 0;
+  const deleted = getDb().prepare('DELETE FROM bssid_rules WHERE id = ?').run(id).changes > 0;
+  if (deleted) invalidateBssidRules();
+  return deleted;
 }
 
 export function listBlacklistedBssids() {

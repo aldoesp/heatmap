@@ -15,7 +15,7 @@ export function heatmapFilterSegment({ ssid, bssid, band, connected }) {
 }
 
 export function readCached(db, keySegments, loader) {
-  if (process.env.BACKEND_CACHE_ENABLED !== 'true' || db.inTransaction) return loader();
+  if ((process.env.BACKEND_CACHE_ENABLED ?? 'true') !== 'true' || db.inTransaction) return loader();
 
   const segments = keySegments();
   if (segments.some(segment => typeof segment !== 'string')) return loader();

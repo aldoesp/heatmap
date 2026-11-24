@@ -1,4 +1,5 @@
 import { getDb } from '../database/db.js';
+import { invalidateObservationData, listAffectedPointScopes, resolveInvalidationScope } from '../cache/invalidation.js';
 
 export function insertPlan(row) {
   const db = getDb();
@@ -28,5 +29,16 @@ export function renamePlan(id, name) {
 }
 
 export function deletePlan(id) {
-  return getDb().prepare('DELETE FROM plans WHERE id = ?').run(id).changes > 0;
+  const db = getDb();
+  const scopes = resolveInvalidationScope(() => [
+    { plan_id: id },
+    ...db.prepare('SELECT plan_id, id AS survey_id FROM surveys WHERE plan_id = ?').all(id),
+    ...listAffectedPointScopes(
+      db, 'sp.plan_id = ? OR sp.survey_id IN (SELECT id FROM surveys WHERE plan_id = ?) OR s.plan_id = ?',
+      id, id, id,
+    ),
+  ]);
+  const deleted = db.prepare('DELETE FROM plans WHERE id = ?').run(id).changes > 0;
+  if (deleted) invalidateObservationData(scopes);
+  return deleted;
 }

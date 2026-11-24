@@ -4,6 +4,7 @@ import path from 'node:path';
 import { unzipSync } from 'fflate';
 import { imageSize } from 'image-size';
 import { getDb } from '../database/db.js';
+import { invalidateAll } from '../cache/invalidation.js';
 import { getPlanExtension, PLANS_DIRECTORY } from './plans.service.js';
 import { AppError } from '../utils/AppError.js';
 
@@ -887,9 +888,10 @@ export function executeSurveyImport({ manifest, images }, resolutions = {}) {
   };
 
   const writtenFiles = [];
+  let result;
   try {
     mkdirSync(PLANS_DIRECTORY, { recursive: true });
-    return db.transaction(() => {
+    result = db.transaction(() => {
       let plansCreated = 0;
       let plansMerged = 0;
       let scanPoints = 0;
@@ -1030,4 +1032,6 @@ export function executeSurveyImport({ manifest, images }, resolutions = {}) {
     }
     throw error;
   }
+  invalidateAll();
+  return result;
 }
