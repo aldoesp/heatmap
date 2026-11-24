@@ -794,6 +794,46 @@ describe('réglages, mapping et export', () => {
     assert.equal(deleted.status, 204);
   });
 
+  it('liste les BSSID vus avec leur dernier SSID et leur règle globale', async () => {
+    const bssid = '8c:30:66:74:50:83';
+    const created = await api('POST', '/api/v1/bssid-rules', {
+      bssid: bssid.toUpperCase(),
+      name: 'CH 209',
+      blacklisted: false,
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.json.bssid, bssid);
+
+    const seen = await api('GET', '/api/v1/bssid-rules/seen');
+    assert.equal(seen.status, 200);
+    const entry = seen.json.find((row) => row.bssid === bssid);
+    assert.ok(entry);
+    assert.ok(entry.ssid.length > 0);
+    assert.equal(entry.rule_id, created.json.id);
+    assert.equal(entry.name, 'CH 209');
+    assert.equal(entry.blacklisted, false);
+
+    const blocked = await api('PATCH', `/api/v1/bssid-rules/${created.json.id}`, {
+      blacklisted: true,
+    });
+    assert.equal(blocked.status, 200);
+    const blockedEntry = (await api('GET', '/api/v1/bssid-rules/seen')).json.find(
+      (row) => row.bssid === bssid
+    );
+    assert.equal(blockedEntry.blacklisted, true);
+    assert.equal(blockedEntry.name, 'CH 209');
+
+    const deleted = await api('DELETE', `/api/v1/bssid-rules/${created.json.id}`);
+    assert.equal(deleted.status, 204);
+    const deletedEntry = (await api('GET', '/api/v1/bssid-rules/seen')).json.find(
+      (row) => row.bssid === bssid
+    );
+    assert.equal(deletedEntry.rule_id, null);
+    assert.equal(deletedEntry.name, '');
+    assert.equal(deletedEntry.blacklisted, false);
+    assert.equal(deletedEntry.ssid, entry.ssid);
+  });
+
   it('coupe un point : exclu de la heatmap, visible dans le CSV', async () => {
     const off = await api('PATCH', `/api/v1/plans/${planId}/scan-points/${pointId}`, {
       is_enabled: 0,

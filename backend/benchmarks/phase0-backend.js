@@ -19,6 +19,7 @@ function parseArgs(argv) {
     iterations: 15,
     warmup: 3,
     keep: false,
+    output: 'phase0-backend.json',
   };
   for (const raw of argv) {
     if (raw === '--keep') {
@@ -29,6 +30,10 @@ function parseArgs(argv) {
     if (!match) continue;
     const key = match[1];
     const value = match[2];
+    if (key === 'output') {
+      options.output = value;
+      continue;
+    }
     if (key in options) {
       options[key] = key === 'keep' ? value === 'true' : Number(value);
     }
@@ -564,7 +569,16 @@ const results = {
     iterations: options.iterations,
     warmup: options.warmup,
   },
-  scenario: options,
+  scenario: {
+    plans: options.plans,
+    pointsPerPlan: options.pointsPerPlan,
+    scansPerPoint: options.scansPerPoint,
+    observationsPerScan: options.observationsPerScan,
+    bssids: options.bssids,
+    iterations: options.iterations,
+    warmup: options.warmup,
+    keep: options.keep,
+  },
   seedMs: round(seedMs),
   database: {
     sizeBytes: dbSizeBytes,
@@ -600,7 +614,7 @@ const results = {
 };
 
 mkdirSync(OUTPUT_DIR, { recursive: true });
-const outputPath = path.join(OUTPUT_DIR, 'phase0-backend.json');
+const outputPath = path.join(OUTPUT_DIR, options.output);
 writeFileSync(outputPath, `${JSON.stringify(results, null, 2)}\n`);
 
 const table = (entries) =>

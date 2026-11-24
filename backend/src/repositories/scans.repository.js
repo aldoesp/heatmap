@@ -133,41 +133,45 @@ export function getHistoryByPlan(plan_id) {
   const points = db
     .prepare('SELECT * FROM scan_points WHERE plan_id = ? ORDER BY created_at ASC')
     .all(plan_id);
-  return historyForPoints(points);
+  return historyForPoints(points, 'sp.plan_id = ?', plan_id);
 }
 
 export function getHistoryBySurvey(survey_id) {
   const points = getDb()
     .prepare('SELECT * FROM scan_points WHERE survey_id = ? ORDER BY created_at ASC')
     .all(survey_id);
-  return historyForPoints(points);
+  return historyForPoints(points, 'sp.survey_id = ?', survey_id);
 }
 
-function historyForPoints(points) {
-  const db = getDb();
-  return points.map((p) => {
-    const scans = db
-      .prepare(
-        `SELECT s.*, st.tcp_down_bps, st.tcp_up_bps
-         FROM scans s LEFT JOIN speed_tests st ON st.scan_id = s.id
-         WHERE s.scan_point_id = ? ORDER BY s.created_at ASC`
-      )
-      .all(p.id);
-    return {
-      ...p,
-      scans: scans.map((s) => ({
-        ...s,
-        network_count: db
-          .prepare(
-            `SELECT COUNT(*) AS count FROM observations o
-             WHERE o.scan_id = ? AND NOT EXISTS (
-               SELECT 1 FROM bssid_rules br WHERE br.bssid = o.bssid AND br.blacklisted = 1
-             )`
-          )
-          .get(s.id).count,
-      })),
-    };
-  });
+function historyForPoints(points, scope, scopeId) {
+  if (points.length === 0) return [];
+  const scans = getDb()
+    .prepare(
+      `SELECT s.*, st.tcp_down_bps, st.tcp_up_bps,
+              COUNT(o.id) AS network_count
+       FROM scans s
+       JOIN scan_points sp ON sp.id = s.scan_point_id
+       LEFT JOIN speed_tests st ON st.scan_id = s.id
+       LEFT JOIN observations o ON o.scan_id = s.id
+         AND NOT EXISTS (
+           SELECT 1 FROM bssid_rules br
+           WHERE br.bssid = o.bssid AND br.blacklisted = 1
+         )
+       WHERE ${scope}
+       GROUP BY s.id
+       ORDER BY s.created_at ASC`
+    )
+    .all(scopeId);
+  const scansByPoint = new Map();
+  for (const scan of scans) {
+    const list = scansByPoint.get(scan.scan_point_id);
+    if (list) list.push(scan);
+    else scansByPoint.set(scan.scan_point_id, [scan]);
+  }
+  return points.map((p) => ({
+    ...p,
+    scans: scansByPoint.get(p.id) ?? [],
+  }));
 }
 
 // Réseaux distincts vus sur un plan (pour les filtres SSID/BSSID)

@@ -32,6 +32,7 @@ function migrate(db) {
   if (!scanPoints.includes('survey_id')) {
     db.exec('ALTER TABLE scan_points ADD COLUMN survey_id TEXT REFERENCES surveys(id) ON DELETE CASCADE');
   }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sp_survey ON scan_points(survey_id)');
   if (!scanPoints.includes('note')) {
     db.exec('ALTER TABLE scan_points ADD COLUMN note TEXT DEFAULT NULL');
   }
