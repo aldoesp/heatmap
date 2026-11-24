@@ -9,7 +9,8 @@
     "start": "node src/server.js",
     "test": "node --test tests/api.test.js tests/ping.test.js tests/surveyExport.test.js",
     "test:scan": "SCAN_MODE=test nodemon --watch src src/server.js",
-    "print": "node tests/print-normalized.js"
+    "print": "node tests/print-normalized.js",
+    "bench:phase0": "node benchmarks/phase0-backend.js"
   },
   "keywords": [],
   "dependencies": {

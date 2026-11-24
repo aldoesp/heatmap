@@ -25,3 +25,4 @@ dist-ssr
 
 # Compiled triangulation tests
 tests-build
+bench-build
