@@ -640,25 +640,6 @@ export function HeatmapPage() {
     const workers = [0, 1].map(() => new Worker(new URL('../../lib/heatmap.worker.ts', import.meta.url), { type: 'module' }));
     let region: PlanRegion | undefined;
 
-    // Semaphore : concurrence 2 sur les pipelines BSSID.
-    let slots = 2;
-    const waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
-    const onAbort = () => {
-      for (const waiter of waiters) waiter.reject(new DOMException('Export annulé', 'AbortError'));
-      waiters.length = 0;
-    };
-    controller.signal.addEventListener('abort', onAbort, { once: true });
-    const acquire = (): Promise<void> => new Promise((resolve, reject) => {
-      if (controller.signal.aborted) { reject(new DOMException('Export annulé', 'AbortError')); return; }
-      if (slots > 0) { slots--; resolve(); return; }
-      waiters.push({ resolve, reject: () => undefined });
-    });
-    const release = () => {
-      slots++;
-      const waiter = waiters.shift();
-      if (waiter) { slots--; waiter.resolve(); }
-    };
-
     // zip.add touche un état partagé : les écritures sont sérialisées.
     let addQueue = Promise.resolve();
     const serializeAdd = (task: () => Promise<void>): Promise<void> => {
@@ -681,12 +662,9 @@ export function HeatmapPage() {
         worker.postMessage({ type: 'export', id, input });
       });
 
-    const exportOne = async (target: string, index: number): Promise<void> => {
-      let acquired = false;
+    const exportOne = async (worker: Worker, target: string, index: number): Promise<void> => {
       const step = (text: string) => setBatchProgress(`${index + 1} / ${selected.length} · ${target} · ${text}`);
       try {
-        await acquire();
-        acquired = true;
         step('Récupération…');
         const measurements = await getHeatmapForExport(plan.id, {
           ssid: ssid || undefined, bssid: target, band: band || undefined, connected: onlyConnected || undefined,
@@ -705,7 +683,7 @@ export function HeatmapPage() {
           bands: RSSI_BANDS, lut: rssiLut, showEstimated, maxRasterDimension: EXPORT_RASTER_DIMENSION,
         };
         step('Rasterisation…');
-        const result = await renderExport(workers[index % workers.length], input, index);
+        const result = await renderExport(worker, input, index);
         controller.signal.throwIfAborted();
         const fileName = `${sanitizeZipName(base, 50)}_${sanitizeZipName(target, 30) || 'bssid'}_${area}.png`;
         step('Compression…');
@@ -724,8 +702,6 @@ export function HeatmapPage() {
       } catch (err) {
         if (controller.signal.aborted) return;
         errors.push({ bssid: target, message: err instanceof Error ? err.message : String(err) });
-      } finally {
-        if (acquired) release();
       }
     };
 
@@ -736,7 +712,12 @@ export function HeatmapPage() {
         south: bounds.getSouth(), north: bounds.getNorth(), west: bounds.getWest(), east: bounds.getEast(),
       }, plan.width, plan.height) : undefined;
 
-      await Promise.all(selected.map((target, index) => exportOne(target, index)));
+      await Promise.all(workers.map(async (worker, offset) => {
+        for (let index = offset; index < selected.length; index += workers.length) {
+          if (controller.signal.aborted) return;
+          await exportOne(worker, selected[index], index);
+        }
+      }));
       controller.signal.throwIfAborted();
 
       if (added === 0) throw new Error(errors.length ? errors[0].message : 'Aucune image à exporter.');
@@ -760,7 +741,6 @@ export function HeatmapPage() {
       if (controller.signal.aborted) setBatchProgress('Export annulé.');
       else { setBatchProgress(''); setBatchError(error instanceof Error ? error.message : 'Export ZIP impossible.'); }
     } finally {
-      controller.signal.removeEventListener('abort', onAbort);
       for (const worker of workers) worker.terminate();
       batchRef.current = null; setBatchBusy(false);
     }

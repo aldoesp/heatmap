@@ -272,6 +272,8 @@ async function runVolume(volume) {
       }
     }
 
+    // Les écritures synchrones peuvent dépasser le délai des connexions HTTP ouvertes pendant les lectures.
+    for (const client of clients) client.destroy();
     process.stderr.write(`[${volume}] Parcours\n`);
     const historyPath = `/plans/${plan}/history`;
     const heatmapPath = `/plans/${plan}/heatmap`;

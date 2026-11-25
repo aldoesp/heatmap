@@ -1,5 +1,45 @@
 # Performance Heatmap
 
+## Phase 6 · État final
+
+Le [rapport de validation](benchmarks/phase6-report.md) rassemble les résultats avant/après, les contrôles fonctionnels et mémoire, les commandes de reproduction et la checklist HTTPS sur PC et smartphone. Les [mesures structurées](benchmarks/phase6-final.json) distinguent les comparaisons refaites en phase 6 des chiffres historiques.
+
+- **Phase 0** · Référence et benchmarks, `1c2346c`.
+- **Phase 1** · Optimisation SQL, `f817d22`.
+- **Phases 2 et 3** · Calcul raster et cache d’affichage intégrés séparément, `a75b32d` et `162996b`.
+- **Phases 4A à 4D** · Moteur backend, lectures, invalidations et benchmarks, `5028ee8`, `746e538`, `b950c9e` et `e021154`.
+- **Phases 5A à 5C** · Moteur API, intégration et synchronisation, `ea62060`, `d9ea49c` et `6aa13ef`.
+- **Phase 6** · Le commit `perf: finalize and validate Heatmap performance optimizations` contient cette validation, la correction de la concurrence de l’export ZIP et la correction du champ numérique signalé par le lint.
+
+Configuration de livraison. Cache backend actif, cache raster actif, déduplication et synchronisation API actives. Opt-in du stockage avec `VITE_API_CACHE_ENABLED=true`. Pour les lectures backend en direct, démarrer avec `BACKEND_CACHE_ENABLED=false`. Les TTL, les limites mémoire et le polling de 5 s conservent leurs valeurs. Les sections suivantes conservent la chronologie technique.
+
+- **Résultats**. Heatmap plan HTTP à chaud de 7,016 à 1,703 ms p50. Rendu régularisé sous Node de 7,91 à 1,57 s sur 800 mesures, avec les mêmes pixels. Réaffichage Chromium à 6,6 ms en médiane avec le cache raster. Dans le parcours API répété, le stockage optionnel réduit les HTTP de 58,6 % et les octets de 32,3 % par rapport au témoin dédupliqué.
+- **Mémoire**. 23,21 Mio estimés après saturation à 30 rasters. Cache API à 71,6 Kio au plus aux points de contrôle du scénario de stabilité. Le cache backend atteint 62,81 Mio estimés en forte charge. Le processus de ce test reste entre 418,8 et 419,2 Mio de RSS après GC forcé. Deux onglets visibles génèrent 26 polls en 65 s, sans lecture métier.
+- **Tests**. 105 backend avec cache et 105 sans, 230 frontend, build et lint passent. Chromium vérifie la cohérence entre deux contextes, la reconnexion, le redémarrage et les exports PNG et ZIP. Le scénario multi-BSSID forcé passe après correction du conflit de workers.
+- **GO conditionnel**. Vérifier les appareils physiques et le proxy HTTPS habituel avant déploiement sur le terrain ou activation du stockage API par défaut. La calibration et la persistance des scénarios renvoient HTTP 404 sur la référence et sur la branche finale. Elles conditionnent la mise en service si elles sont requises.
+
+## Phase 3 · Cache des rasters Heatmap
+
+Le cache d’affichage vit sur le thread principal et survit à la fermeture du worker qui a produit le raster. Le LRU accepte jusqu’à 30 entrées et 32 Mio par défaut. `createHeatmapDisplayCache` accepte `maxEntries` et `maxBytes`. Ses compteurs cumulés sont accessibles via `stats()`. Les requêtes jointes à un calcul en cours comptent comme des misses et sont également comptées dans `coalesced`.
+
+Le budget estimé couvre le buffer RGBA, la clé sérialisée, les contours et les métadonnées conservées. Une entrée trop volumineuse reste utilisable pour l’affichage courant et est écartée du LRU. L’estimation exclut les allocations transitoires des workers, les copies en cours de consommation et les URL de blob. Elle ne mesure pas la mémoire du processus Chromium.
+
+La clé encode les dimensions du plan et du raster effectif, l’ordre et les coordonnées des polygones, ainsi que les entrées propres au mode. Pour le RSSI, elle comprend le contenu des lignes filtrées, notamment le relevé, la position, la radio, la bande, la fréquence et le RSSI. Les positions des bornes interviennent pour l’hybride zoné. Un filtre SSID intervient par sa sélection de lignes. La région d’export est découpée lors de la composition du PNG. Le zoom, l’opacité et la visibilité des marqueurs restent appliqués à l’affichage ou à la composition.
+
+Un calcul à froid est partagé entre les consommateurs de la même clé. La dernière libération interrompt le worker, et seules les réponses du calcul encore actif peuvent remplir le cache. Chaque consommateur reçoit sa propre copie du résultat transféré au thread principal. Sur un hit, la première sonde prépare le champ dans un worker sans rasterisation. Les erreurs de rendu restent hors cache.
+
+Les exports passent toujours par le worker et conservent leurs limites de résolution. Hors contours, un export 2048 × 1365 représente déjà 10,66 Mio de RGBA. L’exclusion des exports préserve le budget d’affichage. Quand un worker d’affichage est partagé, l’export utilise un worker propre au consommateur pour permettre son annulation indépendante.
+
+## Reproduction
+
+Depuis `frontend`, lancer `npm run dev -- --host 127.0.0.1 --port 5186 --strictPort`, puis ouvrir `http://127.0.0.1:5186/benchmarks/phase3-browser.html` dans Chromium. La page affiche le JSON après les deux exports 2048 et les parcours BSSID. Le scénario réutilise les données déterministes de la phase 2 et compare sur le même navigateur la navigation avec le cache actif et avec le stockage désactivé. Les durées d’affichage couvrent la demande du raster jusqu’à sa disponibilité, avant Canvas et l’encodage PNG.
+
+Le premier raster est disponible en 1,57 s et un hit en 4,3 ms en médiane. Le retour à A passe de 996,2 ms à 6,4 ms. Le LRU se stabilise à 30 entrées et 23,21 Mio estimés après le parcours étendu. La première sonde sur un hit, qui démarre un worker et prépare le champ, a pris 128,6 ms sur ce scénario. Son résultat est identique à la sonde à froid. L’affichage et l’export 2048 conservent les empreintes de la phase 2. Les temps d’export varient d’une exécution à l’autre et les deux passages ne permettent pas d’isoler un écart de calcul. [Mesures et référence de phase 2](benchmarks/phase3-heatmap.json)
+
+## État Git et validation
+
+Les 188 tests frontend, le build de production et le lint ciblé passent. Le lint global signale les quatre erreurs `react-hooks/set-state-in-effect` déjà présentes dans `f817d22`, dans `SettingsPage.tsx` aux lignes 85 et 183, `SimulatorControls.tsx` à la ligne 42 et `useApPositions.ts` à la ligne 12. La phase 6 a intégré la phase 2 dans `a75b32d` et la phase 3 dans `162996b`.
+
 ## Phase 4A · Moteur de cache mémoire backend
 
 `backend/src/cache/memoryCache.js` exporte `createMemoryCache(options)` pour les instances indépendantes et `memoryCache` comme instance partagée dans le processus Node. Les limites par défaut sont de 300 entrées, 64 Mio au total, 8 Mio par entrée et 60 000 ms de TTL. L’horloge `now` est injectable. L’expiration est vérifiée à l’accès et les entrées expirées sont balayées avant une éviction. Le moteur fonctionne sans timer.
@@ -161,6 +201,6 @@ Le stockage avec synchronisation fait passer les requêtes HTTP de 555 à 230 (�
 3. Renommer une règle BSSID, supprimer un point puis modifier une zone depuis le second appareil. Vérifier le libellé, le retrait du point et la nouvelle couverture sur le premier appareil. Dans l’onglet Réseau, contrôler le `200` et `Cache-Control: no-store` de la révision.
 4. Masquer la page du PC pendant une modification, revenir au premier plan, puis répéter après une coupure réseau. Vérifier la reprise automatique. Redémarrer le backend temporaire et vérifier que le nouvel `instanceId` provoque une relecture.
 
-### Restant pour la phase 6
+### Suite après la phase 6
 
-Intégrer les changements raster des phases 2 et 3 dans l’historique de la branche. Valider sur PC et smartphone avec le proxy HTTPS de déploiement, des plans plus volumineux et plusieurs onglets visibles. Mesurer les budgets cumulés API et raster et le trafic en veille prolongée. Réévaluer ensuite l’activation du stockage et l’intérêt d’une révision par domaine.
+Rejouer la checklist du rapport sur les appareils physiques et via le proxy HTTPS cible avant de réévaluer le stockage API par défaut.
