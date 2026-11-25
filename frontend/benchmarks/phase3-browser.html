@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Benchmark du cache Heatmap</title>
+<pre id="output">Mesures en cours…</pre>
+<script type="module">
+  import { input } from './phase2-fixture.ts';
+  import { createHeatmapDisplayCache } from '../src/lib/heatmapRasterCache.ts';
+  import { createHeatmapWorkerPort } from '../src/lib/heatmapWorkerClient.ts';
+
+  const output = document.querySelector('#output');
+  const round = value => Math.round(value * 1000) / 1000;
+  const cache = createHeatmapDisplayCache(createHeatmapWorkerPort);
+  const uncached = createHeatmapDisplayCache(createHeatmapWorkerPort, { maxEntries: 0 });
+  const bssids = [...new Set(input.measurements.map(row => row.bssid))];
+  const filtered = bssid => ({ ...input, measurements: input.measurements.filter(row => row.bssid === bssid) });
+  const [a, b, c] = bssids.map(filtered);
+  const exportInput = { ...input, maxRasterDimension: 2048 };
+
+  async function sha256(data) {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
+    return Array.from(digest, value => value.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function display(target, settings) {
+    const start = performance.now();
+    const hits = target.stats().hits;
+    const lease = target.acquire(settings);
+    try {
+      const result = await lease.result;
+      return { wallMs: round(performance.now() - start), hit: target.stats().hits > hits, image: result.image,
+        computeMs: round(result.durationMs) };
+    } finally {
+      lease.dispose();
+    }
+  }
+
+  async function measureExport(target) {
+    const lease = target.acquire(input);
+    try {
+      await lease.result;
+      const before = target.stats();
+      const start = performance.now();
+      const result = await lease.renderForExport(exportInput);
+      const wallMs = round(performance.now() - start);
+      if (JSON.stringify(target.stats()) !== JSON.stringify(before)) throw Error("L’export a modifié le cache.");
+      return { wallMs, computeMs: round(result.durationMs), hash: await sha256(result.image.data) };
+    } finally {
+      lease.dispose();
+    }
+  }
+
+  async function playlist(target) {
+    const runs = [];
+    for (const [label, settings] of [['A', a], ['B', b], ['C', c], ['A', a]]) {
+      const { wallMs, hit } = await display(target, settings);
+      runs.push({ bssid: label, wallMs, hit });
+    }
+    return { runs, totalMs: round(runs.reduce((total, run) => total + run.wallMs, 0)) };
+  }
+
+  async function probe(target) {
+    const lease = target.acquire(input);
+    try {
+      await lease.result;
+      const start = performance.now();
+      const sample = await lease.sample(1200, 800);
+      return { sample, wallMs: round(performance.now() - start) };
+    } finally {
+      lease.dispose();
+    }
+  }
+
+  try {
+    const first = await display(cache, input);
+    const repetitions = [];
+    for (let index = 0; index < 5; index++) repetitions.push(await display(cache, input));
+    const displayHash = await sha256(first.image.data);
+    for (const repeat of repetitions) {
+      if (!repeat.hit || await sha256(repeat.image.data) !== displayHash) throw Error('Le cache modifie les pixels.');
+    }
+
+    const navigationUncached = await playlist(uncached);
+    const navigationCached = await playlist(cache);
+    const modified = settings => ({ ...settings, measurements: settings.measurements.map(
+      (row, index) => index === 0 ? { ...row, rssi: row.rssi + 3 } : row,
+    ) });
+    const beforeUpdate = await display(cache, a);
+    const afterUpdate = await display(cache, modified(a));
+    const hashes = await Promise.all([beforeUpdate, afterUpdate].map(run => sha256(run.image.data)));
+    if (afterUpdate.hit || hashes[0] === hashes[1]) throw Error('Le relevé modifié n’a pas été recalculé.');
+
+    const exportUncached = await measureExport(uncached);
+    const exportCachedDisplay = await measureExport(cache);
+    if (exportUncached.hash !== exportCachedDisplay.hash) throw Error('L’export a changé.');
+    const probeUncached = await probe(uncached);
+    const probeCached = await probe(cache);
+    if (probeUncached.sample.status === 'NO_DATA' ||
+        JSON.stringify(probeUncached.sample) !== JSON.stringify(probeCached.sample)) {
+      throw Error('La préparation différée a changé la sonde.');
+    }
+
+    for (const bssid of bssids) await display(cache, filtered(bssid));
+    const afterTenBssids = cache.stats();
+    // Le même plan avec plusieurs relevés de même BSSID force plus de 30 clés.
+    for (let offset = 1; offset <= 3; offset++) {
+      for (const bssid of bssids) {
+        const settings = filtered(bssid);
+        await display(cache, { ...settings, measurements: settings.measurements.map(
+          row => ({ ...row, survey_id: 'survey-bench-' + offset }),
+        ) });
+      }
+    }
+    const afterFortySelections = cache.stats();
+    if (afterFortySelections.entries > 30 || afterFortySelections.bytes > 32 * 1024 ** 2 ||
+        !afterFortySelections.evictions) throw Error('Les limites LRU ne sont pas respectées.');
+    output.textContent = JSON.stringify({
+      browser: navigator.userAgent,
+      workload: { plan: input.plan, measurements: input.measurements.length, bssids: bssids.length, polygons: input.polygons.length },
+      display: { firstMs: first.wallMs, firstComputeMs: first.computeMs, repeatedMs: repetitions.map(run => run.wallMs),
+        medianHitMs: repetitions.map(run => run.wallMs).sort((x, y) => x - y)[2], hash: displayHash },
+      navigation: { uncached: navigationUncached, cached: navigationCached },
+      dataChange: { wallMs: afterUpdate.wallMs, hit: afterUpdate.hit, hashesBeforeAfter: hashes },
+      memory: { afterTenBssids, afterFortySelections },
+      export2048: { uncachedDisplay: exportUncached, cachedDisplay: exportCachedDisplay },
+      probe: { afterUncachedDisplay: probeUncached, afterCachedDisplay: probeCached },
+    }, null, 2);
+  } catch (error) {
+    output.textContent = JSON.stringify({ error: String(error) });
+  }
+  output.dataset.done = 'true';
+</script>
