@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Benchmark Heatmap phase 2</title>
+<pre id="output">Mesures en cours…</pre>
+<script type="module">
+  import { input } from './phase2-fixture.ts';
+  import { createHeatmapSession } from '../src/lib/heatmapWorkerClient.ts';
+  import { createPlanPngBlob } from '../src/lib/exportPng.ts';
+
+  async function sha256(bytes) {
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function encodeRaster(image) {
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d');
+    context.putImageData(new ImageData(image.data, image.width, image.height), 0, 0);
+    context.strokeStyle = 'rgba(255,255,255,0.7)';
+    context.lineWidth = 0.6;
+    context.beginPath();
+    for (const { a, b } of image.contours) {
+      context.moveTo(...a);
+      context.lineTo(...b);
+    }
+    context.stroke();
+    await new Promise((resolve, reject) => canvas.toBlob(
+      blob => blob ? resolve(blob) : reject(new Error('Encodage PNG impossible.')),
+      'image/png',
+    ));
+  }
+
+  async function measure(label, render) {
+    const start = performance.now();
+    const { image, durationMs } = await render();
+    const received = performance.now();
+    await encodeRaster(image);
+    const canvasMs = performance.now() - received;
+    return {
+      image,
+      result: {
+        label, computeMs: durationMs, wallMs: received - start, canvasMs,
+        dimensions: [image.width, image.height], hash: await sha256(image.data),
+      },
+    };
+  }
+
+  async function verifyRoi(calculation, image) {
+    const { width, height } = input.plan;
+    const planCanvas = document.createElement('canvas');
+    planCanvas.width = width;
+    planCanvas.height = height;
+    const region = { x: 220, y: 170, width: 640, height: 480 };
+    const png = await createPlanPngBlob({
+      planImageUrl: planCanvas.toDataURL(), heatmapImage: image, width, height,
+      fileName: 'benchmark.png', rssiLut: input.lut, region,
+      metadata: { planName: input.plan.id, ssid: 'Test', bssid: 'Tous', band: 'Toutes',
+        calculation, exportedAt: new Date(2026, 10, 24) },
+    });
+    const decoded = await createImageBitmap(png);
+    try {
+      if (decoded.width !== region.width || decoded.height <= region.height) {
+        throw new Error('Dimensions inattendues pour le PNG de la région.');
+      }
+      return { dimensions: [decoded.width, decoded.height], hash: await sha256(await png.arrayBuffer()) };
+    } finally {
+      decoded.close();
+    }
+  }
+
+  async function run(calculation) {
+    const settings = { ...input, calculation };
+    const worker = new Worker(new URL('../src/lib/heatmap.worker.ts', import.meta.url), { type: 'module' });
+    let session;
+    try {
+      const display = await measure('display', () => new Promise((resolve, reject) => {
+        session = createHeatmapSession(worker, settings, resolve, message => reject(new Error(message)));
+      }));
+      const exported = await measure('export', () => session.renderForExport({
+        ...settings, maxRasterDimension: 2048,
+      }));
+      return { calculation, display: display.result, export: exported.result,
+        roiPng: await verifyRoi(calculation, exported.image) };
+    } finally {
+      worker.terminate();
+    }
+  }
+
+  const output = document.querySelector('#output');
+  try {
+    const runs = [];
+    for (const calculation of ['regularized', 'hybrid', 'regularized']) {
+      runs.push(await run(calculation));
+    }
+    output.textContent = JSON.stringify({ browser: navigator.userAgent, runs }, null, 2);
+  } catch (error) {
+    output.textContent = JSON.stringify({ error: String(error) });
+  }
+  output.dataset.done = 'true';
+</script>

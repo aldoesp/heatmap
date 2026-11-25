@@ -7,6 +7,7 @@ import {
   rssiAtPreparedTriangle,
   type InterpolationMesh,
   type PreparedBarycentricTriangle,
+  type PreparedTriangle,
 } from './triangulation.js';
 
 /** Résolution maximale de la texture, indépendante du zoom Leaflet. */
@@ -201,9 +202,16 @@ export function rasterizeRssiMeshes(
 
   const triangles: IndexedTriangle[] = [];
   for (const mesh of meshes) {
-    for (const triangle of mesh.triangles) {
-      const prepared = prepareBarycentricTriangle(triangle);
-      if (prepared.status !== 'READY') continue;
+    for (let index = 0; index < mesh.triangles.length; index += 1) {
+      const triangle = mesh.triangles[index];
+      let prepared: PreparedTriangle | null;
+      if (mesh.preparedTriangles) {
+        prepared = mesh.preparedTriangles[index] ?? null;
+      } else {
+        const result = prepareBarycentricTriangle(triangle);
+        prepared = result.status === 'READY' ? result : null;
+      }
+      if (!prepared) continue;
       triangles.push({
         prepared,
         minX: Math.min(prepared.a.xPx, prepared.b.xPx, prepared.c.xPx),

@@ -87,6 +87,11 @@ export interface InterpolationMesh {
   polygonId?: string | null;
   /** Seuil (px) au-delà duquel un triangle est considéré non supporté. */
   supportThresholdPx: number;
+  /**
+   * Triangles préparés une seule fois, alignés sur `triangles`.
+   * Absent pour les maillages construits hors de `triangulateRssi`.
+   */
+  preparedTriangles?: readonly (PreparedTriangle | null)[];
 }
 
 /** Point de requête exprimé dans le repère pixel du plan. */
@@ -530,6 +535,10 @@ export function triangulateRssi(
         input.plan.width,
         input.plan.height
       ),
+      preparedTriangles: triangles.map((triangle) => {
+        const prepared = prepareBarycentricTriangle(triangle);
+        return prepared.status === 'READY' ? prepared : null;
+      }),
       supportThresholdPx,
     },
     dropped,
@@ -551,6 +560,8 @@ export type PreparedBarycentricTriangle =
       status: 'INVALID';
       reason: string;
     };
+
+export type PreparedTriangle = Extract<PreparedBarycentricTriangle, { status: 'READY' }>;
 
 /**
  * Prépare un triangle pour des interpolations répétées : validation des
@@ -977,6 +988,46 @@ function sampleTriangleAt(
   return null;
 }
 
+/** Variante de `sampleTriangleAt` qui réutilise un triangle déjà préparé. */
+function samplePreparedTriangleAt(
+  triangle: Triangle,
+  prepared: PreparedTriangle,
+  xPx: number,
+  yPx: number
+): SampleResult | null {
+  const result = interpolatePreparedTriangle({ xPx, yPx }, prepared);
+  if (result.status === 'INTERPOLATED') {
+    return {
+      status: 'INTERPOLATED',
+      triangleId: triangle.id,
+      lambdaA: result.lambdaA,
+      lambdaB: result.lambdaB,
+      lambdaC: result.lambdaC,
+      rssi: result.rssi,
+      supported: triangle.supported,
+    };
+  }
+
+  if (result.status === 'INVALID') {
+    return { status: 'INVALID_QUERY', reason: result.reason };
+  }
+
+  return null;
+}
+
+function sampleTriangleAtIndex(
+  mesh: InterpolationMesh,
+  triangle: Triangle,
+  index: number,
+  xPx: number,
+  yPx: number
+): SampleResult | null {
+  const prepared = mesh.preparedTriangles?.[index];
+  return prepared
+    ? samplePreparedTriangleAt(triangle, prepared, xPx, yPx)
+    : sampleTriangleAt(triangle, xPx, yPx);
+}
+
 /**
  * Échantillonne le maillage en coordonnées pixel plan (origine en bas).
  * Aucun point hors triangle ne reçoit de valeur : pas d'extrapolation.
@@ -1008,12 +1059,13 @@ export function sampleTriangleMesh(
     for (const index of candidates) {
       const triangle = mesh.triangles[index];
       if (!triangle) continue;
-      const result = sampleTriangleAt(triangle, xPx, yPx);
+      const result = sampleTriangleAtIndex(mesh, triangle, index, xPx, yPx);
       if (result) return result;
     }
   } else {
-    for (const triangle of mesh.triangles) {
-      const result = sampleTriangleAt(triangle, xPx, yPx);
+    for (let index = 0; index < mesh.triangles.length; index += 1) {
+      const triangle = mesh.triangles[index];
+      const result = sampleTriangleAtIndex(mesh, triangle, index, xPx, yPx);
       if (result) return result;
     }
   }
