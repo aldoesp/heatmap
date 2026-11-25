@@ -1,0 +1,239 @@
+{
+  "phase": 0,
+  "generatedAt": "2026-11-24T12:30:22.668Z",
+  "environment": {
+    "node": "v24.22.2",
+    "platform": "linux",
+    "release": "7.2.15+kali-amd64",
+    "cpu": "Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz",
+    "cores": 4,
+    "totalMemoryBytes": 8213200896
+  },
+  "methodology": {
+    "cold": "premier appel de chaque étape, avant warmup",
+    "warmup": "appels non mesurés avant les itérations (voir results[*].warmup)",
+    "iterations": "appels mesurés (voir results[*].iterations)",
+    "export": "export 2048 mesuré une seule fois, sans warmup",
+    "canvas": "putImageData/toBlob hors périmètre Node"
+  },
+  "scenario": {
+    "plan": {
+      "id": "bench-plan",
+      "width": 2400,
+      "height": 1600
+    },
+    "points": 80,
+    "bssids": 10,
+    "measurements": 800,
+    "polygons": 1,
+    "displayRaster": {
+      "width": 512,
+      "height": 341
+    },
+    "exportRaster": {
+      "width": 2048,
+      "height": 1365
+    }
+  },
+  "volumetry": {
+    "plan": {
+      "id": "bench-plan",
+      "width": 2400,
+      "height": 1600
+    },
+    "points": 80,
+    "bssids": 10,
+    "measurements": 800,
+    "polygons": 1,
+    "displayRaster": {
+      "width": 512,
+      "height": 341
+    },
+    "exportRaster": {
+      "width": 2048,
+      "height": 1365
+    }
+  },
+  "meshes": {
+    "free": 10,
+    "constrained": 10
+  },
+  "results": {
+    "triangulate.free": {
+      "min": 4.98,
+      "p50": 6.006,
+      "p95": 8.296,
+      "max": 8.839,
+      "mean": 6.387,
+      "stddev": 1.294,
+      "samples": 5,
+      "coldMs": 7.175,
+      "iterations": 5,
+      "warmup": 1
+    },
+    "triangulate.polygons": {
+      "min": 8.664,
+      "p50": 12.155,
+      "p95": 13.726,
+      "max": 13.837,
+      "mean": 11.896,
+      "stddev": 1.807,
+      "samples": 5,
+      "coldMs": 15.267,
+      "iterations": 5,
+      "warmup": 1
+    },
+    "interpolate.regularized": {
+      "min": 15.451,
+      "p50": 17.985,
+      "p95": 44.587,
+      "max": 47.543,
+      "mean": 26.993,
+      "stddev": 14.568,
+      "samples": 3,
+      "coldMs": 23.869,
+      "iterations": 3,
+      "warmup": 1
+    },
+    "interpolate.hybrid": {
+      "min": 6.327,
+      "p50": 7.638,
+      "p95": 8.788,
+      "max": 8.8,
+      "mean": 7.747,
+      "stddev": 0.936,
+      "samples": 5,
+      "coldMs": 8.289,
+      "iterations": 5,
+      "warmup": 1
+    },
+    "raster.regularized.512": {
+      "min": 3177.07,
+      "p50": 3243.926,
+      "p95": 3357.953,
+      "max": 3374.571,
+      "mean": 3264.017,
+      "stddev": 66.18,
+      "samples": 5,
+      "coldMs": 3510.29,
+      "iterations": 5,
+      "warmup": 1
+    },
+    "raster.regularized.1024": {
+      "min": 12954.309,
+      "p50": 12954.309,
+      "p95": 12954.309,
+      "max": 12954.309,
+      "mean": 12954.309,
+      "stddev": 0,
+      "samples": 1,
+      "coldMs": 12954.309,
+      "iterations": 1,
+      "warmup": 0
+    },
+    "raster.hybrid.512": {
+      "min": 1588.581,
+      "p50": 1624.959,
+      "p95": 1655.346,
+      "max": 1661.119,
+      "mean": 1623.631,
+      "stddev": 23.93,
+      "samples": 5,
+      "coldMs": 1688.147,
+      "iterations": 5,
+      "warmup": 1
+    },
+    "raster.hybrid.1024": {
+      "min": 6336.119,
+      "p50": 6336.119,
+      "p95": 6336.119,
+      "max": 6336.119,
+      "mean": 6336.119,
+      "stddev": 0,
+      "samples": 1,
+      "coldMs": 6336.119,
+      "iterations": 1,
+      "warmup": 0
+    },
+    "raster.meshes.512": {
+      "min": 66.132,
+      "p50": 73.487,
+      "p95": 123.669,
+      "max": 124.755,
+      "mean": 90.477,
+      "stddev": 25.935,
+      "samples": 5,
+      "coldMs": 96.672,
+      "iterations": 5,
+      "warmup": 1
+    },
+    "full.regularized.512": {
+      "min": 3237.006,
+      "p50": 3280.503,
+      "p95": 3324.501,
+      "max": 3329.39,
+      "mean": 3282.299,
+      "stddev": 37.737,
+      "samples": 3,
+      "coldMs": 3516.534,
+      "iterations": 3,
+      "warmup": 1
+    },
+    "full.hybrid.512": {
+      "min": 1444.972,
+      "p50": 1461.907,
+      "p95": 1571.577,
+      "max": 1583.763,
+      "mean": 1496.881,
+      "stddev": 61.823,
+      "samples": 3,
+      "coldMs": 1510.263,
+      "iterations": 3,
+      "warmup": 1
+    },
+    "full.speed": {
+      "min": 103.724,
+      "p50": 104.962,
+      "p95": 109.045,
+      "max": 109.343,
+      "mean": 106.126,
+      "stddev": 2.114,
+      "samples": 5,
+      "coldMs": 127.686,
+      "iterations": 5,
+      "warmup": 1
+    },
+    "uncoveredZones": {
+      "min": 0.001,
+      "p50": 0.001,
+      "p95": 0.001,
+      "max": 0.001,
+      "mean": 0.001,
+      "stddev": 0,
+      "samples": 5,
+      "coldMs": 0.102,
+      "iterations": 5,
+      "warmup": 1
+    },
+    "full.regularized.export": {
+      "min": 52363.268,
+      "p50": 52363.268,
+      "p95": 52363.268,
+      "max": 52363.268,
+      "mean": 52363.268,
+      "stddev": 0,
+      "samples": 1,
+      "coldMs": 52363.268,
+      "iterations": 1,
+      "warmup": 0
+    }
+  },
+  "payloads": {
+    "displayBytes": 698368,
+    "displayCoveredPixels": 141220,
+    "exportBytes": 11182080,
+    "exportCoveredPixels": 2260134,
+    "hybridBytes": 698368,
+    "speedBytes": 345600
+  }
+}

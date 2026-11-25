@@ -12,6 +12,7 @@ import {
   type Band,
   type InterpolationMesh,
   type PlanReference,
+  type PreparedTriangle,
   type RssiMeasurement,
   type TriangulationResult,
 } from './triangulation.js';
@@ -247,14 +248,23 @@ export function buildRssiMeshes(
         continue;
       }
 
-      const triangles = result.mesh.triangles.filter((triangle) =>
-        triangleInsidePolygonPx(
-          triangle.a,
-          triangle.b,
-          triangle.c,
-          constraint.pixels,
-        )
-      );
+      const triangles: typeof result.mesh.triangles = [];
+      const preparedTriangles: (PreparedTriangle | null)[] | undefined =
+        result.mesh.preparedTriangles ? [] : undefined;
+      result.mesh.triangles.forEach((triangle, index) => {
+        if (
+          !triangleInsidePolygonPx(
+            triangle.a,
+            triangle.b,
+            triangle.c,
+            constraint.pixels,
+          )
+        ) {
+          return;
+        }
+        triangles.push(triangle);
+        preparedTriangles?.push(result.mesh.preparedTriangles?.[index] ?? null);
+      });
 
       if (triangles.length === 0) {
         skipped.push({
@@ -273,6 +283,7 @@ export function buildRssiMeshes(
         ...result.mesh,
         polygonId: constraint.id,
         triangles,
+        preparedTriangles,
         spatialGrid: buildTriangleSpatialGrid(
           triangles,
           result.mesh.width,

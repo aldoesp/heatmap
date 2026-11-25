@@ -5,9 +5,14 @@ import surveysRoutes from '../routes/surveys.routes.js';
 import bssidRulesRoutes from '../routes/bssidRules.routes.js';
 import importRoutes from '../routes/import.routes.js';
 import { getStatus, getIperfStatus, getSettings, patchSettings } from '../controllers/settings.controller.js';
+import { getDataRevision, trackMutation } from '../cache/dataRevision.js';
 
 const api = Router();
 
+api.use(trackMutation);
+api.get('/revision', (_req, res) => {
+  res.set('Cache-Control', 'no-store').type('json').end(JSON.stringify(getDataRevision()));
+});
 api.get('/health', (_req, res) => res.json({ status: 'ok' }));
 api.get('/status', getStatus);
 api.get('/settings/iperf-status', getIperfStatus);

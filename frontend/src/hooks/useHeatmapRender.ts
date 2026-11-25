@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createHeatmapSession, type HeatmapWorkerPort } from '../lib/heatmapWorkerClient';
+import { createHeatmapDisplayCache } from '../lib/heatmapRasterCache';
+import { createHeatmapWorkerPort } from '../lib/heatmapWorkerClient';
 import type { HeatmapImage, HeatmapMetadata, HeatmapRenderInput } from '../lib/heatmapRender';
 
 function imageUrl(image: HeatmapImage): Promise<string | null> {
@@ -18,38 +19,34 @@ function imageUrl(image: HeatmapImage): Promise<string | null> {
 }
 
 const EMPTY_METADATA: HeatmapMetadata = { bssids: [], uncoveredZones: [] };
+const displayCache = createHeatmapDisplayCache(createHeatmapWorkerPort);
+type DisplaySession = Omit<ReturnType<typeof displayCache.acquire>, 'result'>;
 
 export function useHeatmapRender(input: HeatmapRenderInput | null) {
   const [attempt, setAttempt] = useState(0);
   const request = useMemo(() => input ? { input, attempt } : null, [input, attempt]);
-  const active = useRef<{ request: typeof request; session: ReturnType<typeof createHeatmapSession> } | null>(null);
+  const active = useRef<{ request: typeof request; session: DisplaySession } | null>(null);
   const [result, setResult] = useState<{ request: typeof request; url: string | null; metadata: HeatmapMetadata; error: string | null } | null>(null);
 
   useEffect(() => {
     if (!request) return;
     let alive = true, url: string | null = null;
-    let session: ReturnType<typeof createHeatmapSession> | undefined;
+    let session: DisplaySession | undefined;
     const fail = (message: string) => {
       if (alive) setResult({ request, url: null, metadata: EMPTY_METADATA, error: message });
     };
     try {
-      const worker = new Worker(new URL('../lib/heatmap.worker.ts', import.meta.url), { type: 'module' });
-      const port: HeatmapWorkerPort = {
-        postMessage: message => worker.postMessage(message), terminate: () => worker.terminate(),
-        onmessage: null, onerror: null,
-      };
-      worker.onmessage = event => port.onmessage?.({ data: event.data });
-      worker.onerror = event => port.onerror?.({ message: event.message });
-      session = createHeatmapSession(port, request.input, result => {
-        void imageUrl(result.image).then(nextUrl => {
-          if (!alive) { if (nextUrl) URL.revokeObjectURL(nextUrl); return; }
-          if (url) URL.revokeObjectURL(url);
-          url = nextUrl;
-          console.info(`[heatmap] calcul en arrière-plan ${result.durationMs.toFixed(1)} ms`);
-          setResult({ request, url, metadata: result.metadata, error: null });
-        }).catch(error => fail(error instanceof Error ? error.message : 'Impossible de préparer la couverture.'));
-      }, fail);
+      const { result, ...operations } = displayCache.acquire(request.input, fail);
+      session = operations;
       active.current = { request, session };
+      void result.then(async ({ image, metadata }) => {
+        if (!alive) return;
+        const nextUrl = await imageUrl(image);
+        if (!alive) { if (nextUrl) URL.revokeObjectURL(nextUrl); return; }
+        if (url) URL.revokeObjectURL(url);
+        url = nextUrl;
+        setResult({ request, url, metadata, error: null });
+      }).catch(error => fail(error instanceof Error ? error.message : 'Impossible de préparer la couverture.'));
     } catch (error) {
       fail(error instanceof Error ? error.message : 'Le calcul en arrière-plan est indisponible.');
     }

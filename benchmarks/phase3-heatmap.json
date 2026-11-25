@@ -1,0 +1,192 @@
+{
+  "phase": 3,
+  "generatedAt": "2026-11-24T16:35:37.251Z",
+  "environment": {
+    "platform": "linux",
+    "cpu": "Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz",
+    "browser": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+  },
+  "methodology": {
+    "command": "cd frontend && npm run dev -- --host 127.0.0.1 --port 5186 --strictPort",
+    "page": "http://127.0.0.1:5186/benchmarks/phase3-browser.html",
+    "timing": "Chromium headless, vrai worker. Les temps hors Canvas incluent la clé, le démarrage éventuel du worker, les transferts et la copie du résultat côté client.",
+    "navigation": "Une exécution par mode de cache sur le même navigateur et les mêmes mesures. Le scénario sans cache désactive le stockage LRU.",
+    "memory": "Estimation des entrées LRU, hors allocations temporaires et URL de blob. Les 40 sélections combinent 10 BSSID et 4 relevés.",
+    "export": "Chaque export recalcule le raster. Sur un hit, le premier export paie le démarrage du worker. Comparaison indicative sur deux passages, sensible à la charge et au préchauffage."
+  },
+  "referencePhase2": {
+    "file": "benchmarks/phase2-heatmap.json",
+    "nodeMedianMs": {
+      "regularizedDisplay": 1040.07,
+      "regularizedExport": 17302.479
+    },
+    "chromium156RegularizedMs": [
+      {
+        "displayWall": 2342.6,
+        "exportWall": 14365.2,
+        "displayCompute": 1877.2,
+        "exportCompute": 14359.7
+      },
+      {
+        "displayWall": 1718.6,
+        "exportWall": 30765.9,
+        "displayCompute": 1669.4,
+        "exportCompute": 30755
+      }
+    ],
+    "sameDisplayAndExportHashes": true
+  },
+  "workload": {
+    "plan": {
+      "id": "bench-plan",
+      "width": 2400,
+      "height": 1600
+    },
+    "measurements": 800,
+    "bssids": 10,
+    "polygons": 1
+  },
+  "display": {
+    "firstMs": 1574.9,
+    "firstComputeMs": 1467.4,
+    "repeatedMs": [
+      5.7,
+      3.5,
+      3.9,
+      4.3,
+      7.8
+    ],
+    "medianHitMs": 4.3,
+    "hash": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e"
+  },
+  "navigation": {
+    "uncached": {
+      "runs": [
+        {
+          "bssid": "A",
+          "wallMs": 897.1,
+          "hit": false
+        },
+        {
+          "bssid": "B",
+          "wallMs": 761.8,
+          "hit": false
+        },
+        {
+          "bssid": "C",
+          "wallMs": 994,
+          "hit": false
+        },
+        {
+          "bssid": "A",
+          "wallMs": 996.2,
+          "hit": false
+        }
+      ],
+      "totalMs": 3649.1
+    },
+    "cached": {
+      "runs": [
+        {
+          "bssid": "A",
+          "wallMs": 674.1,
+          "hit": false
+        },
+        {
+          "bssid": "B",
+          "wallMs": 773.8,
+          "hit": false
+        },
+        {
+          "bssid": "C",
+          "wallMs": 661.4,
+          "hit": false
+        },
+        {
+          "bssid": "A",
+          "wallMs": 6.4,
+          "hit": true
+        }
+      ],
+      "totalMs": 2115.7
+    }
+  },
+  "dataChange": {
+    "wallMs": 1709.1,
+    "hit": false,
+    "hashesBeforeAfter": [
+      "d101db08bea3cd2f6b0f72a168ae08dbb0d9eefa8a8ac0fdf36614e5aa8c0c0e",
+      "7ac4924f93bb46a6b9fde3d90d486838ad62721c116227c1597e13cfea786610"
+    ]
+  },
+  "memory": {
+    "afterTenBssids": {
+      "hits": 12,
+      "misses": 12,
+      "evictions": 0,
+      "coalesced": 0,
+      "bytes": 9838222,
+      "entries": 12
+    },
+    "afterFortySelections": {
+      "hits": 12,
+      "misses": 42,
+      "evictions": 12,
+      "coalesced": 0,
+      "bytes": 24338760,
+      "entries": 30
+    }
+  },
+  "probe": {
+    "afterUncachedDisplay": {
+      "sample": {
+        "status": "INTERPOLATED",
+        "rssi": -59.63761459030142,
+        "confidence": 0.45793640070920283,
+        "source": {
+          "bssid": "02:00:00:02:0e:1a",
+          "band": "5GHz",
+          "surveyId": "survey-bench"
+        }
+      },
+      "wallMs": 0.8
+    },
+    "afterCachedDisplay": {
+      "sample": {
+        "status": "INTERPOLATED",
+        "rssi": -59.63761459030142,
+        "confidence": 0.45793640070920283,
+        "source": {
+          "bssid": "02:00:00:02:0e:1a",
+          "band": "5GHz",
+          "surveyId": "survey-bench"
+        }
+      },
+      "wallMs": 128.6
+    }
+  },
+  "export2048": {
+    "uncachedDisplay": {
+      "wallMs": 29973.1,
+      "computeMs": 29957.6,
+      "hash": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+    },
+    "cachedDisplay": {
+      "wallMs": 18412.3,
+      "computeMs": 18307.3,
+      "hash": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+    },
+    "firstPass": {
+      "uncachedDisplay": {
+        "wallMs": 14179.6,
+        "computeMs": 14173.3,
+        "hash": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+      },
+      "cachedDisplay": {
+        "wallMs": 18036.5,
+        "computeMs": 17968.3,
+        "hash": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+      }
+    }
+  }
+}

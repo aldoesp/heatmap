@@ -197,7 +197,7 @@ export interface PlanPixelPoint {
 }
 
 /** Tolérance géométrique (px) pour les tests de bord et d'alignement. */
-const GEOMETRY_EPSILON_PX = 1e-6;
+export const GEOMETRY_EPSILON_PX = 1e-6;
 
 /** Convertit des sommets normalisés en sommets pixel du plan. */
 export function toPolygonPixelVertices(

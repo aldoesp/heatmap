@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
-import { insertPlan } from '../repositories/plans.repository.js';
+import { runDataWrite } from '../cache/dataRevision.js';
 import { insertSurvey } from '../repositories/surveys.repository.js';
-import { insertScanPoint } from '../repositories/scanPoints.repository.js';
 import { insertScanWithObservations, insertSpeedTest } from '../repositories/scans.repository.js';
+import { invalidateScopes } from '../cache/invalidation.js';
 import { normalizeEntry } from './scan.services.js';
 import { frequencyToBand } from '../utils/wifi.utils.js';
 
@@ -69,10 +69,11 @@ export function importCsvSurvey(csvContent, options = {}) {
 
   // Create a plan (placeholder image) - minimal plan
   const planId = randomUUID();
-  db.prepare(
+  runDataWrite(db,
     `INSERT INTO plans (id, name, file_name, stored_file, image_url, mime, width, height, size_bytes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(planId, planName, 'import.csv', 'import.csv', '/uploads/plans/import.csv', 'image/png', 1000, 1000, 1);
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    planId, planName, 'import.csv', 'import.csv', '/uploads/plans/import.csv', 'image/png', 1000, 1000, 1,
+  );
 
   const survey = insertSurvey({ plan_id: planId, name: surveyName });
 
@@ -139,14 +140,22 @@ export function importCsvSurvey(csvContent, options = {}) {
 
   // Insert
   const createdPoints = [];
-  for (const [, point] of pointMap) {
-    const sp = db.prepare(
-      `INSERT INTO scan_points (id, plan_id, survey_id, x, y, note, is_enabled)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), planId, survey.id, point.x, point.y, point.note, point.enabled ? 1 : 0);
-    // find the inserted point
-    const spRow = db.prepare('SELECT * FROM scan_points WHERE rowid = ?').get(sp.lastInsertRowid);
-    createdPoints.push({ sp: spRow, point });
+  let pointWritten = false;
+  try {
+    for (const [, point] of pointMap) {
+      const sp = runDataWrite(db,
+        `INSERT INTO scan_points (id, plan_id, survey_id, x, y, note, is_enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        randomUUID(), planId, survey.id, point.x, point.y, point.note, point.enabled ? 1 : 0,
+      );
+      pointWritten = true;
+      const spRow = db.prepare('SELECT * FROM scan_points WHERE rowid = ?').get(sp.lastInsertRowid);
+      createdPoints.push({ sp: spRow, point });
+    }
+  } finally {
+    // Le CSV laisse les écritures déjà validées en place en cas d'erreur.
+    // Les scans et tests de débit sont invalidés par leurs repositories.
+    if (pointWritten) invalidateScopes([{ plan_id: planId, survey_id: survey.id }], ['history']);
   }
 
   // Insert scans and observations

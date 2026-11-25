@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type SetStateAction } from 'react';
 import {
   getStatus,
   getSettings,
@@ -15,6 +15,7 @@ import {
   type AppStatus,
 } from '../../lib/api';
 import { ApiError } from '../../types/api';
+import { useApiQuery } from '../../hooks/useApiQuery';
 import { useHeatmapColours } from '../../hooks/useHeatmapColours';
 import {
   positionToRssi,
@@ -57,7 +58,14 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { colours: hookColours, save: saveHeatmapColours, reset: resetHeatmapColours } = useHeatmapColours();
-  const [heatmapColours, setHeatmapColours] = useState<HeatmapColours>(hookColours);
+  const [colourDraft, setColourDraft] = useState<{ source: HeatmapColours; value: HeatmapColours } | null>(null);
+  const heatmapColours = colourDraft?.source === hookColours ? colourDraft.value : hookColours;
+  const setHeatmapColours = (next: SetStateAction<HeatmapColours>) => {
+    setColourDraft(draft => ({
+      source: hookColours,
+      value: typeof next === 'function' ? next(draft?.source === hookColours ? draft.value : hookColours) : next,
+    }));
+  };
   const [heatmapMsg, setHeatmapMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [mapName, setMapName] = useState('');
@@ -81,34 +89,20 @@ export function SettingsPage() {
     `${category.label} ${category.subtitle} ${category.words}`.toLocaleLowerCase('fr').includes(settingsSearch.trim().toLocaleLowerCase('fr'))
   );
 
-  useEffect(() => {
-    setHeatmapColours(hookColours);
-  }, [hookColours]);
+  useApiQuery(getSettings, {
+    success: setSettings,
+    error: err => setError(err instanceof ApiError ? err.message : 'Impossible de charger les paramètres.'),
+    settled: () => setLoading(false),
+  });
 
   useEffect(() => {
     let alive = true;
-    (async () => {
-      try {
-        const [st, se, ip] = await Promise.all([
-          getStatus(),
-          getSettings(),
-          getIperfStatus().catch(() => null),
-        ]);
-        if (!alive) return;
-        setStatus(st);
-        setSettings(se);
-        setIperf(ip);
-      } catch (err) {
-        if (!alive) return;
-        const apiErr = err instanceof ApiError ? err : null;
-        setError(apiErr?.message ?? 'Impossible de charger les paramètres.');
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
+    void getStatus().then(
+      value => { if (alive) setStatus(value); },
+      err => { if (alive) setError(err instanceof ApiError ? err.message : 'Impossible de charger le statut.'); },
+    );
+    void getIperfStatus().then(value => { if (alive) setIperf(value); }, () => {});
+    return () => { alive = false; };
   }, []);
 
   const saveHeatmap = async () => {
@@ -162,47 +156,22 @@ export function SettingsPage() {
     });
   };
 
-  useEffect(() => {
-    let alive = true;
-    listBssidRules()
-      .then((m) => {
-        if (alive) setMappings(m);
-      })
-      .catch((err) => {
-        if (!alive) return;
-        const apiErr = err instanceof ApiError ? err : null;
-        setMapError(apiErr?.message ?? 'Impossible de charger les règles BSSID.');
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  useApiQuery(listBssidRules, {
+    success: setMappings,
+    error: err => setMapError(err instanceof ApiError ? err.message : 'Impossible de charger les règles BSSID.'),
+  });
 
-  useEffect(() => {
-    let alive = true;
-    setSeenLoading(true);
-    listSeenBssids()
-      .then((s) => {
-        if (!alive) return;
-        setSeenBssids(s);
-        const sel: Record<string, boolean> = {};
-        for (const item of s) {
-          if (item.blacklisted) sel[item.bssid] = true;
-        }
-        setSelectedSeen(sel);
-      })
-      .catch((err) => {
-        if (!alive) return;
-        const apiErr = err instanceof ApiError ? err : null;
-        setMapError(apiErr?.message ?? 'Impossible de charger les BSSID capturés.');
-      })
-      .finally(() => {
-        if (alive) setSeenLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  useApiQuery(listSeenBssids, {
+    start: () => setSeenLoading(true),
+    success: rows => {
+      setSeenBssids(rows);
+      setSelectedSeen(prev => Object.fromEntries(
+        rows.map(item => [item.bssid, prev[item.bssid] ?? item.blacklisted]),
+      ));
+    },
+    error: err => setMapError(err instanceof ApiError ? err.message : 'Impossible de charger les BSSID capturés.'),
+    settled: () => setSeenLoading(false),
+  });
 
   const matchesBssidFilter = (blacklisted: boolean) =>
     bssidFilter === 'all' ||
@@ -233,16 +202,6 @@ export function SettingsPage() {
     setSelectedSeen((prev) => ({ ...prev, [bssid]: !prev[bssid] }));
   }, []);
 
-  const syncSeenRule = useCallback((rule: BssidRule) => {
-    setSeenBssids((prev) =>
-      prev.map((item) =>
-        item.bssid.toLowerCase() === rule.bssid.toLowerCase()
-          ? { ...item, rule_id: rule.id, name: rule.name, blacklisted: rule.blacklisted }
-          : item
-      )
-    );
-  }, []);
-
   const addSelectedToBlacklist = useCallback(async () => {
     const toAdd = seenBssids.filter((s) => selectedSeen[s.bssid] && !s.blacklisted);
     if (toAdd.length === 0) {
@@ -253,29 +212,13 @@ export function SettingsPage() {
     setBlacklistingSeen(true);
     setMapError(null);
     try {
-      const results = await Promise.all(
+      await Promise.all(
         toAdd.map(async (item) => {
           const defaultName = item.name || item.ssid || '';
           if (item.rule_id) {
             return updateBssidRule(item.rule_id, { name: defaultName, blacklisted: true });
           }
           return createBssidRule({ bssid: item.bssid, name: defaultName, blacklisted: true });
-        }),
-      );
-      setMappings((prev) => {
-        const next = [...prev];
-        for (const r of results) {
-          const idx = next.findIndex((m) => m.id === r.id);
-          if (idx >= 0) next[idx] = r;
-          else next.push(r);
-        }
-        return next.sort((a, b) => a.name.localeCompare(b.name));
-      });
-      setSeenBssids((prev) =>
-        prev.map((s) => {
-          const r = results.find((res) => res.bssid.toLowerCase() === s.bssid.toLowerCase());
-          if (r) return { ...s, blacklisted: r.blacklisted, rule_id: r.id, name: r.name };
-          return s;
         }),
       );
       setSelectedSeen((prev) => {
@@ -306,21 +249,6 @@ export function SettingsPage() {
       const results = await Promise.all(
         toRemove.map((item) => updateBssidRule(item.rule_id as string, { blacklisted: false }))
       );
-      setMappings((prev) => {
-        const next = [...prev];
-        for (const r of results) {
-          const idx = next.findIndex((m) => m.id === r.id);
-          if (idx >= 0) next[idx] = r;
-        }
-        return next.sort((a, b) => a.name.localeCompare(b.name));
-      });
-      setSeenBssids((prev) =>
-        prev.map((s) => {
-          const r = results.find((res) => res.bssid.toLowerCase() === s.bssid.toLowerCase());
-          if (r) return { ...s, blacklisted: r.blacklisted, rule_id: r.id, name: r.name };
-          return s;
-        }),
-      );
       setSelectedSeen((prev) => {
         const next = { ...prev };
         for (const item of toRemove) next[item.bssid] = false;
@@ -345,7 +273,6 @@ export function SettingsPage() {
       const duration = settings.iperf_duration_s.trim() || '5';
       await patchSetting('iperf_server', settings.iperf_server.trim());
       await patchSetting('iperf_duration_s', duration);
-      setSettings((s) => ({ ...s, iperf_duration_s: duration }));
       setInfo('Réglages enregistrés.');
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null;
@@ -364,9 +291,7 @@ export function SettingsPage() {
     }
     setMapError(null);
     try {
-      const created = await createBssidRule({ name, bssid, blacklisted: blacklistNew });
-      setMappings((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
-      syncSeenRule(created);
+      await createBssidRule({ name, bssid, blacklisted: blacklistNew });
       setMapName('');
       setMapNameTouched(false);
       setMapBssid('');
@@ -375,20 +300,12 @@ export function SettingsPage() {
       const apiErr = err instanceof ApiError ? err : null;
       setMapError(apiErr?.message ?? 'Impossible d’ajouter cette borne.');
     }
-  }, [displayedMapName, mapBssid, blacklistNew, syncSeenRule]);
+  }, [displayedMapName, mapBssid, blacklistNew]);
 
   const removeMapping = useCallback(async (id: string) => {
     try {
       setBusyRuleId(id);
       await deleteBssidRule(id);
-      setMappings((prev) => prev.filter((m) => m.id !== id));
-      setSeenBssids((prev) =>
-        prev.map((item) =>
-          item.rule_id === id
-            ? { ...item, rule_id: null, name: '', blacklisted: false }
-            : item
-        )
-      );
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null;
       setMapError(apiErr?.message ?? 'Impossible de supprimer cette borne.');
@@ -397,26 +314,22 @@ export function SettingsPage() {
 
   const toggleBlacklist = useCallback(async (rule: BssidRule) => {
     try {
-      const updated = await updateBssidRule(rule.id, { blacklisted: !rule.blacklisted });
-      setMappings((prev) => prev.map((item) => item.id === rule.id ? updated : item));
-      syncSeenRule(updated);
+      await updateBssidRule(rule.id, { blacklisted: !rule.blacklisted });
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null;
       setMapError(apiErr?.message ?? 'Impossible de modifier la liste noire.');
     }
-  }, [syncSeenRule]);
+  }, []);
 
   const saveRuleName = useCallback(async (rule: BssidRule) => {
     try {
-      const updated = await updateBssidRule(rule.id, { name: editingRuleName.trim() });
-      setMappings((prev) => prev.map((item) => item.id === rule.id ? updated : item));
-      syncSeenRule(updated);
+      await updateBssidRule(rule.id, { name: editingRuleName.trim() });
       setEditingRuleId(null);
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null;
       setMapError(apiErr?.message ?? 'Impossible de modifier le nom.');
     }
-  }, [editingRuleName, syncSeenRule]);
+  }, [editingRuleName]);
 
   const switchMode = useCallback(async (mode: 'test' | 'live') => {
     setSwitchingMode(true);
@@ -424,8 +337,6 @@ export function SettingsPage() {
     setInfo(null);
     try {
       await patchSetting('scan_mode', mode);
-      setSettings((s) => ({ ...s, scan_mode: mode }));
-      setStatus((st) => (st ? { ...st, scan_mode: mode } : st));
       setInfo(mode === 'live' ? 'Mode réel activé : les scans utilisent Termux:API.' : 'Mode test activé : les scans utilisent les données simulées.');
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null;
@@ -434,6 +345,8 @@ export function SettingsPage() {
       setSwitchingMode(false);
     }
   }, []);
+
+  const scanMode = settings.scan_mode || status?.scan_mode || 'test';
 
   if (loading) {
     return <div className="fixed inset-0 bg-bg" />;
@@ -445,7 +358,7 @@ export function SettingsPage() {
         <h1 className="page-title mb-2">Paramètres</h1>
         <p className="text-text-dim text-sm">
           {status
-            ? `Mode ${status.scan_mode === 'test' ? 'test (données simulées)' : 'réel (Termux:API)'} · ${status.platform} · Node ${status.node}`
+            ? `Mode ${scanMode === 'test' ? 'test (données simulées)' : 'réel (Termux:API)'} · ${status.platform} · Node ${status.node}`
             : 'Serveur injoignable.'}
         </p>
       </div>
@@ -506,7 +419,7 @@ export function SettingsPage() {
                 className="flex h-11 rounded-xl border border-glass-border-soft overflow-hidden"
               >
                 {(['test', 'live'] as const).map((m) => {
-                  const active = (status?.scan_mode ?? 'test') === m;
+                  const active = scanMode === m;
                   return (
                     <button
                       key={m}

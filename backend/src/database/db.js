@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
+import { memoryCache } from '../cache/memoryCache.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // backend/data/heatmap.db par défaut, surchargeable via DB_PATH
@@ -32,6 +33,7 @@ function migrate(db) {
   if (!scanPoints.includes('survey_id')) {
     db.exec('ALTER TABLE scan_points ADD COLUMN survey_id TEXT REFERENCES surveys(id) ON DELETE CASCADE');
   }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sp_survey ON scan_points(survey_id)');
   if (!scanPoints.includes('note')) {
     db.exec('ALTER TABLE scan_points ADD COLUMN note TEXT DEFAULT NULL');
   }
@@ -125,8 +127,12 @@ function migrate(db) {
 }
 
 export function closeDb() {
-  if (db) {
-    db.close();
-    db = null;
+  try {
+    if (db) {
+      db.close();
+      db = null;
+    }
+  } finally {
+    memoryCache.clear();
   }
 }

@@ -630,6 +630,19 @@ describe('support des triangles', () => {
 });
 
 describe('grille spatiale des triangles', () => {
+  it('préserve la tolérance barycentrique de part et d’autre d’un bord', () => {
+    const edge = (100 / 3 - 1e-10) / 100;
+    const { mesh } = expectReady(triangulateRssi(makeInput([
+      measurement('a', 0.1, 0.1, -60),
+      measurement('b', edge, 0.1, -65),
+      measurement('c', edge, 0.4, -70),
+    ])));
+    const x = 100 / 3 + 1e-10;
+    const expected = sampleTriangleMeshLegacy(mesh, x, 20);
+    assert.equal(expected.status, 'INTERPOLATED');
+    assert.deepEqual(sampleTriangleMesh(mesh, x, 20), expected);
+  });
+
   it('donne exactement le même résultat que le parcours complet sur 1000 points aléatoires', () => {
     const result = expectReady(
       triangulateRssi(makeInput(gridMeasurements(6, 0.05, 0.1)))

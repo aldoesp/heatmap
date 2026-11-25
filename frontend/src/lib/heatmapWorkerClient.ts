@@ -3,6 +3,7 @@ import type { HybridSample } from './rssiHybridField.js';
 
 export type HeatmapWorkerRequest =
   | { type: 'build'; input: HeatmapRenderInput }
+  | { type: 'prepare'; input: HeatmapRenderInput }
   | { type: 'probe'; id: number; x: number; y: number }
   | { type: 'export'; id: number; input: HeatmapRenderInput };
 export type HeatmapWorkerResponse =
@@ -21,14 +22,26 @@ export interface HeatmapWorkerPort {
 
 const noData = (): HybridSample => ({ status: 'NO_DATA', rssi: null });
 
+export function createHeatmapWorkerPort(): HeatmapWorkerPort {
+  const worker = new Worker(new URL('./heatmap.worker.ts', import.meta.url), { type: 'module' });
+  const port: HeatmapWorkerPort = {
+    postMessage: message => worker.postMessage(message), terminate: () => worker.terminate(),
+    onmessage: null, onerror: null,
+  };
+  worker.onmessage = event => port.onmessage?.({ data: event.data });
+  worker.onerror = event => port.onerror?.({ message: event.message });
+  return port;
+}
+
 /** One session per input: disposing terminates expensive work and settles pending probes. */
 export function createHeatmapSession(
   port: HeatmapWorkerPort,
   input: HeatmapRenderInput,
   onReady: (result: HeatmapRenderResult) => void,
   onError: (message: string) => void,
+  lazyProbe = false,
 ) {
-  let closed = false, ready = false, nextId = 0;
+  let closed = false, ready = lazyProbe, needsPreparation = lazyProbe, nextId = 0;
   const pending = new Map<number, (sample: HybridSample) => void>();
   const pendingExports = new Map<
     number,
@@ -61,8 +74,10 @@ export function createHeatmapSession(
     if (data.type === 'error') { dispose(); onError(data.message); }
   };
   port.onerror = ({ message }) => { if (!closed) { dispose(); onError(message || 'Calcul de la couverture interrompu.'); } };
-  try { port.postMessage({ type: 'build', input }); }
-  catch (error) { dispose(); throw error; }
+  if (!lazyProbe) {
+    try { port.postMessage({ type: 'build', input }); }
+    catch (error) { dispose(); throw error; }
+  }
   return {
     dispose,
     sample(x: number, y: number): Promise<HybridSample> {
@@ -70,7 +85,13 @@ export function createHeatmapSession(
       return new Promise(resolve => {
         const id = ++nextId;
         pending.set(id, resolve);
-        try { port.postMessage({ type: 'probe', id, x, y }); }
+        try {
+          if (needsPreparation) {
+            port.postMessage({ type: 'prepare', input });
+            needsPreparation = false;
+          }
+          port.postMessage({ type: 'probe', id, x, y });
+        }
         catch { pending.delete(id); resolve(noData()); }
       });
     },

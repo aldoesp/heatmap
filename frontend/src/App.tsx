@@ -1,8 +1,9 @@
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useLayoutEffect } from "react"
 import Particles from "./components/ui/Particles"
 import { Navbar } from "./components/layout/Navbar"
 import { UploadPage } from "./components/upload/UploadPage"
 import { useHashRoute } from "./hooks/useHashRoutes"
+import { startApiSync } from "./lib/apiSync"
 
 const ScanPage = lazy(() =>
   import("./components/scan/ScanPage").then(({ ScanPage }) => ({ default: ScanPage }))
@@ -27,6 +28,7 @@ const AccountPage = lazy(() =>
 )
 function App() {
   const route = useHashRoute()
+  useLayoutEffect(startApiSync, [])
 
   return (
     <main className="relative min-h-screen overflow-x-clip bg-[#070b12]">

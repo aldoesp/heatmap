@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import type { ApiRead } from '../../lib/apiRead';
+import { useApiQuery } from '../../hooks/useApiQuery';
 import { usePlanImage } from '../../hooks/usePlanImage';
 import { getHistory, updateScanPoint, exportCsvUrl } from '../../lib/api';
 import { ApiError, type ScanHistoryEntry } from '../../types/api';
@@ -24,30 +26,14 @@ export function SurveysPage() {
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (!plan) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const h = await getHistory(plan.id);
-      setHistory(h);
-    } catch (err) {
-      const apiErr = err instanceof ApiError ? err : null;
-      setError(apiErr?.message ?? 'Impossible de charger les relevés.');
-    } finally {
-      setLoading(false);
-    }
-  }, [plan]);
-
-  useEffect(() => {
-    if (planLoading) return;
-    (async () => {
-      await load();
-    })();
-  }, [planLoading, load]);
+  const planId = plan?.id;
+  const loadHistory = useCallback((read: ApiRead) => getHistory(planId!, read), [planId]);
+  const load = useApiQuery(planLoading || !planId ? null : loadHistory, {
+    start: () => { setLoading(true); setError(null); },
+    success: setHistory,
+    error: err => setError(err instanceof ApiError ? err.message : 'Impossible de charger les relevés.'),
+    settled: () => setLoading(false),
+  });
 
   const handleSurveys = useCallback(() => {
     location.hash = '#/scan';
@@ -60,12 +46,9 @@ export function SurveysPage() {
     setTogglingId(point.id);
     setError(null);
     try {
-      const updated = await updateScanPoint(plan.id, point.id, {
+      await updateScanPoint(plan.id, point.id, {
         is_enabled: point.is_enabled ? 0 : 1,
       });
-      setHistory((prev) =>
-        prev.map((p) => (p.id === point.id ? { ...p, is_enabled: updated.is_enabled } : p))
-      );
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null;
       setError(apiErr?.message ?? 'Impossible de modifier ce relevé.');
@@ -74,7 +57,7 @@ export function SurveysPage() {
     }
   }, [plan, togglingId]);
 
-  if (planLoading || loading) {
+  if (planLoading || (plan && loading)) {
     return <div className="fixed inset-0 bg-bg" />;
   }
 

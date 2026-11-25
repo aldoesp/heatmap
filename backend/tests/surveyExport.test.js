@@ -15,12 +15,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
 import { zipSync } from 'fflate';
+import { memoryCache } from '../src/cache/memoryCache.js';
+import { getDataRevision } from '../src/cache/dataRevision.js';
 
 const TMP = mkdtempSync(path.join(tmpdir(), 'heatmap-survey-export-test-'));
 process.env.DB_PATH = path.join(TMP, 'test.db');
 
 const { AppError } = await import('../src/utils/AppError.js');
 const { getDb, closeDb } = await import('../src/database/db.js');
+const { heatmapByPlan, heatmapBySurvey } = await import('../src/repositories/scans.repository.js');
+const { listAllSeenBssids } = await import('../src/repositories/bssidRules.repository.js');
 const { PLANS_DIRECTORY } = await import('../src/services/plans.service.js');
 const { buildSurveyExportZip } = await import('../src/services/surveyExport.service.js');
 const { parseSurveyExportZip, executeSurveyImport } = await import(
@@ -93,6 +97,17 @@ function clearDatabase() {
   removeStoredPlanFiles(db);
   db.prepare('DELETE FROM bssid_rules').run();
   db.prepare('DELETE FROM plans').run();
+  memoryCache.clear();
+}
+
+const cacheEnabled = process.env.BACKEND_CACHE_ENABLED === undefined || process.env.BACKEND_CACHE_ENABLED === 'true';
+
+function warmRead(read) {
+  const first = read();
+  const second = read();
+  assert.deepEqual(second, first);
+  if (cacheEnabled) assert.equal(second, first);
+  return first;
 }
 
 function databaseFingerprint() {
@@ -428,10 +443,17 @@ describe('survey export/import', () => {
 
     clearDatabase();
     assert.equal(getDb().prepare('SELECT COUNT(*) AS count FROM plans').get().count, 0);
+    const read = () => heatmapByPlan(fixture.planId);
+    assert.deepEqual(warmRead(read), []);
+    assert.deepEqual(warmRead(listAllSeenBssids), []);
 
     const { manifest, images } = parseSurveyExportZip(zip);
     const result = executeSurveyImport({ manifest, images }, {});
     const after = readPlanState(fixture.planId);
+    const heatmap = warmRead(read);
+    assert.ok(heatmap.length > 0);
+    assert.deepEqual(heatmap, getDb().transaction(read)());
+    assert.ok(warmRead(listAllSeenBssids).length > 0);
 
     assert.equal(result.plansCreated, 1);
     assert.equal(result.plansMerged, 0);
@@ -573,6 +595,61 @@ describe('survey export/import', () => {
       readFileSync(path.join(PLANS_DIRECTORY, after.plan.stored_file)),
       imageBefore
     );
+  });
+
+  it('actualise la heatmap plan et survey après fusion d’une nouvelle campagne ZIP', () => {
+    const fixture = createFixture();
+    const { manifest, images } = parseSurveyExportZip(buildSurveyExportZip({ surveyIds: [fixture.surveyId] }));
+    const source = manifest.surveys[0];
+    const importedId = randomUUID();
+    source.id = importedId;
+    for (const point of source.scan_points) {
+      point.id = randomUUID();
+      point.survey_id = importedId;
+      for (const scan of point.scans) {
+        scan.id = randomUUID();
+        scan.scan_point_id = point.id;
+      }
+    }
+    const read = () => heatmapByPlan(fixture.planId);
+    const imported = () => heatmapBySurvey(importedId);
+    const before = warmRead(read);
+    assert.ok(before.length > 0);
+    assert.deepEqual(warmRead(imported), []);
+    const { revision } = getDataRevision();
+    const result = executeSurveyImport(parseSurveyExportZip(zipWithManifest(manifest, images)), {
+      [fixture.planId]: 'merge',
+    });
+    assert.equal(result.plansMerged, 1);
+    assert.equal(getDataRevision().revision, revision + 1);
+    assert.equal(warmRead(read).length, before.length * 2);
+    const newRows = warmRead(imported);
+    assert.equal(newRows.length, before.length);
+    assert.deepEqual(newRows, getDb().transaction(imported)());
+  });
+
+  it('conserve le cache et nettoie le fichier si la transaction ZIP échoue', () => {
+    const fixture = createFixture();
+    const parsed = parseSurveyExportZip(buildSurveyExportZip({ surveyIds: [fixture.surveyId] }));
+    clearDatabase();
+    const files = listPlanFiles();
+    const read = () => heatmapByPlan(fixture.planId);
+    const before = warmRead(read);
+    const db = getDb();
+    db.exec(`CREATE TEMP TRIGGER reject_zip_observation BEFORE INSERT ON observations
+             BEGIN SELECT RAISE(ABORT, 'échec ZIP simulé'); END`);
+    const revision = getDataRevision();
+    try {
+      expectAppError(() => executeSurveyImport(parsed, {}), 422);
+    } finally {
+      db.exec('DROP TRIGGER reject_zip_observation');
+    }
+    assert.deepEqual(listPlanFiles(), files);
+    assert.deepEqual(getDataRevision(), revision);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM plans').get().count, 0);
+    const after = warmRead(read);
+    assert.deepEqual(after, []);
+    if (cacheEnabled) assert.equal(after, before);
   });
 
   it('duplique avec de nouveaux ids et le suffixe (copie)', () => {

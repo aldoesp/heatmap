@@ -55,6 +55,14 @@ function rasterDimensionLimit(
   );
 }
 
+export function heatmapRasterSize(input: HeatmapRenderInput) {
+  return chooseRasterSize(
+    input.plan.width,
+    input.plan.height,
+    rasterDimensionLimit(input, input.metric === 'speed' ? 360 : MAX_RASTER_DIMENSION),
+  );
+}
+
 function zonePredicate(input: HeatmapRenderInput): (x: number, y: number) => boolean {
   const { plan, polygons } = input;
   if (!polygons.length) return () => true;
@@ -68,11 +76,7 @@ function zonePredicate(input: HeatmapRenderInput): (x: number, y: number) => boo
 /** Same banded IDW as the previous canvas renderer, now independent of the DOM. */
 function rasterizeSpeed(input: HeatmapRenderInput): HeatmapImage {
   const { plan, points, radius, bands } = input;
-  const { width, height } = chooseRasterSize(
-    plan.width,
-    plan.height,
-    rasterDimensionLimit(input, 360),
-  );
+  const { width, height } = heatmapRasterSize(input);
   const data = new Uint8ClampedArray(width * height * 4);
   const allowed = zonePredicate(input);
   const samples = points.map(p => ({ x: p.x * plan.width, y: (1 - p.y) * plan.height, value: p.value }));
@@ -103,23 +107,31 @@ function rasterizeSpeed(input: HeatmapRenderInput): HeatmapImage {
   return { width, height, data, coveredPixels, contours: [] };
 }
 
+function fitRssi(input: HeatmapRenderInput) {
+  const { plan, measurements, polygons } = input;
+  const model = buildRssiMeshes(measurements, plan, { polygons });
+  const field = input.calculation === 'regularized'
+    ? buildRegularizedRssiField(measurements, plan, polygons, model.meshes)
+    : buildCoverageField(model.meshes, polygons, input.apPositions, input.accessPoints);
+  return { model, field };
+}
+
+const noData = (): HybridSample => ({ status: 'NO_DATA', rssi: null });
+
+export function prepareHeatmapProbe(input: HeatmapRenderInput): (x: number, y: number) => HybridSample {
+  return input.metric === 'speed' ? noData : fitRssi(input).field.sample;
+}
+
 /** Called in a worker. The raster and hover probe share the same fitted field. */
 export function createHeatmapRender(input: HeatmapRenderInput): HeatmapRenderResult & { sample: (x: number, y: number) => HybridSample } {
   const start = performance.now();
   if (input.metric === 'speed') {
     return { image: rasterizeSpeed(input), metadata: { bssids: [], uncoveredZones: [] }, durationMs: performance.now() - start,
-      sample: () => ({ status: 'NO_DATA', rssi: null }) };
+      sample: noData };
   }
-  const { plan, measurements, polygons, lut, showEstimated } = input;
-  const model = buildRssiMeshes(measurements, plan, { polygons });
-  const field = input.calculation === 'regularized'
-    ? buildRegularizedRssiField(measurements, plan, polygons, model.meshes)
-    : buildCoverageField(model.meshes, polygons, input.apPositions, input.accessPoints);
-  const size = chooseRasterSize(
-    plan.width,
-    plan.height,
-    rasterDimensionLimit(input, MAX_RASTER_DIMENSION),
-  );
+  const { plan, polygons, lut, showEstimated } = input;
+  const { model, field } = fitRssi(input);
+  const size = heatmapRasterSize(input);
   let image: HeatmapImage;
   if (input.calculation === 'regularized') {
     image = rasterizeRegularizedRssi(field, plan.width, plan.height, size.width, size.height, lut, showEstimated);

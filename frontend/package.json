@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "tsc -p tsconfig.test.json && node --test tests-build/tests/*.test.js",
+    "bench:phase0": "tsc -p tsconfig.bench.json && node bench-build/benchmarks/phase0-heatmap.js",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { runDataWrite } from '../cache/dataRevision.js';
 
 function parseBssids(row) {
   let bssids = row.bssids;
@@ -21,11 +22,10 @@ function parseBssids(row) {
 
 export function insertAccessPoint({ plan_id, name, x, y }) {
   const id = randomUUID();
-  getDb()
-    .prepare(
-      `INSERT INTO access_points (id, plan_id, name, x, y, bssids) VALUES (?, ?, ?, ?, ?, ?)`
-    )
-    .run(id, plan_id, name, x, y, '[]');
+  runDataWrite(getDb(),
+    'INSERT INTO access_points (id, plan_id, name, x, y, bssids) VALUES (?, ?, ?, ?, ?, ?)',
+    id, plan_id, name, x, y, '[]',
+  );
   return parseBssids(findAccessPointById(id));
 }
 
@@ -42,7 +42,7 @@ export function listAccessPointsByPlan(plan_id) {
 }
 
 export function deleteAccessPoint(id) {
-  return getDb().prepare('DELETE FROM access_points WHERE id = ?').run(id).changes > 0;
+  return runDataWrite(getDb(), 'DELETE FROM access_points WHERE id = ?', id).changes > 0;
 }
 
 export function updateAccessPoint(id, patch) {
@@ -69,8 +69,6 @@ export function updateAccessPoint(id, patch) {
   }
   if (fields.length === 0) return findAccessPointById(id);
   params.push(id);
-  const r = getDb()
-    .prepare(`UPDATE access_points SET ${fields.join(', ')} WHERE id = ?`)
-    .run(...params);
+  const r = runDataWrite(getDb(), `UPDATE access_points SET ${fields.join(', ')} WHERE id = ?`, ...params);
   return r.changes > 0 ? findAccessPointById(id) : null;
 }

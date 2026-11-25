@@ -1,0 +1,778 @@
+{
+  "phase": 0,
+  "generatedAt": "2026-11-24T12:42:19.579Z",
+  "environment": {
+    "node": "v24.22.2",
+    "platform": "linux",
+    "release": "7.2.15+kali-amd64",
+    "cpu": "Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz",
+    "cores": 4,
+    "totalMemoryBytes": 8213200896
+  },
+  "config": {
+    "iterations": 15,
+    "warmup": 3
+  },
+  "scenario": {
+    "plans": 20,
+    "pointsPerPlan": 30,
+    "scansPerPoint": 1,
+    "observationsPerScan": 15,
+    "bssids": 200,
+    "iterations": 15,
+    "warmup": 3,
+    "keep": false
+  },
+  "seedMs": 429.65,
+  "database": {
+    "sizeBytes": 1986560,
+    "walSizeBytes": 0,
+    "plans": 20,
+    "scanPoints": 600,
+    "scans": 600,
+    "observations": 9000,
+    "bssids": 200
+  },
+  "volumetry": {
+    "plans": 20,
+    "pointsPerPlan": 30,
+    "scansPerPoint": 1,
+    "observationsPerScan": 15,
+    "bssids": 200,
+    "scanPoints": 600,
+    "scans": 600,
+    "observations": 9000,
+    "dbSizeBytes": 1986560,
+    "walSizeBytes": 0
+  },
+  "methodology": {
+    "sqlCold": "closeDb(), réouverture, puis première exécution de la requête",
+    "sqlWarm": "3 warmups + 15 itérations mesurées (p50/p95)",
+    "apiCold": "premier appel HTTP de chaque endpoint, après /api/v1/health",
+    "apiWarm": "3 warmups + 15 itérations mesurées (p50/p95)"
+  },
+  "sql": {
+    "cold": {
+      "plans.list": {
+        "openMs": 1.544,
+        "queryMs": 0.229,
+        "rows": 20,
+        "bytes": 5259
+      },
+      "plans.get": {
+        "openMs": 1.284,
+        "queryMs": 0.136,
+        "rows": 11,
+        "bytes": 261
+      },
+      "surveys.listByPlan": {
+        "openMs": 1.319,
+        "queryMs": 0.212,
+        "rows": 1,
+        "bytes": 227
+      },
+      "scanPoints.listByPlan": {
+        "openMs": 1.4,
+        "queryMs": 0.27,
+        "rows": 30,
+        "bytes": 4696
+      },
+      "accessPoints.listByPlan": {
+        "openMs": 1.24,
+        "queryMs": 0.307,
+        "rows": 2,
+        "bytes": 308
+      },
+      "polygons.listByPlan": {
+        "openMs": 1.297,
+        "queryMs": 0.269,
+        "rows": 1,
+        "bytes": 203
+      },
+      "apPositions.listByPlan": {
+        "openMs": 1.425,
+        "queryMs": 0.346,
+        "rows": 4,
+        "bytes": 426
+      },
+      "apMappings.listByPlan": {
+        "openMs": 1.588,
+        "queryMs": 0.226,
+        "rows": 2,
+        "bytes": 243
+      },
+      "scans.historyByPlan": {
+        "openMs": 1.307,
+        "queryMs": 1.317,
+        "rows": 30,
+        "bytes": 14475
+      },
+      "scans.historyBySurvey": {
+        "openMs": 1.331,
+        "queryMs": 1.17,
+        "rows": 30,
+        "bytes": 14475
+      },
+      "scans.heatmapByPlan": {
+        "openMs": 1.437,
+        "queryMs": 2.218,
+        "rows": 382,
+        "bytes": 88087
+      },
+      "scans.heatmapByPlan.band5": {
+        "openMs": 1.314,
+        "queryMs": 1.993,
+        "rows": 203,
+        "bytes": 46631
+      },
+      "scans.networksByPlan": {
+        "openMs": 1.289,
+        "queryMs": 1.459,
+        "rows": 190,
+        "bytes": 18819
+      },
+      "scans.speedByPlan": {
+        "openMs": 1.228,
+        "queryMs": 0.323,
+        "rows": 9,
+        "bytes": 730
+      },
+      "scans.observationsByScan": {
+        "openMs": 1.307,
+        "queryMs": 0.811,
+        "rows": 14,
+        "bytes": 5870
+      },
+      "scans.scansByPoint": {
+        "openMs": 1.456,
+        "queryMs": 0.294,
+        "rows": 1,
+        "bytes": 253
+      },
+      "bssidRules.list": {
+        "openMs": 1.334,
+        "queryMs": 0.673,
+        "rows": 200,
+        "bytes": 23173
+      },
+      "bssidRules.seen": {
+        "openMs": 1.182,
+        "queryMs": 16.165,
+        "rows": 200,
+        "bytes": 20483
+      },
+      "bssidRules.withNames": {
+        "openMs": 1.394,
+        "queryMs": 0.279,
+        "rows": 200,
+        "bytes": 10264
+      },
+      "settings.getAll": {
+        "openMs": 1.183,
+        "queryMs": 0.254,
+        "rows": 4,
+        "bytes": 77
+      },
+      "analysis.strongestBySurvey": {
+        "openMs": 1.187,
+        "queryMs": 2.486,
+        "rows": 382,
+        "bytes": 86574
+      }
+    },
+    "warm": {
+      "plans.list": {
+        "min": 0.075,
+        "p50": 0.078,
+        "p95": 0.11,
+        "max": 0.115,
+        "mean": 0.083,
+        "stddev": 0.012,
+        "samples": 15
+      },
+      "plans.get": {
+        "min": 0.049,
+        "p50": 0.082,
+        "p95": 0.551,
+        "max": 1.305,
+        "mean": 0.176,
+        "stddev": 0.304,
+        "samples": 15
+      },
+      "surveys.listByPlan": {
+        "min": 0.062,
+        "p50": 0.068,
+        "p95": 0.089,
+        "max": 0.098,
+        "mean": 0.07,
+        "stddev": 0.01,
+        "samples": 15
+      },
+      "scanPoints.listByPlan": {
+        "min": 0.157,
+        "p50": 0.172,
+        "p95": 0.19,
+        "max": 0.205,
+        "mean": 0.174,
+        "stddev": 0.011,
+        "samples": 15
+      },
+      "accessPoints.listByPlan": {
+        "min": 0.056,
+        "p50": 0.095,
+        "p95": 0.115,
+        "max": 0.118,
+        "mean": 0.093,
+        "stddev": 0.018,
+        "samples": 15
+      },
+      "polygons.listByPlan": {
+        "min": 0.067,
+        "p50": 0.097,
+        "p95": 0.113,
+        "max": 0.121,
+        "mean": 0.095,
+        "stddev": 0.014,
+        "samples": 15
+      },
+      "apPositions.listByPlan": {
+        "min": 0.049,
+        "p50": 0.054,
+        "p95": 0.082,
+        "max": 0.088,
+        "mean": 0.059,
+        "stddev": 0.011,
+        "samples": 15
+      },
+      "apMappings.listByPlan": {
+        "min": 0.047,
+        "p50": 0.053,
+        "p95": 0.081,
+        "max": 0.082,
+        "mean": 0.058,
+        "stddev": 0.011,
+        "samples": 15
+      },
+      "scans.historyByPlan": {
+        "min": 0.811,
+        "p50": 0.838,
+        "p95": 1.272,
+        "max": 1.569,
+        "mean": 0.937,
+        "stddev": 0.197,
+        "samples": 15
+      },
+      "scans.historyBySurvey": {
+        "min": 0.818,
+        "p50": 0.853,
+        "p95": 0.909,
+        "max": 0.959,
+        "mean": 0.86,
+        "stddev": 0.033,
+        "samples": 15
+      },
+      "scans.heatmapByPlan": {
+        "min": 1.524,
+        "p50": 1.753,
+        "p95": 3.678,
+        "max": 3.972,
+        "mean": 2.1,
+        "stddev": 0.786,
+        "samples": 15
+      },
+      "scans.heatmapByPlan.band5": {
+        "min": 0.948,
+        "p50": 0.969,
+        "p95": 1.501,
+        "max": 1.761,
+        "mean": 1.07,
+        "stddev": 0.224,
+        "samples": 15
+      },
+      "scans.networksByPlan": {
+        "min": 1.003,
+        "p50": 1.055,
+        "p95": 1.213,
+        "max": 1.226,
+        "mean": 1.072,
+        "stddev": 0.067,
+        "samples": 15
+      },
+      "scans.speedByPlan": {
+        "min": 0.095,
+        "p50": 0.107,
+        "p95": 0.196,
+        "max": 0.203,
+        "mean": 0.125,
+        "stddev": 0.034,
+        "samples": 15
+      },
+      "scans.observationsByScan": {
+        "min": 0.264,
+        "p50": 0.272,
+        "p95": 0.296,
+        "max": 0.304,
+        "mean": 0.274,
+        "stddev": 0.01,
+        "samples": 15
+      },
+      "scans.scansByPoint": {
+        "min": 0.057,
+        "p50": 0.063,
+        "p95": 0.075,
+        "max": 0.075,
+        "mean": 0.064,
+        "stddev": 0.007,
+        "samples": 15
+      },
+      "bssidRules.list": {
+        "min": 0.228,
+        "p50": 0.243,
+        "p95": 0.288,
+        "max": 0.288,
+        "mean": 0.249,
+        "stddev": 0.02,
+        "samples": 15
+      },
+      "bssidRules.seen": {
+        "min": 15.257,
+        "p50": 15.634,
+        "p95": 16.421,
+        "max": 16.535,
+        "mean": 15.737,
+        "stddev": 0.365,
+        "samples": 15
+      },
+      "bssidRules.withNames": {
+        "min": 0.143,
+        "p50": 0.144,
+        "p95": 0.154,
+        "max": 0.159,
+        "mean": 0.146,
+        "stddev": 0.004,
+        "samples": 15
+      },
+      "settings.getAll": {
+        "min": 0.035,
+        "p50": 0.037,
+        "p95": 0.055,
+        "max": 0.058,
+        "mean": 0.04,
+        "stddev": 0.007,
+        "samples": 15
+      },
+      "analysis.strongestBySurvey": {
+        "min": 2.101,
+        "p50": 2.143,
+        "p95": 2.369,
+        "max": 2.637,
+        "mean": 2.178,
+        "stddev": 0.127,
+        "samples": 15
+      }
+    }
+  },
+  "api": {
+    "cold": {
+      "GET /api/v1/plans": {
+        "ms": 3.091,
+        "status": 200,
+        "bytes": 4219
+      },
+      "GET /api/v1/plans/:id": {
+        "ms": 1.871,
+        "status": 200,
+        "bytes": 209
+      },
+      "GET /api/v1/plans/:id/surveys": {
+        "ms": 1.784,
+        "status": 200,
+        "bytes": 227
+      },
+      "GET /api/v1/plans/:id/scan-points": {
+        "ms": 2.118,
+        "status": 200,
+        "bytes": 4696
+      },
+      "GET /api/v1/plans/:id/access-points": {
+        "ms": 1.755,
+        "status": 200,
+        "bytes": 308
+      },
+      "GET /api/v1/plans/:id/polygons": {
+        "ms": 1.737,
+        "status": 200,
+        "bytes": 203
+      },
+      "GET /api/v1/plans/:id/aps": {
+        "ms": 1.595,
+        "status": 200,
+        "bytes": 426
+      },
+      "GET /api/v1/plans/:id/ap-mappings": {
+        "ms": 1.633,
+        "status": 200,
+        "bytes": 243
+      },
+      "GET /api/v1/plans/:id/history": {
+        "ms": 2.771,
+        "status": 200,
+        "bytes": 14475
+      },
+      "GET /api/v1/plans/:id/heatmap": {
+        "ms": 4.573,
+        "status": 200,
+        "bytes": 88087
+      },
+      "GET /api/v1/plans/:id/heatmap?band=5": {
+        "ms": 3.147,
+        "status": 200,
+        "bytes": 46631
+      },
+      "GET /api/v1/plans/:id/heatmap?connected=1": {
+        "ms": 1.763,
+        "status": 200,
+        "bytes": 5740
+      },
+      "GET /api/v1/plans/:id/networks": {
+        "ms": 2.435,
+        "status": 200,
+        "bytes": 18819
+      },
+      "GET /api/v1/plans/:id/heatmap-speed": {
+        "ms": 1.371,
+        "status": 200,
+        "bytes": 730
+      },
+      "GET /api/v1/surveys/:id/history": {
+        "ms": 2.445,
+        "status": 200,
+        "bytes": 14475
+      },
+      "GET /api/v1/surveys/:id/heatmap": {
+        "ms": 3.834,
+        "status": 200,
+        "bytes": 88087
+      },
+      "GET /api/v1/surveys/:id/networks": {
+        "ms": 2.687,
+        "status": 200,
+        "bytes": 18819
+      },
+      "GET /api/v1/surveys/:id/heatmap-speed": {
+        "ms": 1.274,
+        "status": 200,
+        "bytes": 730
+      },
+      "GET /api/v1/scan/scans/:scanId": {
+        "ms": 2.623,
+        "status": 200,
+        "bytes": 6291
+      },
+      "GET /api/v1/bssid-rules": {
+        "ms": 1.6,
+        "status": 200,
+        "bytes": 23173
+      },
+      "GET /api/v1/bssid-rules/seen": {
+        "ms": 16.284,
+        "status": 200,
+        "bytes": 20483
+      },
+      "GET /api/v1/settings": {
+        "ms": 1.254,
+        "status": 200,
+        "bytes": 77
+      },
+      "GET /api/v1/status": {
+        "ms": 1.772,
+        "status": 200,
+        "bytes": 57
+      }
+    },
+    "warm": {
+      "GET /api/v1/plans": {
+        "min": 0.909,
+        "p50": 1.054,
+        "p95": 1.31,
+        "max": 1.542,
+        "mean": 1.07,
+        "stddev": 0.153,
+        "samples": 15,
+        "status": 200,
+        "bytes": 4219
+      },
+      "GET /api/v1/plans/:id": {
+        "min": 0.724,
+        "p50": 1.022,
+        "p95": 1.297,
+        "max": 1.493,
+        "mean": 0.989,
+        "stddev": 0.199,
+        "samples": 15,
+        "status": 200,
+        "bytes": 209
+      },
+      "GET /api/v1/plans/:id/surveys": {
+        "min": 0.842,
+        "p50": 1.036,
+        "p95": 1.608,
+        "max": 1.809,
+        "mean": 1.101,
+        "stddev": 0.247,
+        "samples": 15,
+        "status": 200,
+        "bytes": 227
+      },
+      "GET /api/v1/plans/:id/scan-points": {
+        "min": 1.465,
+        "p50": 1.742,
+        "p95": 2.172,
+        "max": 2.222,
+        "mean": 1.801,
+        "stddev": 0.208,
+        "samples": 15,
+        "status": 200,
+        "bytes": 4696
+      },
+      "GET /api/v1/plans/:id/access-points": {
+        "min": 0.889,
+        "p50": 1.204,
+        "p95": 1.845,
+        "max": 1.94,
+        "mean": 1.341,
+        "stddev": 0.298,
+        "samples": 15,
+        "status": 200,
+        "bytes": 308
+      },
+      "GET /api/v1/plans/:id/polygons": {
+        "min": 0.873,
+        "p50": 0.957,
+        "p95": 1.264,
+        "max": 1.333,
+        "mean": 1.02,
+        "stddev": 0.137,
+        "samples": 15,
+        "status": 200,
+        "bytes": 203
+      },
+      "GET /api/v1/plans/:id/aps": {
+        "min": 0.722,
+        "p50": 0.791,
+        "p95": 0.875,
+        "max": 0.896,
+        "mean": 0.798,
+        "stddev": 0.047,
+        "samples": 15,
+        "status": 200,
+        "bytes": 426
+      },
+      "GET /api/v1/plans/:id/ap-mappings": {
+        "min": 0.792,
+        "p50": 0.873,
+        "p95": 1.161,
+        "max": 1.245,
+        "mean": 0.924,
+        "stddev": 0.141,
+        "samples": 15,
+        "status": 200,
+        "bytes": 243
+      },
+      "GET /api/v1/plans/:id/history": {
+        "min": 1.733,
+        "p50": 1.857,
+        "p95": 1.951,
+        "max": 1.995,
+        "mean": 1.86,
+        "stddev": 0.064,
+        "samples": 15,
+        "status": 200,
+        "bytes": 14475
+      },
+      "GET /api/v1/plans/:id/heatmap": {
+        "min": 2.936,
+        "p50": 3.104,
+        "p95": 3.706,
+        "max": 3.818,
+        "mean": 3.162,
+        "stddev": 0.243,
+        "samples": 15,
+        "status": 200,
+        "bytes": 88087
+      },
+      "GET /api/v1/plans/:id/heatmap?band=5": {
+        "min": 2.093,
+        "p50": 2.271,
+        "p95": 3.234,
+        "max": 4.326,
+        "mean": 2.423,
+        "stddev": 0.538,
+        "samples": 15,
+        "status": 200,
+        "bytes": 46631
+      },
+      "GET /api/v1/plans/:id/heatmap?connected=1": {
+        "min": 1.272,
+        "p50": 1.325,
+        "p95": 1.493,
+        "max": 1.531,
+        "mean": 1.348,
+        "stddev": 0.073,
+        "samples": 15,
+        "status": 200,
+        "bytes": 5740
+      },
+      "GET /api/v1/plans/:id/networks": {
+        "min": 1.939,
+        "p50": 2.169,
+        "p95": 3.298,
+        "max": 3.9,
+        "mean": 2.337,
+        "stddev": 0.502,
+        "samples": 15,
+        "status": 200,
+        "bytes": 18819
+      },
+      "GET /api/v1/plans/:id/heatmap-speed": {
+        "min": 0.814,
+        "p50": 0.905,
+        "p95": 1.189,
+        "max": 1.426,
+        "mean": 0.957,
+        "stddev": 0.149,
+        "samples": 15,
+        "status": 200,
+        "bytes": 730
+      },
+      "GET /api/v1/surveys/:id/history": {
+        "min": 1.714,
+        "p50": 1.748,
+        "p95": 2.37,
+        "max": 2.464,
+        "mean": 1.843,
+        "stddev": 0.223,
+        "samples": 15,
+        "status": 200,
+        "bytes": 14475
+      },
+      "GET /api/v1/surveys/:id/heatmap": {
+        "min": 2.91,
+        "p50": 3.068,
+        "p95": 5.593,
+        "max": 5.771,
+        "mean": 3.785,
+        "stddev": 1.117,
+        "samples": 15,
+        "status": 200,
+        "bytes": 88087
+      },
+      "GET /api/v1/surveys/:id/networks": {
+        "min": 1.919,
+        "p50": 2.046,
+        "p95": 2.927,
+        "max": 3.199,
+        "mean": 2.176,
+        "stddev": 0.347,
+        "samples": 15,
+        "status": 200,
+        "bytes": 18819
+      },
+      "GET /api/v1/surveys/:id/heatmap-speed": {
+        "min": 0.818,
+        "p50": 0.885,
+        "p95": 1.019,
+        "max": 1.034,
+        "mean": 0.893,
+        "stddev": 0.059,
+        "samples": 15,
+        "status": 200,
+        "bytes": 730
+      },
+      "GET /api/v1/scan/scans/:scanId": {
+        "min": 1.093,
+        "p50": 1.291,
+        "p95": 1.529,
+        "max": 1.541,
+        "mean": 1.288,
+        "stddev": 0.148,
+        "samples": 15,
+        "status": 200,
+        "bytes": 6291
+      },
+      "GET /api/v1/bssid-rules": {
+        "min": 1.061,
+        "p50": 1.369,
+        "p95": 2.106,
+        "max": 2.447,
+        "mean": 1.492,
+        "stddev": 0.394,
+        "samples": 15,
+        "status": 200,
+        "bytes": 23173
+      },
+      "GET /api/v1/bssid-rules/seen": {
+        "min": 15.485,
+        "p50": 15.725,
+        "p95": 15.939,
+        "max": 15.985,
+        "mean": 15.721,
+        "stddev": 0.149,
+        "samples": 15,
+        "status": 200,
+        "bytes": 20483
+      },
+      "GET /api/v1/settings": {
+        "min": 0.572,
+        "p50": 0.614,
+        "p95": 1.38,
+        "max": 1.53,
+        "mean": 0.746,
+        "stddev": 0.276,
+        "samples": 15,
+        "status": 200,
+        "bytes": 77
+      },
+      "GET /api/v1/status": {
+        "min": 0.548,
+        "p50": 0.63,
+        "p95": 0.854,
+        "max": 0.934,
+        "mean": 0.664,
+        "stddev": 0.107,
+        "samples": 15,
+        "status": 200,
+        "bytes": 57
+      }
+    },
+    "scenarios": {
+      "surveysLibraryConcurrent": {
+        "min": 114.191,
+        "p50": 116.096,
+        "p95": 118.62,
+        "max": 118.901,
+        "mean": 116.396,
+        "stddev": 1.934,
+        "samples": 3
+      },
+      "surveysLibrarySequential": {
+        "min": 117.57,
+        "p50": 120.694,
+        "p95": 125.19,
+        "max": 125.69,
+        "mean": 121.318,
+        "stddev": 3.344,
+        "samples": 3
+      },
+      "channelAnalysis": {
+        "min": 31.27,
+        "p50": 36.244,
+        "p95": 37.959,
+        "max": 38.15,
+        "mean": 35.221,
+        "stddev": 2.9,
+        "samples": 3
+      }
+    }
+  }
+}

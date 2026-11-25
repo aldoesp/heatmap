@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import {
   ApiError,
@@ -7,6 +7,8 @@ import {
   type ScanHistoryRecord,
 } from '../../types/api';
 import { getScanDetail } from '../../lib/api';
+import type { ApiRead } from '../../lib/apiRead';
+import { useApiQuery } from '../../hooks/useApiQuery';
 import { isWeakRssi, rssiColor } from '../../lib/signal';
 import { formatConsoleCell, formatMbps } from '../../lib/format';
 
@@ -70,36 +72,38 @@ export function PointsTable({ surveyName, rows, onBack }: Props) {
   const [weakOnly, setWeakOnly] = useState(false);
   const [details, setDetails] = useState<Record<string, DetailState>>({});
 
-  const requested = useRef<Set<string>>(new Set());
-
-  const loadScanDetail = useCallback(async (scanId: string) => {
-    if (requested.current.has(scanId)) return;
-    requested.current.add(scanId);
-    setDetails((current) => ({ ...current, [scanId]: { status: 'loading' } }));
-    try {
-      const detail = await getScanDetail(scanId);
-      setDetails((current) => ({ ...current, [scanId]: { status: 'loaded', detail } }));
-    } catch (error) {
-      requested.current.delete(scanId);
-      const message =
-        error instanceof ApiError ? error.message : 'Impossible de charger les données du scan.';
-      setDetails((current) => ({ ...current, [scanId]: { status: 'error', message } }));
+  const loadDetails = useCallback(async (read: ApiRead) => {
+    const scans = new Map<string, { planId: string; pointId: string }>();
+    for (const row of rows) {
+      const id = row.scans.at(-1)?.id;
+      if (id) scans.set(id, { planId: row.planId, pointId: row.id });
     }
-  }, []);
-
-  /* 6 requêtes en parallèle max, sans doublon (StrictMode inclus). */
-  useEffect(() => {
-    const ids = rows
-      .map((r) => r.scans.at(-1)?.id)
-      .filter((id): id is string => Boolean(id));
-    let next = 0;
+    const queue = scans.entries();
+    const result: Record<string, DetailState> = {};
     const worker = async () => {
-      while (next < ids.length) {
-        await loadScanDetail(ids[next++]);
+      for (const [id, scope] of queue) {
+        if (read.signal?.aborted) return;
+        try {
+          result[id] = { status: 'loaded', detail: await getScanDetail(id, read, scope) };
+        } catch (error) {
+          result[id] = {
+            status: 'error',
+            message: error instanceof ApiError ? error.message : 'Impossible de charger les données du scan.',
+          };
+        }
       }
     };
-    void Promise.all(Array.from({ length: Math.min(6, ids.length) }, worker));
-  }, [rows, loadScanDetail]);
+    await Promise.all(Array.from({ length: Math.min(6, scans.size) }, worker));
+    return result;
+  }, [rows]);
+
+  useApiQuery(loadDetails, {
+    start: () => setDetails(Object.fromEntries(rows.flatMap(row => {
+      const id = row.scans.at(-1)?.id;
+      return id ? [[id, { status: 'loading' } as const]] : [];
+    }))),
+    success: setDetails,
+  });
 
   const flat = useMemo(() => {
     const out: FlatRow[] = [];

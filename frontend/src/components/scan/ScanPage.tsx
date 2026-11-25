@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
+import type { ApiRead } from '../../lib/apiRead';
+import { useApiQuery } from '../../hooks/useApiQuery';
 import { usePlanImage } from '../../hooks/usePlanImage';
 import { useScanStore } from '../../hooks/useScanStore';
 import { listAccessPoints, getStatus } from '../../lib/api';
@@ -14,7 +16,9 @@ import type { AccessPoint } from '../../types/project';
 
 export function ScanPage() {
   const { plan, imageUrl, loading, imageMissing, error: planError } = usePlanImage();
-  const [accessPoints, setAccessPoints] = useState<AccessPoint[]>([]);
+  const planId = plan?.id;
+  const [apResult, setApResult] = useState<{ planId: string; rows: AccessPoint[] } | null>(null);
+  const accessPoints = apResult?.planId === planId && apResult ? apResult.rows : [];
 
   const {
     scanPoints,
@@ -40,20 +44,10 @@ export function ScanPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const fitRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    if (!plan) return;
-    let alive = true;
-    listAccessPoints(plan.id)
-      .then((aps) => {
-        if (alive) setAccessPoints(aps);
-      })
-      .catch(() => {
-        /* APs indisponibles : la carte reste utilisable sans eux */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [plan]);
+  const loadAccessPoints = useCallback((read: ApiRead) => listAccessPoints(planId!, read), [planId]);
+  useApiQuery(planId ? loadAccessPoints : null, {
+    success: rows => { if (planId) setApResult({ planId, rows }); },
+  });
 
   const registerFit = useCallback((fn: () => void) => {
     fitRef.current = fn;

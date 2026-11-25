@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScanPoint } from '../types/project';
 import type { SaveScanResponse } from '../types/api';
+import type { ApiRead } from '../lib/apiRead';
+import { useApiQuery } from './useApiQuery';
 import { ApiError } from '../types/api';
 import {
   listScanPoints,
@@ -9,6 +11,8 @@ import {
   saveScanAtPoint,
 } from '../lib/api';
 
+const EMPTY_POINTS: ScanPoint[] = [];
+
 /**
  * Relevés Wi-Fi persistés côté backend (SQLite).
  * addScan() crée le point puis enregistre le scan réel : la réponse du
@@ -16,7 +20,8 @@ import {
  * removeLast() supprime aussi le point côté backend (cascade scans).
  */
 export function useScanStore(planId: string | null) {
-  const [scanPoints, setScanPoints] = useState<ScanPoint[]>([]);
+  const [loaded, setLoaded] = useState<{ planId: string; points: ScanPoint[] } | null>(null);
+  const scanPoints = loaded?.planId === planId ? (loaded?.points ?? EMPTY_POINTS) : EMPTY_POINTS;
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,41 +35,19 @@ export function useScanStore(planId: string | null) {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (!planId) {
-      setScanPoints([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const points = await listScanPoints(planId);
-      if (!aliveRef.current) return;
-      setScanPoints(
-        points.map((p) => ({
-          id: p.id,
-          planId: p.plan_id,
-          x: p.x,
-          y: p.y,
-          note: p.note,
-          createdAt: p.created_at,
-        }))
-      );
-    } catch (err) {
-      if (!aliveRef.current) return;
-      const apiErr = err instanceof ApiError ? err : null;
-      setError(apiErr?.message ?? 'Impossible de charger les relevés.');
-    } finally {
-      if (aliveRef.current) setLoading(false);
-    }
+  const load = useCallback(async (read: ApiRead) => {
+    const points = await listScanPoints(planId!, read);
+    return points.map(p => ({
+      id: p.id, planId: p.plan_id, x: p.x, y: p.y,
+      note: p.note, createdAt: p.created_at,
+    }));
   }, [planId]);
-
-  useEffect(() => {
-    (async () => {
-      await refresh();
-    })();
-  }, [refresh]);
+  const refresh = useApiQuery(planId ? load : null, {
+    start: () => { setLoading(true); setError(null); },
+    success: points => { if (planId) setLoaded({ planId, points }); },
+    error: err => setError(err instanceof ApiError ? err.message : 'Impossible de charger les relevés.'),
+    settled: () => setLoading(false),
+  });
 
   const addScan = useCallback(async (x: number, y: number): Promise<SaveScanResponse | null> => {
     if (!planId || scanning) return null;
@@ -75,37 +58,20 @@ export function useScanStore(planId: string | null) {
     try {
       const point = await createScanPoint(planId, x, y);
       pointId = point.id;
-      const result = await saveScanAtPoint(point.id);
+      const result = await saveScanAtPoint(point.id, point.plan_id || planId);
       if (!aliveRef.current) return result;
-      setScanPoints((prev) => [
-        ...prev,
-        {
-          id: point.id,
-          planId,
-          x: point.x,
-          y: point.y,
-          note: point.note,
-          createdAt: point.created_at,
-          lastScan: {
-            id: result.scan_id,
-            scannedAt: result.scanned_at,
-            mode: result.mode,
-            networkCount: result.count,
-          },
-        },
-      ]);
       setLastResult(result);
       if (navigator.vibrate) navigator.vibrate(30);
       return result;
     } catch (err) {
       // Si le scan a échoué après la création du point, on nettoie le point
       // orphelin pour garder la base cohérente.
-      if (pointId && planId) {
+      if (pointId && err instanceof ApiError && err.status >= 400 && err.status < 500 && err.status !== 408) {
         await deleteScanPoint(planId, pointId).catch(() => {});
       }
       if (!aliveRef.current) return null;
       const apiErr = err instanceof ApiError ? err : null;
-      setError(apiErr?.message ?? 'Le scan a échoué. Aucune mesure enregistrée.');
+      setError(apiErr?.message ?? 'Le scan a échoué.');
       return null;
     } finally {
       if (aliveRef.current) setScanning(false);
@@ -120,7 +86,6 @@ export function useScanStore(planId: string | null) {
     try {
       await deleteScanPoint(planId, last.id);
       if (!aliveRef.current) return true;
-      setScanPoints((prev) => prev.slice(0, -1));
       setLastResult(null);
       return true;
     } catch (err) {
@@ -135,5 +100,5 @@ export function useScanStore(planId: string | null) {
 
   const dismissError = useCallback(() => setError(null), []);
 
-  return { scanPoints, loading, scanning, error, lastResult, addScan, removeLast, refresh, dismissError };
+  return { scanPoints, loading: !!planId && loading, scanning, error, lastResult, addScan, removeLast, refresh, dismissError };
 }

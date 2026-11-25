@@ -37,6 +37,24 @@ describe('champ partagé carte / sonde', () => {
     assert.equal(sample.rssi, -90);
   });
 
+  it('conserve la tolérance au bord et projette la zone selon chaque maillage', () => {
+    const zone = { ...zones[0], id: '' };
+    const small = buildRssiMeshes(leftRows, plan, { polygons: [zones[0]] }).meshes;
+    const large = buildRssiMeshes(
+      leftRows.map((point) => ({ ...point, rssi: -80 })),
+      { ...plan, width: 200, height: 200 },
+      { polygons: [zones[0]] },
+    ).meshes;
+    assert.equal(small.length, 1);
+    assert.equal(large.length, 1);
+
+    const meshes = [...small, ...large].map((mesh) => ({ ...mesh, polygonId: zone.id }));
+    const field = buildCoverageField(meshes, [zone], [], []);
+    assert.equal(field.sample(-0.5e-6, 25).status, 'EXTRAPOLATED');
+    assert.equal(field.sample(-2e-6, 25).status, 'NO_DATA');
+    assert.equal(field.sample(50, 50).rssi, -80);
+  });
+
   it('sans zone, sonde et raster donnent la même couleur et restent limités aux triangles', () => {
     const { meshes } = buildRssiMeshes(leftRows, plan);
     const field = buildCoverageField(meshes, [], [{ bssid: leftRows[0].bssid, x: 0, y: 0 }], []);

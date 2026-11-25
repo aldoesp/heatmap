@@ -1,5 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../database/db.js';
+import { runDataWrite } from '../cache/dataRevision.js';
+import { readCached } from '../cache/readCache.js';
+import { invalidateBssidRules } from '../cache/invalidation.js';
+
+const namedRulesStatements = new WeakMap();
+
+function namedRulesStatement(db) {
+  let statement = namedRulesStatements.get(db);
+  if (!statement) {
+    statement = db.prepare("SELECT bssid, name FROM bssid_rules WHERE name != ''");
+    namedRulesStatements.set(db, statement);
+  }
+  return statement;
+}
 
 export function listBssidRules() {
   return getDb()
@@ -21,23 +35,24 @@ export function findBssidRuleById(id) {
 
 export function insertBssidRule({ bssid, name, blacklisted }) {
   const id = randomUUID();
-  getDb()
-    .prepare(
-      'INSERT INTO bssid_rules (id, bssid, name, blacklisted) VALUES (?, ?, ?, ?)'
-    )
-    .run(id, bssid.toLowerCase(), name, blacklisted ? 1 : 0);
+  runDataWrite(getDb(),
+    'INSERT INTO bssid_rules (id, bssid, name, blacklisted) VALUES (?, ?, ?, ?)',
+    id, bssid.toLowerCase(), name, blacklisted ? 1 : 0,
+  );
+  invalidateBssidRules();
   return findBssidRuleById(id);
 }
 
 export function updateBssidRule(id, { name, blacklisted }) {
-  getDb()
-    .prepare('UPDATE bssid_rules SET name = ?, blacklisted = ? WHERE id = ?')
-    .run(name, blacklisted ? 1 : 0, id);
+  const result = runDataWrite(getDb(), 'UPDATE bssid_rules SET name = ?, blacklisted = ? WHERE id = ?', name, blacklisted ? 1 : 0, id);
+  if (result.changes) invalidateBssidRules();
   return findBssidRuleById(id);
 }
 
 export function deleteBssidRule(id) {
-  return getDb().prepare('DELETE FROM bssid_rules WHERE id = ?').run(id).changes > 0;
+  const deleted = runDataWrite(getDb(), 'DELETE FROM bssid_rules WHERE id = ?', id).changes > 0;
+  if (deleted) invalidateBssidRules();
+  return deleted;
 }
 
 export function listBlacklistedBssids() {
@@ -48,36 +63,49 @@ export function listBlacklistedBssids() {
 }
 
 export function withBssidNames(rows) {
-  const names = new Map(
-    getDb()
-      .prepare("SELECT bssid, name FROM bssid_rules WHERE name != ''")
-      .all()
-      .map(({ bssid, name }) => [bssid.toLowerCase(), name])
-  );
-  return rows.map((row) => ({
-    ...row,
-    bssid_name: names.get(String(row.bssid).toLowerCase()) ?? row.bssid,
-  }));
+  if (rows.length === 0) return rows;
+  const names = new Map();
+  for (const rule of namedRulesStatement(getDb()).all()) {
+    names.set(rule.bssid.toLowerCase(), rule.name);
+  }
+  return rows.map((row) => {
+    const key = String(row.bssid).toLowerCase();
+    return {
+      ...row,
+      bssid_name: names.get(key) ?? row.bssid,
+    };
+  });
 }
 
 export function listAllSeenBssids() {
   const db = getDb();
+  return readCached(db, () => ['bssid', 'seen', 'all'], () => loadAllSeenBssids(db));
+}
+
+function loadAllSeenBssids(db) {
   const rows = db
     .prepare(
-      `SELECT DISTINCT o.bssid AS bssid,
-              COALESCE((
-                SELECT o2.ssid FROM observations o2
-                WHERE LOWER(o2.bssid) = LOWER(o.bssid)
-                  AND o2.ssid IS NOT NULL AND TRIM(o2.ssid) != ''
-                ORDER BY o2.id DESC
-                LIMIT 1
-              ), '') AS ssid,
+      `WITH latest_ssid AS (
+         SELECT MIN(o.bssid) AS bssid_key, MAX(o.id) AS observation_id
+         FROM observations o
+         WHERE o.ssid IS NOT NULL AND TRIM(o.ssid) != ''
+         GROUP BY o.bssid COLLATE NOCASE
+       ),
+       seen AS (
+         SELECT DISTINCT o.bssid AS bssid
+         FROM observations o
+       )
+       SELECT seen.bssid AS bssid,
+              COALESCE(o2.ssid, '') AS ssid,
               br.id AS rule_id,
               br.name AS rule_name,
               br.blacklisted AS blacklisted_flag
-       FROM observations o
-       LEFT JOIN bssid_rules br ON LOWER(br.bssid) = LOWER(o.bssid)
-       ORDER BY COALESCE(NULLIF(ssid, ''), o.bssid) COLLATE NOCASE, LOWER(o.bssid)`
+       FROM seen
+       LEFT JOIN latest_ssid ls ON ls.bssid_key = seen.bssid COLLATE NOCASE
+       LEFT JOIN observations o2 ON o2.id = ls.observation_id
+       LEFT JOIN bssid_rules br ON br.bssid = seen.bssid COLLATE NOCASE
+       ORDER BY COALESCE(NULLIF(o2.ssid, ''), seen.bssid) COLLATE NOCASE,
+                seen.bssid COLLATE NOCASE`
     )
     .all();
   return rows.map((row) => ({

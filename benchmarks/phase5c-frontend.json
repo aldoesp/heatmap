@@ -1,0 +1,1229 @@
+{
+  "conditions": {
+    "browser": "Chrome/156.0.8078.79",
+    "node": "v24.22.2",
+    "cpu": "Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz",
+    "runs": 5,
+    "wifi": {
+      "latency": 45,
+      "downloadThroughput": 1500000,
+      "uploadThroughput": 500000
+    },
+    "viewport": "1360x880",
+    "fixture": "2 plans 480 × 320, 12 points par plan, 1 scan et 3 radios par point",
+    "backendCache": "true",
+    "pollingIntervalMs": 5000,
+    "percentile": "nearest rank",
+    "rateLimitsPerMinute": {
+      "api": 10000,
+      "scan": 2000
+    },
+    "networkAccounting": "HTTP /api/v1, réponses encodées CDP avec en-têtes, hors requêtes montantes"
+  },
+  "browserTest": "PASS · 9 GET · 1 POST",
+  "summary": {
+    "direct": {
+      "durations": {
+        "firstLoad": {
+          "n": 5,
+          "p50Ms": 2576.5,
+          "p95Ms": 8050.3
+        },
+        "plans": {
+          "n": 20,
+          "p50Ms": 1075.6,
+          "p95Ms": 3876.4
+        },
+        "bssid": {
+          "n": 20,
+          "p50Ms": 1465.7,
+          "p95Ms": 3546
+        },
+        "library": {
+          "n": 10,
+          "p50Ms": 486.6,
+          "p95Ms": 1260.9
+        },
+        "scanDetails": {
+          "n": 10,
+          "p50Ms": 652.8,
+          "p95Ms": 1181.4
+        },
+        "channels": {
+          "n": 10,
+          "p50Ms": 646,
+          "p95Ms": 1451.4
+        },
+        "rssiCampaign": {
+          "n": 10,
+          "p50Ms": 265.6,
+          "p95Ms": 459.9
+        }
+      },
+      "network": {
+        "business": 555,
+        "polling": 0,
+        "total": 555,
+        "businessBytes": 1035339,
+        "pollingBytes": 0,
+        "totalBytes": 1035339
+      },
+      "remoteNetwork": {
+        "business": 0,
+        "polling": 0,
+        "total": 0,
+        "businessBytes": 0,
+        "pollingBytes": 0,
+        "totalBytes": 0
+      },
+      "hits": 0,
+      "misses": 0,
+      "hitRate": null,
+      "coalesced": 0,
+      "estimatedMaxCacheBytesAtEnd": 0,
+      "rasterBuilds": 45,
+      "remote": {
+        "checks": 1,
+        "visible": 0,
+        "p50Ms": null,
+        "p95Ms": null
+      }
+    },
+    "dedup": {
+      "durations": {
+        "firstLoad": {
+          "n": 5,
+          "p50Ms": 7310.3,
+          "p95Ms": 10668.4
+        },
+        "plans": {
+          "n": 20,
+          "p50Ms": 1789.8,
+          "p95Ms": 4799
+        },
+        "bssid": {
+          "n": 20,
+          "p50Ms": 1576.8,
+          "p95Ms": 5010.7
+        },
+        "library": {
+          "n": 10,
+          "p50Ms": 483.1,
+          "p95Ms": 945.6
+        },
+        "scanDetails": {
+          "n": 10,
+          "p50Ms": 457.1,
+          "p95Ms": 870.4
+        },
+        "channels": {
+          "n": 10,
+          "p50Ms": 699.1,
+          "p95Ms": 966.5
+        },
+        "rssiCampaign": {
+          "n": 10,
+          "p50Ms": 254.5,
+          "p95Ms": 435.2
+        }
+      },
+      "network": {
+        "business": 555,
+        "polling": 0,
+        "total": 555,
+        "businessBytes": 1035549,
+        "pollingBytes": 0,
+        "totalBytes": 1035549
+      },
+      "remoteNetwork": {
+        "business": 0,
+        "polling": 0,
+        "total": 0,
+        "businessBytes": 0,
+        "pollingBytes": 0,
+        "totalBytes": 0
+      },
+      "hits": 0,
+      "misses": 535,
+      "hitRate": 0,
+      "coalesced": 0,
+      "estimatedMaxCacheBytesAtEnd": 0,
+      "rasterBuilds": 45,
+      "remote": {
+        "checks": 1,
+        "visible": 0,
+        "p50Ms": null,
+        "p95Ms": null
+      }
+    },
+    "synced": {
+      "durations": {
+        "firstLoad": {
+          "n": 5,
+          "p50Ms": 2294.8,
+          "p95Ms": 8801.7
+        },
+        "plans": {
+          "n": 20,
+          "p50Ms": 1370.8,
+          "p95Ms": 4142.6
+        },
+        "bssid": {
+          "n": 20,
+          "p50Ms": 1088,
+          "p95Ms": 4864.7
+        },
+        "library": {
+          "n": 10,
+          "p50Ms": 388.9,
+          "p95Ms": 833.4
+        },
+        "scanDetails": {
+          "n": 10,
+          "p50Ms": 204.7,
+          "p95Ms": 708.8
+        },
+        "channels": {
+          "n": 10,
+          "p50Ms": 315.1,
+          "p95Ms": 582.2
+        },
+        "rssiCampaign": {
+          "n": 10,
+          "p50Ms": 208.5,
+          "p95Ms": 565.7
+        }
+      },
+      "network": {
+        "business": 210,
+        "polling": 20,
+        "total": 230,
+        "businessBytes": 678551,
+        "pollingBytes": 22817,
+        "totalBytes": 701368
+      },
+      "remoteNetwork": {
+        "business": 35,
+        "polling": 5,
+        "total": 40,
+        "businessBytes": 136301,
+        "pollingBytes": 5703,
+        "totalBytes": 142004
+      },
+      "hits": 345,
+      "misses": 190,
+      "hitRate": 0.6448598130841121,
+      "coalesced": 0,
+      "estimatedMaxCacheBytesAtEnd": 38939,
+      "rasterBuilds": 45,
+      "remote": {
+        "checks": 5,
+        "visible": 5,
+        "p50Ms": 3781,
+        "p95Ms": 8916.5
+      }
+    }
+  },
+  "rounds": [
+    {
+      "mode": "direct",
+      "run": 0,
+      "samples": {
+        "firstLoad": [
+          2083.959704
+        ],
+        "plans": [
+          1435.7611369999995,
+          410.6842280000001,
+          1052.7339380000012,
+          308.43891599999915
+        ],
+        "bssid": [
+          946.3278149999987,
+          1088.399956000001,
+          1138.7849029999998,
+          766.746083
+        ],
+        "library": [
+          486.6272390000013,
+          242.88823799999955
+        ],
+        "scanDetails": [
+          233.90076299999782,
+          260.6058840000005
+        ],
+        "channels": [
+          638.2039259999983,
+          272.6605589999999
+        ],
+        "rssiCampaign": [
+          212.02018699999826,
+          208.5163219999995
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 0,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 0,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 0,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207048,
+        "pollingBytes": 0,
+        "totalBytes": 207048
+      },
+      "remote": {
+        "automaticallyRefreshed": false,
+        "observedMs": 5300,
+        "network": {
+          "business": 0,
+          "polling": 0,
+          "total": 0,
+          "businessBytes": 0,
+          "pollingBytes": 0,
+          "totalBytes": 0
+        }
+      }
+    },
+    {
+      "mode": "dedup",
+      "run": 0,
+      "samples": {
+        "firstLoad": [
+          1940.8758250000028
+        ],
+        "plans": [
+          990.0215749999988,
+          1446.3742060000004,
+          439.98035900000104,
+          411.2509969999992
+        ],
+        "bssid": [
+          983.6603749999995,
+          842.5416949999999,
+          803.2669029999961,
+          447.8376389999976
+        ],
+        "library": [
+          483.10058299999946,
+          171.287470999996
+        ],
+        "scanDetails": [
+          231.54761999999755,
+          209.5497469999973
+        ],
+        "channels": [
+          573.1233150000044,
+          374.74485700000514
+        ],
+        "rssiCampaign": [
+          223.8021779999981,
+          183.1304500000042
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 107,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 2,
+        "rejectedEntries": 105,
+        "staleResultsDiscarded": 2,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207095,
+        "pollingBytes": 0,
+        "totalBytes": 207095
+      },
+      "remote": {
+        "automaticallyRefreshed": false,
+        "observedMs": 5300,
+        "network": {
+          "business": 0,
+          "polling": 0,
+          "total": 0,
+          "businessBytes": 0,
+          "pollingBytes": 0,
+          "totalBytes": 0
+        }
+      }
+    },
+    {
+      "mode": "synced",
+      "run": 0,
+      "samples": {
+        "firstLoad": [
+          2013.9930569999997
+        ],
+        "plans": [
+          1457.242895999996,
+          1660.6135240000003,
+          208.72239799999807,
+          390.21249700000044
+        ],
+        "bssid": [
+          896.1691330000031,
+          903.2628499999992,
+          1328.7162779999999,
+          727.9425709999996
+        ],
+        "library": [
+          505.8178140000018,
+          35.14923500000441
+        ],
+        "scanDetails": [
+          220.98816100000113,
+          71.64465799999743
+        ],
+        "channels": [
+          394.13369200000307,
+          32.62971500000276
+        ],
+        "rssiCampaign": [
+          206.84896899999876,
+          224.72187100000156
+        ]
+      },
+      "cache": {
+        "hits": 70,
+        "misses": 37,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 9,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 1,
+        "hitRate": 0.6542056074766355,
+        "entries": 28,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 38939,
+        "builds": 9
+      },
+      "network": {
+        "business": 41,
+        "polling": 3,
+        "total": 44,
+        "businessBytes": 134660,
+        "pollingBytes": 3423,
+        "totalBytes": 138083
+      },
+      "remote": {
+        "automaticallyRefreshed": true,
+        "writeToVisibleMs": 3142.4,
+        "responseToVisibleMs": 2878.5,
+        "network": {
+          "business": 7,
+          "polling": 1,
+          "total": 8,
+          "businessBytes": 27256,
+          "pollingBytes": 1140,
+          "totalBytes": 28396
+        },
+        "rasterBuilds": 1,
+        "assertions": [
+          "remoteScanAndPixels",
+          "bssidAliasAndRasterReuse",
+          "pointDeletionAndPixels",
+          "polygonAndPixels"
+        ]
+      }
+    },
+    {
+      "mode": "dedup",
+      "run": 1,
+      "samples": {
+        "firstLoad": [
+          2130.235136000003
+        ],
+        "plans": [
+          1932.497365000003,
+          316.65387200000987,
+          280.7907989999949,
+          810.2535930000013
+        ],
+        "bssid": [
+          1576.7679599999974,
+          982.747561000011,
+          600.9785249999986,
+          158.4719000000041
+        ],
+        "library": [
+          498.3526889999921,
+          141.9231099999888
+        ],
+        "scanDetails": [
+          223.3117879999918,
+          192.84771699999692
+        ],
+        "channels": [
+          583.8759629999986,
+          325.95807599999534
+        ],
+        "rssiCampaign": [
+          193.89744499999506,
+          171.3490840000013
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 107,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 2,
+        "rejectedEntries": 105,
+        "staleResultsDiscarded": 2,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207101,
+        "pollingBytes": 0,
+        "totalBytes": 207101
+      }
+    },
+    {
+      "mode": "synced",
+      "run": 1,
+      "samples": {
+        "firstLoad": [
+          2294.8200799999904
+        ],
+        "plans": [
+          1231.751614000008,
+          424.2620569999999,
+          1116.9056689999998,
+          391.8909879999992
+        ],
+        "bssid": [
+          1088.0106809999997,
+          712.7673080000095,
+          1259.4081350000051,
+          346.06895699999586
+        ],
+        "library": [
+          488.7535460000072,
+          55.407927000007476
+        ],
+        "scanDetails": [
+          204.71323300000222,
+          41.10752199999115
+        ],
+        "channels": [
+          354.65230000000156,
+          48.81386599999678
+        ],
+        "rssiCampaign": [
+          203.35305800000788,
+          194.2883950000105
+        ]
+      },
+      "cache": {
+        "hits": 70,
+        "misses": 37,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 9,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 2,
+        "hitRate": 0.6542056074766355,
+        "entries": 28,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 38939,
+        "builds": 9
+      },
+      "network": {
+        "business": 41,
+        "polling": 2,
+        "total": 43,
+        "businessBytes": 134664,
+        "pollingBytes": 2282,
+        "totalBytes": 136946
+      },
+      "remote": {
+        "automaticallyRefreshed": true,
+        "writeToVisibleMs": 3419.2,
+        "responseToVisibleMs": 3308,
+        "network": {
+          "business": 7,
+          "polling": 1,
+          "total": 8,
+          "businessBytes": 27263,
+          "pollingBytes": 1141,
+          "totalBytes": 28404
+        },
+        "rasterBuilds": 1
+      }
+    },
+    {
+      "mode": "direct",
+      "run": 1,
+      "samples": {
+        "firstLoad": [
+          1951.9590549999994
+        ],
+        "plans": [
+          1075.6082959999912,
+          445.75901700000395,
+          821.7280270000047,
+          342.2291000000114
+        ],
+        "bssid": [
+          1325.5144720000098,
+          1022.8716029999923,
+          721.9952919999923,
+          1244.9752230000013
+        ],
+        "library": [
+          463.49293999999645,
+          158.91966200000024
+        ],
+        "scanDetails": [
+          253.50811799999792,
+          228.687877999997
+        ],
+        "channels": [
+          594.7372969999997,
+          275.8212840000051
+        ],
+        "rssiCampaign": [
+          269.55072099999234,
+          232.337268999996
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 0,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 0,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 0,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207023,
+        "pollingBytes": 0,
+        "totalBytes": 207023
+      }
+    },
+    {
+      "mode": "synced",
+      "run": 2,
+      "samples": {
+        "firstLoad": [
+          1772.236812999996
+        ],
+        "plans": [
+          811.1329950000072,
+          129.7123419999989,
+          1557.8307389999973,
+          278.7374940000009
+        ],
+        "bssid": [
+          965.8909889999923,
+          906.370928999997,
+          802.1908180000028,
+          784.0092620000069
+        ],
+        "library": [
+          480.5813029999845,
+          56.00297700002557
+        ],
+        "scanDetails": [
+          252.11470199999167,
+          33.77716500000679
+        ],
+        "channels": [
+          356.28817000001436,
+          76.97336600002018
+        ],
+        "rssiCampaign": [
+          208.5361489999923,
+          175.80674
+        ]
+      },
+      "cache": {
+        "hits": 70,
+        "misses": 37,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 9,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 2,
+        "hitRate": 0.6542056074766355,
+        "entries": 28,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 38939,
+        "builds": 9
+      },
+      "network": {
+        "business": 41,
+        "polling": 2,
+        "total": 43,
+        "businessBytes": 134651,
+        "pollingBytes": 2281,
+        "totalBytes": 136932
+      },
+      "remote": {
+        "automaticallyRefreshed": true,
+        "writeToVisibleMs": 3912.4,
+        "responseToVisibleMs": 3781,
+        "network": {
+          "business": 7,
+          "polling": 1,
+          "total": 8,
+          "businessBytes": 27263,
+          "pollingBytes": 1141,
+          "totalBytes": 28404
+        },
+        "rasterBuilds": 1
+      }
+    },
+    {
+      "mode": "direct",
+      "run": 2,
+      "samples": {
+        "firstLoad": [
+          2576.478922999988
+        ],
+        "plans": [
+          1205.7351119999948,
+          845.4237229999853,
+          424.104766000004,
+          400.03026899998076
+        ],
+        "bssid": [
+          2856.1815059999935,
+          3095.5370410000032,
+          3136.621777000022,
+          1392.514761999977
+        ],
+        "library": [
+          910.833759000001,
+          358.96520299999975
+        ],
+        "scanDetails": [
+          806.0480690000113,
+          836.9322470000188
+        ],
+        "channels": [
+          783.9054489999835,
+          677.5544349999982
+        ],
+        "rssiCampaign": [
+          366.00039699999616,
+          209.75057199998992
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 0,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 0,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 0,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207101,
+        "pollingBytes": 0,
+        "totalBytes": 207101
+      }
+    },
+    {
+      "mode": "dedup",
+      "run": 2,
+      "samples": {
+        "firstLoad": [
+          10668.354162000003
+        ],
+        "plans": [
+          5748.041322999983,
+          2676.341298000014,
+          2403.6468440000026,
+          2191.5489330000128
+        ],
+        "bssid": [
+          4282.577175999992,
+          5330.708576999983,
+          5010.675908999983,
+          1599.134098999988
+        ],
+        "library": [
+          945.5810890000139,
+          330.98348200001055
+        ],
+        "scanDetails": [
+          693.1546709999966,
+          457.11478299999726
+        ],
+        "channels": [
+          894.9719449999975,
+          776.2656209999986
+        ],
+        "rssiCampaign": [
+          435.1891749999777,
+          254.49023399999714
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 107,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 1,
+        "rejectedEntries": 106,
+        "staleResultsDiscarded": 1,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207083,
+        "pollingBytes": 0,
+        "totalBytes": 207083
+      }
+    },
+    {
+      "mode": "direct",
+      "run": 3,
+      "samples": {
+        "firstLoad": [
+          7767.911212000006
+        ],
+        "plans": [
+          4269.373696000024,
+          1487.8933909999905,
+          1801.5578289999976,
+          1603.2684609999997
+        ],
+        "bssid": [
+          3476.3645199999737,
+          3489.212670000008,
+          2788.349019999994,
+          1552.402283000003
+        ],
+        "library": [
+          1132.991458000004,
+          520.7676590000046
+        ],
+        "scanDetails": [
+          808.2142180000083,
+          1181.4325630000094
+        ],
+        "channels": [
+          1236.6060109999962,
+          1434.8530739999842
+        ],
+        "rssiCampaign": [
+          398.81023599999025,
+          308.01828299998306
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 0,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 0,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 0,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207032,
+        "pollingBytes": 0,
+        "totalBytes": 207032
+      }
+    },
+    {
+      "mode": "dedup",
+      "run": 3,
+      "samples": {
+        "firstLoad": [
+          7310.260902000009
+        ],
+        "plans": [
+          4799.028959999996,
+          1735.820665999985,
+          1886.8432690000045,
+          1788.2635350000346
+        ],
+        "bssid": [
+          3934.4708620000165,
+          3531.009757999971,
+          3828.8756680000224,
+          1536.5828290000209
+        ],
+        "library": [
+          927.4054590000305,
+          283.13658900000155
+        ],
+        "scanDetails": [
+          563.5202999999747,
+          727.6072870000498
+        ],
+        "channels": [
+          966.5263780000387,
+          699.105057000008
+        ],
+        "rssiCampaign": [
+          289.720931000018,
+          300.1419459999888
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 107,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 2,
+        "rejectedEntries": 105,
+        "staleResultsDiscarded": 2,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207137,
+        "pollingBytes": 0,
+        "totalBytes": 207137
+      }
+    },
+    {
+      "mode": "synced",
+      "run": 3,
+      "samples": {
+        "firstLoad": [
+          8801.656377999985
+        ],
+        "plans": [
+          4689.402772000001,
+          1691.2611039999756,
+          1867.021585999988,
+          1578.1610349999974
+        ],
+        "bssid": [
+          5093.584661000001,
+          4028.9580570000107,
+          4864.658649999998,
+          1773.8903549999814
+        ],
+        "library": [
+          828.9988900000462,
+          257.6903479999746
+        ],
+        "scanDetails": [
+          686.3655839999556,
+          296.9887720000115
+        ],
+        "channels": [
+          484.6422469999525,
+          315.10705199994845
+        ],
+        "rssiCampaign": [
+          406.9293239999679,
+          565.7084809999797
+        ]
+      },
+      "cache": {
+        "hits": 67,
+        "misses": 40,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 13,
+        "invalidations": 7,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 2,
+        "hitRate": 0.6261682242990654,
+        "entries": 20,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 37974,
+        "builds": 9
+      },
+      "network": {
+        "business": 44,
+        "polling": 7,
+        "total": 51,
+        "businessBytes": 137804,
+        "pollingBytes": 7985,
+        "totalBytes": 145789
+      },
+      "remote": {
+        "automaticallyRefreshed": true,
+        "writeToVisibleMs": 8201.2,
+        "responseToVisibleMs": 8019.2,
+        "network": {
+          "business": 7,
+          "polling": 1,
+          "total": 8,
+          "businessBytes": 27263,
+          "pollingBytes": 1141,
+          "totalBytes": 28404
+        },
+        "rasterBuilds": 1
+      }
+    },
+    {
+      "mode": "dedup",
+      "run": 4,
+      "samples": {
+        "firstLoad": [
+          7535.050897000008
+        ],
+        "plans": [
+          3569.347592999984,
+          2028.9805749999941,
+          2122.9336889999686,
+          1789.8464939999976
+        ],
+        "bssid": [
+          4346.301196000015,
+          3519.001449000032,
+          2903.7782769999467,
+          1506.264535000024
+        ],
+        "library": [
+          929.5088019999675,
+          728.3876939999755
+        ],
+        "scanDetails": [
+          526.7438669999829,
+          870.3584820000106
+        ],
+        "channels": [
+          918.548833000008,
+          787.4316230000113
+        ],
+        "rssiCampaign": [
+          296.20212699996773,
+          310.3040660000406
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 107,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 2,
+        "rejectedEntries": 105,
+        "staleResultsDiscarded": 2,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207133,
+        "pollingBytes": 0,
+        "totalBytes": 207133
+      }
+    },
+    {
+      "mode": "synced",
+      "run": 4,
+      "samples": {
+        "firstLoad": [
+          7141.358010000025
+        ],
+        "plans": [
+          4142.614998000034,
+          1473.818112000008,
+          1370.7921800000477,
+          1425.4445479999995
+        ],
+        "bssid": [
+          3374.5523939999985,
+          3904.4387609999976,
+          3956.127707000007,
+          1331.53423499997
+        ],
+        "library": [
+          833.3808040000149,
+          388.9251720000175
+        ],
+        "scanDetails": [
+          708.8409840000095,
+          100.09387799998512
+        ],
+        "channels": [
+          582.2357699999702,
+          84.35554800002137
+        ],
+        "rssiCampaign": [
+          398.1911780000082,
+          271.34286500001326
+        ]
+      },
+      "cache": {
+        "hits": 68,
+        "misses": 39,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 12,
+        "invalidations": 7,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 1,
+        "hitRate": 0.6355140186915887,
+        "entries": 20,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 37974,
+        "builds": 9
+      },
+      "network": {
+        "business": 43,
+        "polling": 6,
+        "total": 49,
+        "businessBytes": 136772,
+        "pollingBytes": 6846,
+        "totalBytes": 143618
+      },
+      "remote": {
+        "automaticallyRefreshed": true,
+        "writeToVisibleMs": 9111.9,
+        "responseToVisibleMs": 8916.5,
+        "network": {
+          "business": 7,
+          "polling": 1,
+          "total": 8,
+          "businessBytes": 27256,
+          "pollingBytes": 1140,
+          "totalBytes": 28396
+        },
+        "rasterBuilds": 1
+      }
+    },
+    {
+      "mode": "direct",
+      "run": 4,
+      "samples": {
+        "firstLoad": [
+          8050.261392000015
+        ],
+        "plans": [
+          3876.424354000017,
+          1979.728425999987,
+          1728.5599960000254,
+          1845.7049499999848
+        ],
+        "bssid": [
+          3545.9670690000057,
+          3963.2947390000336,
+          2925.9524279999896,
+          1465.7499450000469
+        ],
+        "library": [
+          1260.945534999948,
+          743.5410559999873
+        ],
+        "scanDetails": [
+          652.7938650000142,
+          743.3400559999864
+        ],
+        "channels": [
+          1451.4379259999841,
+          645.9725930000423
+        ],
+        "rssiCampaign": [
+          265.64804100000765,
+          459.90858200000366
+        ]
+      },
+      "cache": {
+        "hits": 0,
+        "misses": 0,
+        "coalescedRequests": 0,
+        "evictions": 0,
+        "expirations": 0,
+        "invalidations": 0,
+        "rejectedEntries": 0,
+        "staleResultsDiscarded": 0,
+        "hitRate": 0,
+        "entries": 0,
+        "inFlightRequests": 0,
+        "estimatedSizeBytes": 0,
+        "builds": 9
+      },
+      "network": {
+        "business": 111,
+        "polling": 0,
+        "total": 111,
+        "businessBytes": 207135,
+        "pollingBytes": 0,
+        "totalBytes": 207135
+      }
+    }
+  ]
+}

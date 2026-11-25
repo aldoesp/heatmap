@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { ANTENNA_OPTIONS } from '../../lib/antennas';
 import { FREQUENCY_OPTIONS, RESOLUTION_OPTIONS_M, SURFACE_LIMITS_M } from '../../lib/defaults';
@@ -39,7 +39,11 @@ interface NumberInputProps {
 /** Champ numérique : valide (et borne) à la sortie du champ ou sur Entrée. */
 function NumberInput({ id, value, min, max, onCommit }: NumberInputProps) {
   const [text, setText] = useState(String(value));
-  useEffect(() => setText(String(value)), [value]);
+  const [previousValue, setPreviousValue] = useState(value);
+  if (!Object.is(previousValue, value)) {
+    setPreviousValue(value);
+    setText(String(value));
+  }
 
   const commit = () => {
     const parsed = Number.parseFloat(text.replace(',', '.'));

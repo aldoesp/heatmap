@@ -1,19 +1,24 @@
-import { createHeatmapRender } from './heatmapRender.js';
+import { createHeatmapRender, prepareHeatmapProbe } from './heatmapRender.js';
 import type { HeatmapWorkerRequest, HeatmapWorkerResponse } from './heatmapWorkerClient.js';
 
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<HeatmapWorkerRequest>) => void) | null;
   postMessage(message: HeatmapWorkerResponse, transfer?: Transferable[]): void;
 };
-let render: ReturnType<typeof createHeatmapRender> | null = null;
+let sample: ReturnType<typeof prepareHeatmapProbe> | null = null;
 scope.onmessage = ({ data }) => {
-  if (data.type === 'build') {
+  if (data.type === 'build' || data.type === 'prepare') {
     try {
-      render = createHeatmapRender(data.input);
-      const { image, metadata, durationMs } = render;
-      scope.postMessage({ type: 'ready', result: { image, metadata, durationMs } }, [image.data.buffer]);
+      if (data.type === 'prepare') {
+        sample = prepareHeatmapProbe(data.input);
+      } else {
+        const render = createHeatmapRender(data.input);
+        const { image, metadata, durationMs } = render;
+        sample = render.sample;
+        scope.postMessage({ type: 'ready', result: { image, metadata, durationMs } }, [image.data.buffer]);
+      }
     } catch (error) {
-      render = null;
+      sample = null;
       scope.postMessage({ type: 'error', message: error instanceof Error ? error.message : 'Impossible de calculer la couverture.' });
     }
     return;
@@ -31,5 +36,5 @@ scope.onmessage = ({ data }) => {
     }
     return;
   }
-  scope.postMessage({ type: 'sample', id: data.id, sample: render?.sample(data.x, data.y) ?? { status: 'NO_DATA', rssi: null } });
+  scope.postMessage({ type: 'sample', id: data.id, sample: sample?.(data.x, data.y) ?? { status: 'NO_DATA', rssi: null } });
 };

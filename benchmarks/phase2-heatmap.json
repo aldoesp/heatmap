@@ -1,0 +1,318 @@
+{
+  "generatedAt": "2026-11-24",
+  "environment": {
+    "platform": "linux",
+    "node": "v24.22.2",
+    "browser": "HeadlessChrome/158.0.0.0"
+  },
+  "workload": {
+    "plan": {
+      "width": 2400,
+      "height": 1600
+    },
+    "measurements": 800,
+    "bssids": 10,
+    "polygons": 1,
+    "displayRaster": [
+      512,
+      341
+    ],
+    "exportRaster": [
+      2048,
+      1365
+    ]
+  },
+  "baselineNode": {
+    "times": {
+      "triangulate": 42.25,
+      "field": 34.64,
+      "raster": 3227.57,
+      "render": 3239.96,
+      "hybrid": 1544.46,
+      "export": 50372.76
+    },
+    "hashes": {
+      "raster": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e",
+      "render": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e",
+      "hybrid": "f510af9f64856770abb9c23915d4a5c49483b06b47a1d296372012042152e925",
+      "export": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+    },
+    "coveredPixels": 141220
+  },
+  "afterNode": {
+    "runs": [
+      {
+        "triangulate": 44.67823,
+        "field": 28.135956000000007,
+        "raster": 957.65203,
+        "render": 987.7697910000002,
+        "hybrid": 784.5172389999998,
+        "export": 13959.955992
+      },
+      {
+        "triangulate": 44.278042,
+        "field": 30.36474299999999,
+        "raster": 966.713213,
+        "render": 999.1921050000001,
+        "hybrid": 895.7401930000001,
+        "export": 13849.768304000001
+      },
+      {
+        "triangulate": 43.826233,
+        "field": 32.458101,
+        "raster": 997.688588,
+        "render": 1004.2076440000003,
+        "hybrid": 849.6978889999996,
+        "export": 14050.711101
+      }
+    ],
+    "median": {
+      "triangulate": 44.278,
+      "field": 30.365,
+      "raster": 966.713,
+      "render": 999.192,
+      "hybrid": 849.698,
+      "export": 13959.956
+    },
+    "hashes": {
+      "raster": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e",
+      "render": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e",
+      "hybrid": "f510af9f64856770abb9c23915d4a5c49483b06b47a1d296372012042152e925",
+      "export": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+    },
+    "coveredPixels": 141220
+  },
+  "afterBrowser": {
+    "runs": [
+      {
+        "label": "regularized-display-1",
+        "computeMs": 1015.6,
+        "wallMs": 1129.3,
+        "canvasMs": 9.6,
+        "hash": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e",
+        "exportComputeMs": 12263.2,
+        "exportWallMs": 12266.7,
+        "exportCanvasMs": 28.8,
+        "exportHash": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+      },
+      {
+        "label": "hybrid-display-1",
+        "computeMs": 770.8,
+        "wallMs": 808.3,
+        "canvasMs": 5.1,
+        "hash": "f510af9f64856770abb9c23915d4a5c49483b06b47a1d296372012042152e925",
+        "exportComputeMs": 9727.8,
+        "exportWallMs": 9730.5,
+        "exportCanvasMs": 29.4
+      },
+      {
+        "label": "regularized-display-2",
+        "computeMs": 889.5,
+        "wallMs": 921.4,
+        "canvasMs": 3.4,
+        "hash": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e",
+        "exportComputeMs": 12073.5,
+        "exportWallMs": 12076.2,
+        "exportCanvasMs": 42.8,
+        "exportHash": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+      }
+    ],
+    "notes": "Worker réel + Canvas putImageData + contours + toBlob PNG. Les hashes sont identiques au baseline Node pour le rendu et l'export régularisés, ainsi que pour le rendu hybride."
+  },
+  "gains": {
+    "rasterPct": -70,
+    "renderPct": -69.2,
+    "hybridPct": -45,
+    "exportPct": -72.3
+  },
+  "methodology": {
+    "historicalResults": "baselineNode, afterNode, afterBrowser et gains correspondent aux relevés OpenCode avant les corrections de compatibilité.",
+    "baselineRevision": "f817d22",
+    "nodeCommand": "cd frontend && ./node_modules/.bin/tsc -p tsconfig.bench.json && node bench-build/benchmarks/phase2-heatmap.js",
+    "browserCommand": "cd frontend && npm run dev -- --host 127.0.0.1 --port 5184, puis ouvrir http://127.0.0.1:5184/benchmarks/phase2-browser.html",
+    "baselineSetup": "Dans une copie isolée de f817d22, installer les mêmes dépendances et copier frontend/benchmarks/phase2-* avant de lancer les mêmes commandes.",
+    "timings": "En millisecondes. Node mesure une exécution de chaque étape par processus, sans préchauffage dédié. Une exécution de référence et médiane de trois après correction. La charge concurrente a fait varier les chronos.",
+    "hashes": "SHA-256 sur les octets RGBA avant Canvas. Le contrôle ROI calcule une empreinte distincte sur le PNG composé par createPlanPngBlob."
+  },
+  "reproduction": {
+    "environment": {
+      "node": "v24.22.2",
+      "cpu": "Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz"
+    },
+    "node": {
+      "baselineMs": {
+        "triangulate": 38.557,
+        "field": 54.944,
+        "raster": 3803.169,
+        "render": 3556.654,
+        "hybrid": 1509.013,
+        "export": 65915.198
+      },
+      "afterRunsMs": [
+        {
+          "triangulate": 133.941,
+          "field": 106.018,
+          "raster": 1393.012,
+          "render": 1040.07,
+          "hybrid": 933.087,
+          "export": 15805.003
+        },
+        {
+          "triangulate": 37.694,
+          "field": 35.418,
+          "raster": 1006.341,
+          "render": 979.323,
+          "hybrid": 880.197,
+          "export": 24222.254
+        },
+        {
+          "triangulate": 103.326,
+          "field": 63.695,
+          "raster": 1998.163,
+          "render": 2115.813,
+          "hybrid": 2095.479,
+          "export": 17302.479
+        }
+      ],
+      "afterMedianMs": {
+        "triangulate": 103.326,
+        "field": 63.695,
+        "raster": 1393.012,
+        "render": 1040.07,
+        "hybrid": 933.087,
+        "export": 17302.479
+      },
+      "hashes": {
+        "raster": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e",
+        "render": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e",
+        "hybrid": "f510af9f64856770abb9c23915d4a5c49483b06b47a1d296372012042152e925",
+        "export": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+      },
+      "coveredPixels": 141220
+    },
+    "browserAfter": {
+      "browser": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+      "runs": [
+        {
+          "calculation": "regularized",
+          "display": {
+            "label": "display",
+            "computeMs": 1877.2,
+            "wallMs": 2342.6,
+            "canvasMs": 10,
+            "dimensions": [
+              512,
+              341
+            ],
+            "hash": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e"
+          },
+          "export": {
+            "label": "export",
+            "computeMs": 14359.7,
+            "wallMs": 14365.2,
+            "canvasMs": 36,
+            "dimensions": [
+              2048,
+              1365
+            ],
+            "hash": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+          },
+          "roiPng": {
+            "dimensions": [
+              640,
+              727
+            ],
+            "hash": "2fe414b940c4b02beb8619086e0b6002ea3af889cb344e857d3c0d6f1012567c"
+          }
+        },
+        {
+          "calculation": "hybrid",
+          "display": {
+            "label": "display",
+            "computeMs": 1059.5,
+            "wallMs": 1102.7,
+            "canvasMs": 6,
+            "dimensions": [
+              512,
+              341
+            ],
+            "hash": "f510af9f64856770abb9c23915d4a5c49483b06b47a1d296372012042152e925"
+          },
+          "export": {
+            "label": "export",
+            "computeMs": 11145.9,
+            "wallMs": 11148.9,
+            "canvasMs": 27.9,
+            "dimensions": [
+              2048,
+              1365
+            ],
+            "hash": "44a0e04eb0124102b531174718205a21f41ad96f6862c257492c23806bd2cdfd"
+          },
+          "roiPng": {
+            "dimensions": [
+              640,
+              727
+            ],
+            "hash": "e45536999f042e24b7abf91437838fa0780dbf6f7244366468fcdfc81afe114c"
+          }
+        },
+        {
+          "calculation": "regularized",
+          "display": {
+            "label": "display",
+            "computeMs": 1669.4,
+            "wallMs": 1718.6,
+            "canvasMs": 29.8,
+            "dimensions": [
+              512,
+              341
+            ],
+            "hash": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e"
+          },
+          "export": {
+            "label": "export",
+            "computeMs": 30755,
+            "wallMs": 30765.9,
+            "canvasMs": 31.5,
+            "dimensions": [
+              2048,
+              1365
+            ],
+            "hash": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac"
+          },
+          "roiPng": {
+            "dimensions": [
+              640,
+              727
+            ],
+            "hash": "2fe414b940c4b02beb8619086e0b6002ea3af889cb344e857d3c0d6f1012567c"
+          }
+        }
+      ]
+    },
+    "differential": {
+      "renders": 8,
+      "probes": 576,
+      "matchesBaseline": true
+    },
+    "browserBaseline": {
+      "revision": "f817d22",
+      "hashesMatch": true,
+      "runs": [
+        {
+          "calculation": "regularized",
+          "displayHash": "36dc89c3af1a35730e8858788de15073003d396cde1d7510200ee52b5d25bc2e",
+          "exportHash": "f44a7958dd030730688b8a1ee4cb3205f355d82612ffa5c17931610c969451ac",
+          "roiPngHash": "2fe414b940c4b02beb8619086e0b6002ea3af889cb344e857d3c0d6f1012567c"
+        },
+        {
+          "calculation": "hybrid",
+          "displayHash": "f510af9f64856770abb9c23915d4a5c49483b06b47a1d296372012042152e925",
+          "exportHash": "44a0e04eb0124102b531174718205a21f41ad96f6862c257492c23806bd2cdfd",
+          "roiPngHash": "e45536999f042e24b7abf91437838fa0780dbf6f7244366468fcdfc81afe114c"
+        }
+      ]
+    }
+  }
+}
